@@ -1,0 +1,17 @@
+[versions]
+agp = "9.4.1"
+# Match the Kotlin version Android Components is built with.
+kotlin = "2.4.20"
+# Android Components pins the matching GeckoView version, so GeckoView has no entry of its own.
+mozilla-components = "158.0.2"
+androidx-activity = "1.13.0"
+androidx-core = "1.19.1"
+
+[libraries]
+mozilla-browser-engine-gecko = { module = "org.mozilla.components:browser-engine-gecko", version.ref = "mozilla-components" }
+androidx-activity = { module = "androidx.activity:activity", version.ref = "androidx-activity" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
