@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
 }
 
 android {
@@ -27,6 +28,10 @@ android {
         }
     }
 
+    buildFeatures {
+        compose = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -35,6 +40,20 @@ android {
 
 dependencies {
     implementation(libs.mozilla.browser.engine.gecko)
+    implementation(libs.mozilla.browser.state)
+    implementation(libs.mozilla.concept.engine)
+    implementation(libs.mozilla.concept.toolbar)
+    implementation(libs.mozilla.feature.session)
+    implementation(libs.mozilla.lib.state)
+    implementation(libs.mozilla.support.utils)
+    implementation(libs.mozilla.ui.widgets)
+
     implementation(libs.androidx.activity)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.coordinatorlayout)
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.foundation)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.ui)
 }

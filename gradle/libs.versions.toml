@@ -6,12 +6,28 @@ kotlin = "2.4.20"
 mozilla-components = "158.0.2"
 androidx-activity = "1.13.0"
 androidx-core = "1.19.1"
+androidx-coordinatorlayout = "1.3.0"
+# Same BOM Android Components 158 uses.
+compose-bom = "2026.09.00"
 
 [libraries]
 mozilla-browser-engine-gecko = { module = "org.mozilla.components:browser-engine-gecko", version.ref = "mozilla-components" }
+mozilla-browser-state = { module = "org.mozilla.components:browser-state", version.ref = "mozilla-components" }
+mozilla-concept-engine = { module = "org.mozilla.components:concept-engine", version.ref = "mozilla-components" }
+mozilla-concept-toolbar = { module = "org.mozilla.components:concept-toolbar", version.ref = "mozilla-components" }
+mozilla-feature-session = { module = "org.mozilla.components:feature-session", version.ref = "mozilla-components" }
+mozilla-lib-state = { module = "org.mozilla.components:lib-state", version.ref = "mozilla-components" }
+mozilla-support-utils = { module = "org.mozilla.components:support-utils", version.ref = "mozilla-components" }
+mozilla-ui-widgets = { module = "org.mozilla.components:ui-widgets", version.ref = "mozilla-components" }
 androidx-activity = { module = "androidx.activity:activity", version.ref = "androidx-activity" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+androidx-coordinatorlayout = { module = "androidx.coordinatorlayout:coordinatorlayout", version.ref = "androidx-coordinatorlayout" }
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+compose-foundation = { module = "androidx.compose.foundation:foundation" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+compose-ui = { module = "androidx.compose.ui:ui" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

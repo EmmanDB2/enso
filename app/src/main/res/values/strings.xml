@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Ensō</string>
+
+    <string name="address_placeholder">Search or type a URL</string>
+    <string name="action_reload">Reload</string>
+    <string name="action_stop">Stop loading</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_more">More options</string>
+    <string name="action_show_top_bar">Show address bar</string>
+    <string name="menu_back">Back</string>
+    <string name="menu_forward">Forward</string>
 </resources>
