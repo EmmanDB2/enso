@@ -5,7 +5,8 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +36,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.runtime.rememberUpdatedState
+import kotlin.math.abs
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -81,6 +90,7 @@ fun TabSessionState.toTopBarState() = TopBarState(
 @Composable
 fun TopBar(
     state: TopBarState,
+    accent: Color,
     editing: Boolean,
     statusBarInset: Dp,
     onEditingChange: (Boolean) -> Unit,
@@ -89,8 +99,9 @@ fun TopBar(
     onStop: () -> Unit,
     onBack: () -> Unit,
     onForward: () -> Unit,
+    onOpenTabSheet: () -> Unit,
+    onSwitchTab: (step: Int) -> Boolean,
 ) {
-    val accent = EnsoColors.DefaultSpaceAccent
     MaterialTheme {
         Box(
             Modifier
@@ -112,6 +123,8 @@ fun TopBar(
                     onSubmit = onSubmit,
                     onReload = onReload,
                     onStop = onStop,
+                    onOpenTabSheet = onOpenTabSheet,
+                    onSwitchTab = onSwitchTab,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(2.dp))
@@ -131,6 +144,8 @@ private fun AddressField(
     onSubmit: (String) -> Unit,
     onReload: () -> Unit,
     onStop: () -> Unit,
+    onOpenTabSheet: () -> Unit,
+    onSwitchTab: (step: Int) -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     val host = AddressInput.displayHost(state.url)
@@ -139,13 +154,31 @@ private fun AddressField(
         val text = if (host.isEmpty()) "" else state.url
         mutableStateOf(TextFieldValue(text, TextRange(0, text.length)))
     }
+    val haptics = LocalHapticFeedback.current
+    val onTap by rememberUpdatedState { onEditingChange(true) }
+    val onSwipeDown by rememberUpdatedState(onOpenTabSheet)
+    val onSwipeSideways by rememberUpdatedState { step: Int ->
+        if (onSwitchTab(step)) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+    }
 
     Row(
         modifier
             .height(48.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(EnsoColors.FieldFill)
-            .clickable(enabled = !editing) { onEditingChange(true) }
+            .then(
+                if (editing) {
+                    Modifier
+                } else {
+                    Modifier.pointerInput(Unit) {
+                        detectAddressFieldGestures(
+                            onTap = { onTap() },
+                            onSwipeDown = { onSwipeDown() },
+                            onSwipeSideways = { onSwipeSideways(it) },
+                        )
+                    }
+                },
+            )
             .padding(start = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -186,6 +219,39 @@ private fun AddressField(
             host.isEmpty() -> Unit
             state.loading -> FieldButton(R.drawable.ic_close, R.string.action_stop, onStop)
             else -> FieldButton(R.drawable.ic_reload, R.string.action_reload, onReload)
+        }
+    }
+}
+
+/**
+ * Tap to edit, swipe down to open the tab sheet, swipe sideways to switch tabs (spec: cover
+ * browsing). Swiping left moves to the next tab, like moving through a row of cards.
+ */
+private suspend fun PointerInputScope.detectAddressFieldGestures(
+    onTap: () -> Unit,
+    onSwipeDown: () -> Unit,
+    onSwipeSideways: (step: Int) -> Unit,
+) {
+    val threshold = 40.dp.toPx()
+    awaitEachGesture {
+        val down = awaitFirstDown()
+        var total = Offset.Zero
+        var dragging = false
+        var lifted = false
+        while (true) {
+            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+            if (!change.pressed) {
+                lifted = true
+                break
+            }
+            total += change.positionChange()
+            if (!dragging && total.getDistance() > viewConfiguration.touchSlop) dragging = true
+            if (dragging) change.consume()
+        }
+        when {
+            !dragging -> if (lifted) onTap()
+            abs(total.y) > abs(total.x) -> if (total.y > threshold) onSwipeDown()
+            abs(total.x) > threshold -> onSwipeSideways(if (total.x < 0) 1 else -1)
         }
     }
 }

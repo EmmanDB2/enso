@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -44,11 +45,13 @@ dependencies {
     implementation(libs.mozilla.concept.engine)
     implementation(libs.mozilla.concept.toolbar)
     implementation(libs.mozilla.feature.session)
+    implementation(libs.mozilla.feature.tabs)
     implementation(libs.mozilla.lib.state)
     implementation(libs.mozilla.support.utils)
     implementation(libs.mozilla.ui.widgets)
 
     implementation(libs.androidx.activity)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.coordinatorlayout)
 
@@ -56,4 +59,6 @@ dependencies {
     implementation(libs.compose.foundation)
     implementation(libs.compose.material3)
     implementation(libs.compose.ui)
+
+    implementation(libs.kotlinx.serialization.json)
 }

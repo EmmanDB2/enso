@@ -10,4 +10,33 @@
     <string name="action_show_top_bar">Show address bar</string>
     <string name="menu_back">Back</string>
     <string name="menu_forward">Forward</string>
+
+    <!-- Tab sheet (board 4) -->
+    <plurals name="tab_count">
+        <item quantity="one">%d tab</item>
+        <item quantity="other">%d tabs</item>
+    </plurals>
+    <string name="tab_sheet_search_placeholder">Search tabs or type a URL</string>
+    <string name="new_tab_title">New tab</string>
+    <string name="breadcrumb_separator">%1$s › %2$s</string>
+    <string name="action_close_tab">Close tab</string>
+    <string name="action_unload_tab">Unload tab</string>
+
+    <!-- Hold menu for organizing tabs locally until Zen sync (step 5) -->
+    <string name="menu_pin_tab">Pin tab</string>
+    <string name="menu_unpin_tab">Unpin tab</string>
+    <string name="menu_add_to_essentials">Add to Essentials</string>
+    <string name="menu_remove_from_essentials">Remove from Essentials</string>
+    <string name="menu_move_to_folder">Move to folder</string>
+    <string name="menu_remove_from_folder">Remove from folder</string>
+    <string name="menu_new_folder">New folder…</string>
+    <string name="menu_rename_folder">Rename folder</string>
+    <string name="menu_delete_folder">Delete folder</string>
+    <string name="menu_header_folder">Folder · %d tabs</string>
+    <string name="dialog_new_folder_title">New folder</string>
+    <string name="dialog_rename_folder_title">Rename folder</string>
+    <string name="dialog_folder_name_label">Folder name</string>
+    <string name="dialog_create">Create</string>
+    <string name="dialog_rename">Rename</string>
+    <string name="dialog_cancel">Cancel</string>
 </resources>

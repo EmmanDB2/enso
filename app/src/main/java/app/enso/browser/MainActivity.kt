@@ -9,14 +9,22 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
@@ -26,6 +34,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.lifecycle.lifecycleScope
+import app.enso.browser.spaces.SpacesState
+import app.enso.browser.tabsheet.TabSheet
+import app.enso.browser.tabsheet.TabSheetActions
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.toolbar.TopBar
 import app.enso.browser.toolbar.TopBarState
@@ -35,18 +46,18 @@ import app.enso.browser.ui.EnsoColors
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.selector.selectedTab
-import mozilla.components.browser.state.state.createTab
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.feature.session.SessionFeature
+import mozilla.components.feature.tabs.WindowFeature
 import mozilla.components.lib.state.ext.flow
 import mozilla.components.lib.state.ext.observeAsComposableState
 import mozilla.components.ui.widgets.behavior.DependencyGravity
 import mozilla.components.ui.widgets.behavior.EngineViewClippingBehavior
 import mozilla.components.ui.widgets.behavior.EngineViewScrollingDataBehavior
+import androidx.compose.ui.graphics.Color as ComposeColor
 
-/** Cover-screen browser (build step 2): one tab, the tinted top bar and the page. */
+/** Cover-screen browser: the tinted top bar, the page, and the tab sheet over them. */
 class MainActivity : ComponentActivity() {
     private val components get() = (application as EnsoApplication).components
 
@@ -56,8 +67,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var topBar: TopBarView
     private lateinit var topEdge: View
     private lateinit var sessionFeature: SessionFeature
+    private lateinit var windowFeature: WindowFeature
 
     private var editing by mutableStateOf(false)
+    private var tabSheetOpen by mutableStateOf(false)
     private var statusBarInset by mutableIntStateOf(0)
     private var barHeight = 0
     private var barCollapsed = false
@@ -79,11 +92,10 @@ class MainActivity : ComponentActivity() {
         WindowCompat.getInsetsController(window, window.decorView).systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        if (components.store.state.selectedTab == null) {
-            val lastUrl = components.settings.lastUrl
-            val tab = createTab(lastUrl ?: AddressInput.BLANK_PAGE)
-            components.store.dispatch(TabListAction.AddTabAction(tab, select = true))
-            editing = lastUrl == null
+        // Until the start screen (step 4), an empty space opens a blank tab ready for typing.
+        if (components.store.state.selectedTab == null && !components.tabs.restore()) {
+            components.tabs.openNewTab(AddressInput.BLANK_PAGE)
+            editing = true
         }
 
         engineView = components.engine.createView(this)
@@ -98,13 +110,16 @@ class MainActivity : ComponentActivity() {
             contentDescription = getString(R.string.action_show_top_bar)
             setOnClickListener { topBar.expand() }
         }
+        val tabSheet = ComposeView(this).apply { setContent { TabSheetContent() } }
         val immersive = components.settings.hideStatusBarWithTopBar
         root = CoordinatorLayout(this).apply {
-            val chrome = if (immersive) EnsoColors.Page else EnsoColors.spaceTint(EnsoColors.DefaultSpaceAccent)
+            val accent = ComposeColor(components.spaces.state.value.currentSpace.accent)
+            val chrome = if (immersive) EnsoColors.Page else EnsoColors.spaceTint(accent)
             setBackgroundColor(chrome.toArgb())
             addView(engineContainer)
             addView(topBar)
             addView(topEdge)
+            addView(tabSheet, CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         setContentView(root)
 
@@ -143,6 +158,8 @@ class MainActivity : ComponentActivity() {
             components.sessionUseCases.goForward,
             engineView,
         )
+        // Links that open a new window (target=_blank, window.open) become tabs.
+        windowFeature = WindowFeature(components.store, components.tabsUseCases)
         onBackPressedDispatcher.addCallback(this, backCallback)
         observeState()
     }
@@ -150,11 +167,14 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         sessionFeature.start()
+        windowFeature.start()
     }
 
     override fun onStop() {
         super.onStop()
         sessionFeature.stop()
+        windowFeature.stop()
+        components.spaces.flush()
     }
 
     override fun onDestroy() {
@@ -167,9 +187,11 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun TopBarContent() {
         val state by components.store.observeAsComposableState { it.selectedTab?.toTopBarState() ?: TopBarState() }
+        val spaces by components.spaces.state.collectAsState()
         val useCases = components.sessionUseCases
         TopBar(
             state = state,
+            accent = ComposeColor(spaces.currentSpace.accent),
             editing = editing,
             statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() },
             onEditingChange = { editing = it },
@@ -178,7 +200,58 @@ class MainActivity : ComponentActivity() {
             onStop = { useCases.stopLoading() },
             onBack = { useCases.goBack() },
             onForward = { useCases.goForward() },
+            onOpenTabSheet = { tabSheetOpen = true },
+            onSwitchTab = { step -> components.tabs.switchBy(step, components.settings.tabSwipeScope) },
         )
+    }
+
+    @Composable
+    private fun TabSheetContent() {
+        val spaces by components.spaces.state.collectAsState()
+        val selectedTabId by components.store.observeAsComposableState { it.selectedTabId }
+        AnimatedVisibility(
+            visible = tabSheetOpen,
+            enter = fadeIn() + slideInVertically { -it / 12 },
+            exit = fadeOut() + slideOutVertically { -it / 12 },
+        ) {
+            BackHandler { tabSheetOpen = false }
+            TabSheet(
+                spaces = spaces,
+                selectedTabId = selectedTabId,
+                statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() },
+                actions = tabSheetActions,
+            )
+        }
+    }
+
+    private val tabSheetActions = object : TabSheetActions {
+        override fun select(tabId: String) {
+            components.tabs.select(tabId)
+            tabSheetOpen = false
+        }
+
+        override fun close(tabId: String) = afterClosing(components.tabs.close(tabId))
+
+        override fun unload(tabId: String) = afterClosing(components.tabs.unload(tabId))
+
+        override fun open(input: String) {
+            components.tabs.openNewTab(AddressInput.toUrl(input))
+            tabSheetOpen = false
+        }
+
+        override fun edit(transform: (SpacesState) -> SpacesState) = components.spaces.update(transform)
+
+        override fun dismiss() {
+            tabSheetOpen = false
+        }
+
+        /** When the last tab went, a blank one replaced it: leave the sheet and start typing. */
+        private fun afterClosing(openedBlank: Boolean) {
+            if (openedBlank) {
+                tabSheetOpen = false
+                editing = true
+            }
+        }
     }
 
     private fun submit(input: String) {
@@ -208,15 +281,6 @@ class MainActivity : ComponentActivity() {
                 .collect {
                     canGoBack = it
                     updateBackCallback()
-                }
-        }
-        lifecycleScope.launch {
-            // Saved on every change so the page survives the process being killed in any state.
-            components.store.flow(this@MainActivity)
-                .map { it.selectedTab?.content?.url }
-                .distinctUntilChanged()
-                .collect { url ->
-                    if (url != null && url != AddressInput.BLANK_PAGE) components.settings.lastUrl = url
                 }
         }
         lifecycleScope.launch {

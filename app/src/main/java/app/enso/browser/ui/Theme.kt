@@ -48,5 +48,9 @@ val Inter = FontFamily(inter(400), inter(500), inter(600), inter(700))
 
 object EnsoType {
     val Row = TextStyle(fontFamily = Inter, fontSize = 16.sp, color = EnsoColors.TextPrimary)
+    val RowTitle = Row.copy(fontWeight = FontWeight.Medium)
     val MenuItem = Row.copy(fontWeight = FontWeight.Medium)
+    val SpaceName = Row.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold)
+    val Secondary = Row.copy(fontSize = 15.sp, color = EnsoColors.TextSecondary)
+    val Url = Row.copy(fontSize = 14.sp, color = EnsoColors.TextSecondary)
 }
