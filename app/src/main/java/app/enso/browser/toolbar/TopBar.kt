@@ -228,8 +228,8 @@ private fun AddressField(
                 FieldButton(R.drawable.ic_close, R.string.action_clear) { input = TextFieldValue() }
             }
             host.isEmpty() -> Unit
-            state.loading -> FieldButton(R.drawable.ic_close, R.string.action_stop, onStop)
-            else -> FieldButton(R.drawable.ic_reload, R.string.action_reload, onReload)
+            state.loading -> FieldButton(R.drawable.ic_close, R.string.action_stop, onClick = onStop)
+            else -> FieldButton(R.drawable.ic_reload, R.string.action_reload, onClick = onReload)
         }
     }
 }
@@ -319,8 +319,8 @@ internal fun UrlEditor(
 }
 
 @Composable
-internal fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+internal fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, size: Dp = 48.dp, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(size)) {
         Icon(
             painterResource(icon),
             contentDescription = stringResource(label),
@@ -338,10 +338,11 @@ internal fun OverflowMenu(
     onForward: () -> Unit,
     onOpenZenSync: () -> Unit,
     withNavigation: Boolean = true,
+    buttonSize: Dp = 48.dp,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { expanded = true }) {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(buttonSize)) {
             Icon(
                 painterResource(R.drawable.ic_more_vert),
                 contentDescription = stringResource(R.string.action_more),

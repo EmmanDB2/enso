@@ -119,6 +119,8 @@ fun TabSheet(
     essentials: List<Tab>,
     selectedTabId: String?,
     statusBarInset: Dp,
+    /** The gesture-navigation handle the sheet's background runs under; the search field stays above it. */
+    navigationBarInset: Dp,
     quickTabLifetimeMs: Long,
     /** Whether swiping the header sideways switches spaces. */
     headerSwitchesSpaces: Boolean,
@@ -150,7 +152,7 @@ fun TabSheet(
             // Keep touches from reaching the page underneath.
             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
     ) {
-        Column(Modifier.fillMaxSize().padding(top = statusBarInset)) {
+        Column(Modifier.fillMaxSize().padding(top = statusBarInset, bottom = navigationBarInset)) {
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 state = listState,
@@ -334,17 +336,20 @@ internal fun EssentialsGrid(
     selectedTabId: String?,
     actions: TabSheetActions,
     onLongClick: (MenuTarget) -> Unit,
+    tileHeight: Dp = 48.dp,
+    gap: Dp = 8.dp,
+    bottomPadding: Dp = 12.dp,
 ) {
-    Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.padding(bottom = bottomPadding), verticalArrangement = Arrangement.spacedBy(gap)) {
         tabs.chunked(2).forEach { pair ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                 pair.forEach { tab ->
                     var bounds by remember { mutableStateOf(Rect.Zero) }
                     val selected = tab.id == selectedTabId
                     Box(
                         Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .height(tileHeight)
                             .onGloballyPositioned { bounds = it.boundsInRoot() }
                             .then(if (selected) Modifier.shadow(4.dp, RoundedCornerShape(12.dp)) else Modifier)
                             .clip(RoundedCornerShape(12.dp))
@@ -379,6 +384,7 @@ internal fun TabRow(
     onLongClick: ((MenuTarget) -> Unit)?,
     depth: Int = 0,
     highlight: RowHighlight = RowHighlight.None,
+    height: Dp = 48.dp,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     val shape = RoundedCornerShape(12.dp)
@@ -386,7 +392,7 @@ internal fun TabRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(height)
                 .onGloballyPositioned { bounds = it.boundsInRoot() }
                 .then(if (highlight == RowHighlight.Current) Modifier.shadow(4.dp, shape) else Modifier)
                 .clip(shape)
@@ -468,12 +474,13 @@ internal fun FolderRow(
     colors: SpaceColors,
     actions: TabSheetActions,
     onLongClick: ((MenuTarget) -> Unit)?,
+    height: Dp = 48.dp,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     Row(
         Modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(height)
             .onGloballyPositioned { bounds = it.boundsInRoot() }
             .clip(RoundedCornerShape(12.dp))
             .spaceSurface(colors)

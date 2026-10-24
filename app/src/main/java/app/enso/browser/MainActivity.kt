@@ -1,6 +1,7 @@
 package app.enso.browser
 
 import android.content.Intent
+import android.animation.ValueAnimator
 import android.content.res.Configuration
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
@@ -12,6 +13,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -24,22 +26,29 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asImageBitmap
@@ -50,6 +59,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.core.animation.doOnEnd
 import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -67,7 +77,10 @@ import app.enso.browser.sidebar.Rail
 import app.enso.browser.sidebar.RailWidth
 import app.enso.browser.sidebar.Sidebar
 import app.enso.browser.sidebar.SidebarActions
-import app.enso.browser.sidebar.SidebarWidth
+import app.enso.browser.sidebar.SidebarResizeHandle
+import app.enso.browser.sidebar.EdgePadding
+import app.enso.browser.sidebar.SidebarMaxWidth
+import app.enso.browser.sidebar.SidebarMinWidth
 import app.enso.browser.sidebar.mediaCardFor
 import app.enso.browser.spacemenu.LocalSpaceMenuBlocks
 import app.enso.browser.spacemenu.SpaceMenuBlocks
@@ -161,13 +174,32 @@ class MainActivity : ComponentActivity() {
     private var inner by mutableStateOf(false)
     private var sidebarExpanded by mutableStateOf(false)
 
+    /** The full sidebar's width in dp, set by dragging its edge. */
+    private var sidebarWidthDp by mutableFloatStateOf(0f)
+
+    /** That width as it fits this window: never changes [sidebarWidthDp], so a narrow moment can't shrink it. */
+    private var sidebarFullDp by mutableFloatStateOf(0f)
+
+    /** The sidebar's width as drawn, in dp: it animates between the rail and the sidebar, and follows a drag. */
+    private var sidebarShownDp by mutableFloatStateOf(0f)
+    private var sidebarAnimator: ValueAnimator? = null
+
+    /**
+     * While the sidebar moves (opening, closing or being dragged), the page stays put under it at this width
+     * (in dp) of sidebar, and resizes once when it stops. Resizing GeckoView every frame would make it reflow.
+     */
+    private var pinnedPageDp: Float? = null
+
     /** The rail's search button opened the sidebar, so it closes again when the edit ends. */
     private var collapseAfterEdit = false
 
     /** The page card on the inner screen, in window pixels. */
     private var cardRect by mutableStateOf(Rect.Zero)
 
-    /** The system bars and cutout around the window: the status bar on top, the navigation bar below. */
+    /**
+     * The system bars around the inner screen: the cutout on the sides, the status bar on top while it shows,
+     * and the navigation bar below when it has buttons (gesture navigation's handle sits over the page).
+     */
     private var barInsets by mutableStateOf(Insets.NONE)
 
     /** The start screen's search palette. New Tab in the sidebar opens it too (board 9c). */
@@ -197,6 +229,12 @@ class MainActivity : ComponentActivity() {
     private var signInTabId: String? = null
 
     private var statusBarInset by mutableIntStateOf(0)
+
+    /**
+     * On the cover, the gesture-navigation handle the page runs under (0 with a bar of buttons, or while the
+     * keyboard is up). The tab sheet keeps its search field above it.
+     */
+    private var gestureHandleInset by mutableIntStateOf(0)
     private var barHeight = 0
     private var barCollapsed = false
     private var canGoBack = false
@@ -222,6 +260,9 @@ class MainActivity : ComponentActivity() {
         selectedTabId = components.store.state.selectedTabId
         inner = isInnerScreen(resources.configuration)
         sidebarExpanded = components.settings.innerSidebarExpanded
+        sidebarWidthDp = components.settings.innerSidebarWidthDp
+        sidebarFullDp = sidebarWidthDp
+        sidebarShownDp = if (sidebarExpanded) sidebarWidthDp else RailWidth.value
 
         engineView = components.engine.createView(this)
         engineView.setActivityContext(this)
@@ -274,17 +315,30 @@ class MainActivity : ComponentActivity() {
                     WindowInsetsCompat.Type.ime(),
             )
             val bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout())
-            barInsets = Insets.of(bars.left, statusTop, bars.right, bars.bottom)
+            // Gesture navigation's handle is a thin strip the page can sit under, as in most apps; a bar of
+            // buttons keeps its own space.
+            val navBottom = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+            val gestureNav = navBottom <= GESTURE_NAV_MAX_DP * resources.displayMetrics.density
+            barInsets = Insets.of(
+                bars.left,
+                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top,
+                bars.right,
+                if (gestureNav) 0 else navBottom,
+            )
             if (inner) {
                 // The frame and sidebar draw under the system bars themselves; only the keyboard moves things up.
                 view.updatePadding(left = 0, top = 0, right = 0, bottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
                 layoutInner()
             } else {
+                // With gesture navigation the page runs under the handle; the keyboard still pushes it up.
+                val keyboardOrCutout = insets.getInsets(WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.displayCutout()).bottom
+                val bottom = if (gestureNav) keyboardOrCutout else edges.bottom
+                gestureHandleInset = (navBottom - bottom).coerceAtLeast(0).takeIf { gestureNav } ?: 0
                 view.updatePadding(
                     left = edges.left,
                     top = if (immersive) 0 else statusTop,
                     right = edges.right,
-                    bottom = edges.bottom,
+                    bottom = bottom,
                 )
                 layoutTopBar(statusBarInset = if (immersive) statusTop else 0)
             }
@@ -455,6 +509,7 @@ class MainActivity : ComponentActivity() {
                 essentials = spaces.essentialsFor(perContainer = components.settings.essentialsPerContainer),
                 selectedTabId = selectedTabId,
                 statusBarInset = statusBarInset,
+                navigationBarInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
                 quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
                 headerSwitchesSpaces = components.settings.switchSpacesFromSheetHeader,
                 actions = tabSheetActions,
@@ -483,32 +538,55 @@ class MainActivity : ComponentActivity() {
         }
         val density = LocalDensity.current
         val perContainer = components.settings.essentialsPerContainer
-        InnerFrame(spaces.currentSpace.colors(), cardRect, page)
-        val edges = with(density) { Modifier.padding(top = barInsets.top.toDp(), bottom = barInsets.bottom.toDp()).padding(start = barInsets.left.toDp()) }
-        if (sidebarExpanded) {
-            Sidebar(
-                spaces = spaces,
-                essentialsFor = { space -> spaces.essentialsFor(space, perContainer) },
-                selectedTabId = selectedTabId,
-                page = page,
-                editing = editing,
-                newTabShowing = startScreenVisible,
-                media = media,
-                tabActions = tabSheetActions,
-                actions = sidebarActions,
-                onMenu = { sidebarMenu = it },
-                modifier = edges,
-            )
-        } else {
-            Rail(
-                spaces = spaces,
-                essentials = spaces.essentialsFor(perContainer = perContainer),
-                selectedTabId = selectedTabId,
-                newTabShowing = startScreenVisible,
-                tabActions = tabSheetActions,
-                actions = sidebarActions,
-                onMenu = { sidebarMenu = it },
-                modifier = edges,
+        val border = components.settings.innerPageBorder
+        InnerFrame(spaces.currentSpace.colors(), cardRect, page, corner = if (border) CardCorner else 0.dp)
+        // Opening or closing, the sidebar is drawn at its full width and revealed as its edge moves, cross-fading
+        // with the rail, so its rows don't lay out again on every frame.
+        val rail = RailWidth.value
+        val reveal = ((sidebarShownDp - rail) / (sidebarFullDp - rail)).coerceIn(0f, 1f)
+        Box(
+            with(density) { Modifier.padding(start = barInsets.left.toDp(), top = barInsets.top.toDp(), bottom = barInsets.bottom.toDp()) }
+                .width(sidebarShownDp.dp)
+                .fillMaxHeight()
+                .clipToBounds(),
+        ) {
+            if (reveal > 0f) {
+                Sidebar(
+                    spaces = spaces,
+                    essentialsFor = { space -> spaces.essentialsFor(space, perContainer) },
+                    selectedTabId = selectedTabId,
+                    page = page,
+                    editing = editing,
+                    newTabShowing = startScreenVisible,
+                    media = media,
+                    tabActions = tabSheetActions,
+                    actions = sidebarActions,
+                    onMenu = { sidebarMenu = it },
+                    width = maxOf(sidebarFullDp, sidebarShownDp).dp,
+                    endPadding = if (border) 0.dp else EdgePadding,
+                    modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).graphicsLayer { alpha = reveal },
+                )
+            }
+            if (reveal < 1f) {
+                Rail(
+                    spaces = spaces,
+                    essentials = spaces.essentialsFor(perContainer = perContainer),
+                    selectedTabId = selectedTabId,
+                    newTabShowing = startScreenVisible,
+                    tabActions = tabSheetActions,
+                    actions = sidebarActions,
+                    onMenu = { sidebarMenu = it },
+                    modifier = Modifier.graphicsLayer { alpha = 1f - reveal },
+                )
+            }
+        }
+        if (sidebarExpanded && reveal == 1f) {
+            SidebarResizeHandle(
+                edgeX = with(density) { barInsets.left.toDp() } + sidebarShownDp.dp,
+                gap = if (border) BORDER_DP.dp else 0.dp,
+                onDragStart = ::startSidebarResize,
+                onDrag = ::resizeSidebar,
+                onDragEnd = ::endSidebarResize,
             )
         }
         if (startScreenVisible && !cardRect.isEmpty) {
@@ -657,7 +735,56 @@ class MainActivity : ComponentActivity() {
         if (expanded == sidebarExpanded) return
         sidebarExpanded = expanded
         components.settings.innerSidebarExpanded = expanded
-        if (inner) layoutInner()
+        val target = if (expanded) sidebarFullDp else RailWidth.value
+        if (inner) animateSidebarTo(target) else sidebarShownDp = target
+    }
+
+    /** Slides the sidebar's edge to [target] dp. The page stays under the narrower of the two until it stops. */
+    private fun animateSidebarTo(target: Float) {
+        sidebarAnimator?.cancel()
+        val from = sidebarShownDp
+        pinnedPageDp = minOf(from, target)
+        sidebarAnimator = ValueAnimator.ofFloat(from, target).apply {
+            duration = SIDEBAR_ANIMATION_MS
+            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+            addUpdateListener {
+                sidebarShownDp = it.animatedValue as Float
+                layoutInner()
+            }
+            doOnEnd {
+                if (sidebarAnimator === it) {
+                    sidebarAnimator = null
+                    pinnedPageDp = null
+                    layoutInner()
+                }
+            }
+            start()
+        }
+    }
+
+    /** Dragging the sidebar's edge: the page goes under the narrowest sidebar until the drag ends. */
+    private fun startSidebarResize() {
+        pinnedPageDp = SidebarMinWidth.value
+        layoutInner()
+    }
+
+    private fun resizeSidebar(byDp: Float) {
+        sidebarWidthDp = (sidebarFullDp + byDp).coerceIn(SidebarMinWidth.value, maxSidebarDp())
+        sidebarFullDp = sidebarWidthDp
+        sidebarShownDp = sidebarWidthDp
+        layoutInner()
+    }
+
+    private fun endSidebarResize() {
+        pinnedPageDp = null
+        components.settings.innerSidebarWidthDp = sidebarWidthDp
+        layoutInner()
+    }
+
+    /** The widest the sidebar can be dragged: its maximum, or 60% of the window when that's less. */
+    private fun maxSidebarDp(): Float {
+        val windowDp = window.decorView.width / resources.displayMetrics.density
+        return minOf(SidebarMaxWidth.value, windowDp * 0.6f).coerceAtLeast(SidebarMinWidth.value)
     }
 
     private val startScreenActions = object : StartScreenActions {
@@ -697,7 +824,8 @@ class MainActivity : ComponentActivity() {
         val barShows = !startScreenVisible && !tabSheetOpen
         val addressField = addressFieldBounds?.takeIf { barShows && !barCollapsed }?.translate(bar[0].toFloat(), bar[1].toFloat())
         val decor = window.decorView
-        val bottom = (decor.height - root.paddingBottom).toFloat()
+        // Above the gesture handle, so a hold doesn't fight the home gesture.
+        val bottom = (decor.height - root.paddingBottom - gestureHandleInset).toFloat()
         val bounds = spaceMenuBounds()
         // The strip stops at the bar's bottom edge, which moves up as the bar slides away.
         val barBottom = if (barShows) (bar[1] + topBar.height).toFloat() else bounds.top
@@ -940,17 +1068,25 @@ class MainActivity : ComponentActivity() {
             return
         }
         val density = resources.displayMetrics.density
-        val sidebar = ((if (sidebarExpanded) SidebarWidth else RailWidth).value * density).toInt()
-        val margin = (CARD_MARGIN_DP * density).toInt()
-        val left = barInsets.left + sidebar + (CARD_GAP_DP * density).toInt()
-        val top = barInsets.top + margin
-        val right = window.width - barInsets.right - margin
-        val bottom = window.height - barInsets.bottom - margin
+        // Fit the sidebar to this window (a rotation can leave it too wide) without changing the width the user set.
+        sidebarFullDp = minOf(sidebarWidthDp, maxSidebarDp())
+        if (sidebarExpanded && pinnedPageDp == null && sidebarAnimator == null) sidebarShownDp = sidebarFullDp
+        // The same border on all four sides, between the page and the sidebar too.
+        val border = if (components.settings.innerPageBorder) (BORDER_DP * density).toInt() else 0
+        val left = barInsets.left + (sidebarShownDp * density).toInt() + border
+        val top = barInsets.top + border
+        val right = window.width - barInsets.right - border
+        val bottom = window.height - barInsets.bottom - border
         cardRect = Rect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
         topBar.isVisible = false
         topEdge.isVisible = false
-        engineContainer.layoutParams = CoordinatorLayout.LayoutParams(right - left, bottom - top).apply {
-            leftMargin = left
+        val pageLeft = pinnedPageDp?.let { barInsets.left + (it * density).toInt() + border } ?: left
+        val params = engineContainer.layoutParams as? CoordinatorLayout.LayoutParams
+        val unchanged = params != null && params.behavior == null && params.leftMargin == pageLeft && params.topMargin == top &&
+            params.width == right - pageLeft && params.height == bottom - top
+        if (unchanged) return
+        engineContainer.layoutParams = CoordinatorLayout.LayoutParams(right - pageLeft, bottom - top).apply {
+            leftMargin = pageLeft
             topMargin = top
         }
         // No bar to slide away on the inner screen, and nothing left over from the cover's one sliding the page.
@@ -969,7 +1105,12 @@ class MainActivity : ComponentActivity() {
     private fun updateStatusBar() {
         val controller = WindowCompat.getInsetsController(window, root)
         if (inner) {
-            controller.show(WindowInsetsCompat.Type.statusBars())
+            // Hidden by the same setting, so the page card's thin border runs right to the top.
+            if (components.settings.hideStatusBarWithTopBar) {
+                controller.hide(WindowInsetsCompat.Type.statusBars())
+            } else {
+                controller.show(WindowInsetsCompat.Type.statusBars())
+            }
             return
         }
         if (!components.settings.hideStatusBarWithTopBar) return
@@ -993,9 +1134,12 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val INNER_MIN_WIDTH_DP = 600
 
-        /** The page card's margin from the screen's edges, and its gap from the sidebar (boards 5 and 6). */
-        const val CARD_MARGIN_DP = 10
-        const val CARD_GAP_DP = 4
+        /** The thin border of space color around the page card, the same on all four sides. */
+        const val BORDER_DP = 4
+
+        /** A navigation bar this short or shorter is gesture navigation's handle, not a bar of buttons. */
+        const val GESTURE_NAV_MAX_DP = 32
+        const val SIDEBAR_ANIMATION_MS = 240L
 
         const val QUICK_TAB_CHECK_INTERVAL_MS = 60_000L
         const val ZEN_SYNC_INTERVAL_MS = 5 * 60_000L

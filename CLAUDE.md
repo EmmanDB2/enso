@@ -122,6 +122,9 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **The overlay on the inner screen:** `InnerFrame`, then the sidebar or rail, then the start screen clipped into the card, then the hold menu.
     - The content is wrapped in a full-size `Box`, because the ComposeView's root passes exact window constraints, which stretched the 64 dp rail across the screen.
   - Hide-on-scroll uses AC's `EngineViewScrollingDataBehavior` and `EngineViewClippingBehavior` together with GeckoView's dynamic toolbar height.
+  - **Bottom edge:** with gesture navigation (a navigation bar of 32 dp or less), the cover's page runs under the handle; only the keyboard or a cutout pads the root.
+    - The tab sheet keeps its search field above the handle (`gestureHandleInset`), and the edge wave's strip stops above it, so a hold doesn't fight the home gesture.
+    - A navigation bar of buttons keeps its own space.
   - Don't switch to `EngineViewScrollingGesturesBehavior`. GeckoView blocks parent touch interception for gestures that start mid-page, so that behavior can hide the bar but never bring it back.
   - The back gesture goes back a page, or cancels an edit.
 - `toolbar/`:
@@ -129,7 +132,14 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `TopBar.kt` is the bar's UI. On the address field, a tap edits, a swipe down opens the tab sheet, and a sideways swipe switches tabs.
   - `AddressInput` decides between URL and search (Google) and formats the domain.
 - `sidebar/`: the inner screen (boards 5, 6 and 9c).
-  - `Sidebar` (300 dp) and `Rail` (64 dp) reuse the tab sheet's rows (`TabRow`, `FolderRow`, `EssentialsGrid`), so holds, swipes and folders behave the same. The current tab is highlighted in place (`RowHighlight.Current`).
+  - `Sidebar` (its width set by dragging) and `Rail` (52 dp) reuse the tab sheet's rows (`TabRow`, `FolderRow`, `EssentialsGrid`), so holds, swipes and folders behave the same. The current tab is highlighted in place (`RowHighlight.Current`).
+    - The sidebar's rows are 40 dp, through the rows' `height` parameters. The cover sheet keeps 48 dp.
+  - **Moving the sidebar's edge:** opening, closing and dragging all draw the sidebar at its full width, revealed by the moving edge. The page is pinned under it (`pinnedPageDp`) and resizes once when the edge stops, because resizing GeckoView every frame would make the page reflow every frame.
+    - `sidebarWidthDp` is the width the user set. `sidebarFullDp` is that width fitted to the window. Only the fitted width is ever clamped: on unfold, the layout can run once while the window still has the cover's width, and clamping the stored width then shrank it for good.
+    - `SidebarResizeHandle` reaches 10 dp into the sidebar's edge and covers the border beside it.
+  - **Border:** 4 dp on every side (`BORDER_DP`), or none with `innerPageBorder` off (square corners then).
+    - Every gap in the sidebar is the same 4 dp (`EdgePadding`): the screen edge, between Essentials tiles, and the page side.
+    - With the border on, the sidebar has no end padding, because the border is that gap. Adding padding there made the right side 8 dp. On the inner screen the status bar hides with `hideStatusBarWithTopBar`. The bottom inset only counts a navigation bar of buttons (taller than 32 dp). Gesture navigation's handle sits over the page; Samsung reports it as a tappable inset, which made the bottom border thicker than the others.
   - A sideways swipe switches spaces wherever a row doesn't take it: rows close on a swipe and consume it first. The space change slides (`AnimatedContent`).
   - The URL field edits the current tab through the activity's `editing`. Over the start screen, typing opens a Quick Tab instead.
   - The media card reads `TabSessionState.mediaSessionState` (the engine fills it in) and drives its `MediaSession.Controller`.
@@ -144,7 +154,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - `Modifier.spaceSurface` paints one gradient down the whole window, lined up by each surface's window position. The top bar, sheet, rows and sidebar therefore read as one, and rows that swipe over it still look seamless.
     - `Space.pageColors()` is the start screen's faint 10% version.
 - `Settings.kt`: SharedPreferences values, not yet in any UI, meant to become user settings later.
-  - `hideStatusBarWithTopBar` (default on) hides the status bar along with the bar.
+  - `hideStatusBarWithTopBar` (default on) hides the status bar along with the bar, and on the inner screen.
   - `tabSwipeScope` (default `OpenTabs`) sets which tabs the address-field swipe moves through.
   - `quickTabLifetimeHours` (default 24, counted since last viewed) sets when Quick Tabs clear.
   - `startScreenAfterMinutes` (default 30) sets how long the app must be away before it reopens on the start screen.
@@ -152,6 +162,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `spaceMenuHoldMs` (default 300) sets how long a hold takes to open the space menu.
   - `spaceMenuLeftHanded` (default off) moves the space menu's wave and trigger strip to the left edge.
   - `unfoldedPortraitLayout` (default `Mobile`, the cover's top bar) chooses the unfolded screen's layout in portrait. `Desktop` keeps the sidebar and page card there too.
+  - `innerPageBorder` (default on) draws the thin border around the inner page card. Off, the page sits flush beside the sidebar.
+  - `innerSidebarWidthDp` (default 240, the width the user picked) is the sidebar's dragged width.
   - `spaceMenuStripHeight` (default 1, the whole edge) sets how much of the screen's height the edge strip covers, from the bottom up. It never reaches into the top bar.
   - `essentialsPerContainer` (default on) shows each space only the Essentials of its Zen container.
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.

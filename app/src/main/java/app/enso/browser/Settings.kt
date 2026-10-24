@@ -27,7 +27,7 @@ class Settings(context: Context) {
 
     // User preferences. None are in a settings UI yet; they're meant to become settings later.
 
-    /** Hide the Android status bar together with the top bar. */
+    /** Hide the Android status bar together with the top bar, and on the inner screen. */
     var hideStatusBarWithTopBar: Boolean
         get() = prefs.getBoolean(KEY_HIDE_STATUS_BAR, true)
         set(value) = prefs.edit { putBoolean(KEY_HIDE_STATUS_BAR, value) }
@@ -62,6 +62,19 @@ class Settings(context: Context) {
             ?.let { name -> UnfoldedPortraitLayout.entries.firstOrNull { it.name == name } }
             ?: UnfoldedPortraitLayout.Mobile
         set(value) = prefs.edit { putString(KEY_UNFOLDED_PORTRAIT_LAYOUT, value.name) }
+
+    /**
+     * The thin border of the space's colors around the inner screen's page card. Off, the page sits flush beside
+     * the sidebar with square corners.
+     */
+    var innerPageBorder: Boolean
+        get() = prefs.getBoolean(KEY_INNER_PAGE_BORDER, true)
+        set(value) = prefs.edit { putBoolean(KEY_INNER_PAGE_BORDER, value) }
+
+    /** The inner screen's full sidebar width in dp, set by dragging its edge. */
+    var innerSidebarWidthDp: Float
+        get() = prefs.getFloat(KEY_INNER_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH_DP)
+        set(value) = prefs.edit { putFloat(KEY_INNER_SIDEBAR_WIDTH, value) }
 
     /** Left-handed mode: the space menu's wave and its trigger strip move to the left edge. */
     var spaceMenuLeftHanded: Boolean
@@ -123,6 +136,11 @@ class Settings(context: Context) {
         const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"
         const val KEY_SPACE_MENU_LEFT_HANDED = "space_menu_left_handed"
         const val KEY_UNFOLDED_PORTRAIT_LAYOUT = "unfolded_portrait_layout"
+        const val KEY_INNER_PAGE_BORDER = "inner_page_border"
+        const val KEY_INNER_SIDEBAR_WIDTH = "inner_sidebar_width_dp"
+
+        /** The width the user settled on by dragging. */
+        const val DEFAULT_SIDEBAR_WIDTH_DP = 240f
         const val KEY_SPACE_MENU_STRIP_HEIGHT = "space_menu_strip_height"
         const val KEY_ESSENTIALS_PER_CONTAINER = "essentials_per_container"
         const val KEY_SYNC_OPEN_TABS = "sync_open_tabs"

@@ -32,12 +32,12 @@ import kotlin.math.roundToInt
  * frame painted over the page's square ones. The frame has no touch handling, so touches on the card reach it.
  */
 @Composable
-fun InnerFrame(colors: SpaceColors, card: Rect, page: TopBarState) {
+fun InnerFrame(colors: SpaceColors, card: Rect, page: TopBarState, corner: Dp) {
     Canvas(Modifier.fillMaxSize()) {
         val frame = Path().apply {
             fillType = PathFillType.EvenOdd
             addRect(Rect(Offset.Zero, size))
-            addRoundRect(RoundRect(card, CornerRadius(CardCorner.toPx())))
+            addRoundRect(RoundRect(card, CornerRadius(corner.toPx())))
         }
         drawPath(frame, colors.brush(top = 0f, windowHeight = size.height))
     }
@@ -47,11 +47,11 @@ fun InnerFrame(colors: SpaceColors, card: Rect, page: TopBarState) {
         Modifier
             .offset { IntOffset(card.left.roundToInt(), card.top.roundToInt()) }
             .size(with(density) { card.width.toDp() }, with(density) { card.height.toDp() })
-            .clip(RoundedCornerShape(CardCorner)),
+            .clip(RoundedCornerShape(corner)),
     ) {
         LoadProgress(page, colors.accent)
     }
 }
 
-/** The page card's corner radius (spec: Visual style, the current-tab card's 14 px). */
-val CardCorner: Dp = 14.dp
+/** The page card's corner radius, kept small to suit its thin border. Square when the border is off. */
+val CardCorner: Dp = 10.dp

@@ -133,7 +133,10 @@ On the cover screen the palette sits in the upper half so the keyboard fits belo
 
 ## Inner screen (boards 5–8)
 
-Unfolded, Ensō copies Zen's desktop sidebar layout with rows at least 44 px tall for touch. There is no separate top address bar; the URL lives in the sidebar. The page sits as a rounded card inset from the tinted background.
+Unfolded, Ensō copies Zen's desktop sidebar layout, a little denser than the cover: rows, fields and tiles are 40 dp tall. There is no separate top address bar; the URL lives in the sidebar.
+
+- **Page card:** the page sits as a rounded card inside a thin border of the space's colors, 4 dp on every side (between the page and the sidebar too). The status bar stays hidden, as on the cover when the bar slides away, so the border runs to the top.
+- **Border toggle:** a setting turns the border off, leaving the page flush beside the sidebar with square corners.
 
 | Mode | What it shows |
 | --- | --- |
@@ -147,6 +150,8 @@ Inner-screen gestures:
 - Swipe sideways on the sidebar to switch spaces, matching Zen's trackpad swipe on desktop. Space icons at the bottom also switch.
 - A sideways swipe on a tab row still closes or unloads that tab, as in the tab sheet. Swipes anywhere else on the sidebar, and anywhere on the rail, switch spaces.
 - Tap the rail's toggle to expand or collapse the sidebar. The sidebar stays open or closed the way it was left.
+- Opening and closing animate the sidebar's edge, with the rail and sidebar cross-fading.
+- Drag the sidebar's right edge to resize it (220–480 dp, at most 60% of the window). The width is remembered.
 - The rail's search button opens the sidebar on its URL field, and the sidebar closes again when the edit ends. Tapping a folder in the rail opens the sidebar with that folder expanded. The rail's space icon opens the sidebar.
 - New Tab shows the start screen inside the page card with the search palette centered on it (board 9c). New Tab is the highlighted row meanwhile.
 - The cover's edge wave is a cover gesture; on the inner screen the sidebar switches spaces.

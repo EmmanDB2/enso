@@ -13,6 +13,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,6 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -48,6 +55,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -177,19 +185,26 @@ fun Sidebar(
     tabActions: TabSheetActions,
     actions: SidebarActions,
     onMenu: (MenuTarget) -> Unit,
+    /** The sidebar's width, which the user sets by dragging its edge. */
+    width: Dp,
+    /**
+     * Padding on the page's side. The page card's border already leaves [EdgePadding] there, so it's none with
+     * the border on, keeping every gap the same.
+     */
+    endPadding: Dp,
     modifier: Modifier = Modifier,
 ) {
     val colors = spaces.currentSpace.colors()
     Column(
         modifier
             .fillMaxHeight()
-            .width(SidebarWidth)
+            .width(width)
             .switchesSpaces(actions)
-            .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 8.dp),
+            .padding(start = EdgePadding, top = EdgePadding, end = endPadding, bottom = EdgePadding),
     ) {
         SidebarHeader(page, actions)
         UrlField(page, editing, colors.accent, actions)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(6.dp))
         val order = spaces.spaces.map { it.id }
         AnimatedContent(
             targetState = spaces.currentSpaceId,
@@ -234,7 +249,7 @@ private fun Modifier.switchesSpaces(actions: SidebarActions): Modifier = this.th
 
 @Composable
 private fun SidebarHeader(page: TopBarState, actions: SidebarActions) {
-    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
         BarButton(R.drawable.ic_sidebar, R.string.sidebar_toggle) { actions.setExpanded(false) }
         Spacer(Modifier.weight(1f))
         BarButton(R.drawable.ic_arrow_left, R.string.menu_back, enabled = page.canGoBack, onClick = actions::back)
@@ -249,7 +264,7 @@ private fun SidebarHeader(page: TopBarState, actions: SidebarActions) {
 
 @Composable
 private fun BarButton(@DrawableRes icon: Int, @StringRes label: Int, enabled: Boolean = true, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(ButtonSize)) {
         Icon(
             painterResource(icon),
             contentDescription = stringResource(label),
@@ -274,11 +289,11 @@ private fun UrlField(page: TopBarState, editing: Boolean, accent: androidx.compo
     Row(
         Modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .height(RowHeight)
+            .clip(RoundedCornerShape(10.dp))
             .background(EnsoColors.FieldFill)
             .then(if (editing) Modifier else Modifier.clickable { actions.setEditing(true) })
-            .padding(start = 14.dp),
+            .padding(start = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) {
@@ -300,15 +315,22 @@ private fun UrlField(page: TopBarState, editing: Boolean, accent: androidx.compo
             }
         }
         when {
-            editing -> if (input.text.isNotEmpty()) FieldButton(R.drawable.ic_close, R.string.action_clear) { input = TextFieldValue() }
+            editing -> if (input.text.isNotEmpty()) FieldButton(R.drawable.ic_close, R.string.action_clear, size = ButtonSize) { input = TextFieldValue() }
             else -> {
                 if (page.url.isNotEmpty()) {
-                    FieldButton(R.drawable.ic_link, R.string.action_copy_link) {
+                    FieldButton(R.drawable.ic_link, R.string.action_copy_link, size = ButtonSize) {
                         context.getSystemService(ClipboardManager::class.java)
                             ?.setPrimaryClip(ClipData.newPlainText(host, page.url))
                     }
                 }
-                OverflowMenu(page, onBack = actions::back, onForward = actions::forward, onOpenZenSync = actions::openZenSync, withNavigation = false)
+                OverflowMenu(
+                    page,
+                    onBack = actions::back,
+                    onForward = actions::forward,
+                    onOpenZenSync = actions::openZenSync,
+                    withNavigation = false,
+                    buttonSize = ButtonSize,
+                )
             }
         }
     }
@@ -330,9 +352,13 @@ private fun SpaceTabs(
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (essentials.isNotEmpty()) item(key = "essentials") { EssentialsGrid(essentials, current, tabActions, onMenu) }
+        if (essentials.isNotEmpty()) {
+            item(key = "essentials") {
+                EssentialsGrid(essentials, current, tabActions, onMenu, tileHeight = RowHeight, gap = EdgePadding, bottomPadding = 4.dp)
+            }
+        }
         item(key = "name") { SpaceName(space) }
         pinnedRows(space.pinned, depth = 0, colors, current, tabActions, onMenu)
         if (space.pinned.isNotEmpty()) item(key = "divider") { SheetDivider() }
@@ -346,6 +372,7 @@ private fun SpaceTabs(
                     actions = tabActions,
                     onLongClick = onMenu,
                     highlight = if (tab.id == current) RowHighlight.Current else RowHighlight.None,
+                    height = RowHeight,
                 )
             }
         }
@@ -371,10 +398,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.pinnedRows(
                     onLongClick = onMenu,
                     depth = depth,
                     highlight = if (item.id == current) RowHighlight.Current else RowHighlight.None,
+                    height = RowHeight,
                 )
             }
             is Folder -> {
-                item(key = item.id) { FolderRow(item, depth, colors, tabActions, onMenu) }
+                item(key = item.id) { FolderRow(item, depth, colors, tabActions, onMenu, height = RowHeight) }
                 if (item.expanded) pinnedRows(item.items, depth + 1, colors, current, tabActions, onMenu)
             }
         }
@@ -383,7 +411,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.pinnedRows(
 
 @Composable
 private fun SpaceName(space: Space) {
-    Row(Modifier.fillMaxWidth().padding(start = 10.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = 10.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         SpaceIcon(space.icon, size = 20.dp, tint = EnsoColors.TextSecondary, fallbackName = space.name)
         Spacer(Modifier.width(12.dp))
         Text(space.name, style = EnsoType.RowTitle.copy(color = EnsoColors.TextSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -396,7 +424,7 @@ private fun NewTabRow(highlighted: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(RowHeight)
             .then(if (highlighted) Modifier.shadow(4.dp, shape).background(EnsoColors.CurrentTab, shape) else Modifier)
             .clip(shape)
             .clickable(onClick = onClick)
@@ -428,7 +456,7 @@ private fun MediaCard(media: MediaCardState, onOpen: () -> Unit, onMute: (Boolea
     Row(
         Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(48.dp)
             .shadow(4.dp, shape)
             .background(EnsoColors.CurrentTab, shape)
             .clip(shape)
@@ -468,31 +496,33 @@ private fun MediaCard(media: MediaCardState, onOpen: () -> Unit, onMute: (Boolea
     }
 }
 
-/** The spaces along the bottom (board 6); the current one sits on a tile. */
+/** The spaces along the bottom (board 6), centered when they fit; the current one sits on a tile. */
 @Composable
 private fun SpaceBar(spaces: SpacesState, actions: SidebarActions) {
     val haptics = LocalHapticFeedback.current
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        spaces.spaces.forEach { space ->
-            val current = space.id == spaces.currentSpaceId
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .then(if (current) Modifier.background(EnsoColors.FieldFill) else Modifier)
-                    .clickable {
-                        if (!current) {
-                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                            actions.switchToSpace(space.id)
-                        }
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                SpaceIcon(space.icon, size = 24.dp, fallbackName = space.name)
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            spaces.spaces.forEach { space ->
+                val current = space.id == spaces.currentSpaceId
+                Box(
+                    Modifier
+                        .size(RowHeight)
+                        .clip(RoundedCornerShape(10.dp))
+                        .then(if (current) Modifier.background(EnsoColors.FieldFill) else Modifier)
+                        .clickable {
+                            if (!current) {
+                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                actions.switchToSpace(space.id)
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    SpaceIcon(space.icon, size = 22.dp, fallbackName = space.name)
+                }
             }
         }
     }
@@ -522,7 +552,7 @@ fun Rail(
             .fillMaxHeight()
             .width(RailWidth)
             .switchesSpaces(actions)
-            .padding(top = 6.dp, bottom = 8.dp),
+            .padding(start = EdgePadding, top = EdgePadding, bottom = EdgePadding),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BarButton(R.drawable.ic_sidebar, R.string.sidebar_toggle) { actions.setExpanded(true) }
@@ -534,7 +564,7 @@ fun Rail(
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             essentials.forEach { RailTab(it, selected = it.id == current, onFill = true, tabActions, onMenu) }
             if (essentials.isNotEmpty()) RailDivider()
@@ -619,8 +649,77 @@ private fun RailDivider() {
     Box(Modifier.width(32.dp).height(1.dp).background(EnsoColors.TextSecondary.copy(alpha = 0.25f)))
 }
 
-/** Widths from boards 5 and 6 on the inner screen. */
-val SidebarWidth: Dp = 300.dp
-val RailWidth: Dp = 64.dp
-private val RailTileSize = 48.dp
+/**
+ * The sidebar's draggable edge: a strip over its right edge and the [gap] beside it, at [edgeX]. Dragging it
+ * sideways resizes the sidebar ([onDrag] gets the change in dp); a small grabber shows meanwhile.
+ */
+@Composable
+fun SidebarResizeHandle(edgeX: Dp, gap: Dp, onDragStart: () -> Unit, onDrag: (Float) -> Unit, onDragEnd: () -> Unit) {
+    var dragging by remember { mutableStateOf(false) }
+    val start by rememberUpdatedState(onDragStart)
+    val drag by rememberUpdatedState(onDrag)
+    val end by rememberUpdatedState(onDragEnd)
+    // The handle moves with the edge it resizes, so the finger is tracked in window coordinates: measured
+    // against the handle, each resize would cancel out part of the next move.
+    var handleX by remember { mutableFloatStateOf(0f) }
+    Box(
+        Modifier
+            .offset(x = edgeX - HandleReach)
+            .width(HandleReach + gap)
+            .fillMaxHeight()
+            .onGloballyPositioned { handleX = it.positionInWindow().x }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    // From where the finger landed, so the edge keeps the same distance from it the whole way.
+                    var lastX = handleX + down.position.x
+                    val follow = { change: PointerInputChange ->
+                        change.consume()
+                        val x = handleX + change.position.x
+                        drag((x - lastX).toDp().value)
+                        lastX = x
+                    }
+                    val first = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        ?: return@awaitEachGesture
+                    dragging = true
+                    start()
+                    follow(first)
+                    horizontalDrag(first.id, follow)
+                    dragging = false
+                    end()
+                }
+            },
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        if (dragging) {
+            Box(
+                Modifier
+                    // Centered in the border's gap, or against the sidebar's edge when the border is off.
+                    .padding(end = ((gap - Grabber) / 2).coerceAtLeast(0.dp))
+                    .width(Grabber)
+                    .height(36.dp)
+                    .background(EnsoColors.TextSecondary.copy(alpha = 0.5f), RoundedCornerShape(percent = 50)),
+            )
+        }
+    }
+}
+
+/** The rail's width, its few dp of padding on the screen side included. */
+val RailWidth: Dp = 52.dp
+
+/** The sidebar's narrowest and widest, when dragging its edge. */
+val SidebarMinWidth: Dp = 220.dp
+val SidebarMaxWidth: Dp = 480.dp
+
+/** The sidebar's and rail's padding from the screen's edge, matching the page card's thin border. */
+val EdgePadding: Dp = 4.dp
+
+/** Rows, fields and tiles: thinner than the cover sheet's 48 dp, so more fits. */
+private val RowHeight = 40.dp
+
+/** How far into the sidebar its draggable edge reaches, and the grabber's width. */
+private val HandleReach = 10.dp
+private val Grabber = 3.dp
+private val ButtonSize = 36.dp
+private val RailTileSize = 40.dp
 private val SwipeThreshold = 48.dp
