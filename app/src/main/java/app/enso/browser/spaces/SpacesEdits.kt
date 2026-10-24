@@ -7,47 +7,37 @@ import app.enso.browser.TabSwipeScope
 fun SpacesState.updateSpace(spaceId: String, transform: (Space) -> Space) =
     copy(spaces = spaces.map { if (it.id == spaceId) transform(it) else it })
 
+/** Rewrites every space's pinned items, folders nested at any depth included, item by item. */
+private fun SpacesState.mapPinned(transform: (PinnedItem) -> List<PinnedItem>): SpacesState {
+    fun walk(items: List<PinnedItem>): List<PinnedItem> = items.flatMap { item ->
+        val inner = if (item is Folder) item.copy(items = walk(item.items)) else item
+        transform(inner)
+    }
+    return copy(spaces = spaces.map { it.copy(pinned = walk(it.pinned)) })
+}
+
 private fun SpacesState.updateFolder(folderId: String, transform: (Folder) -> Folder) =
-    copy(
-        spaces = spaces.map { space ->
-            space.copy(pinned = space.pinned.map { if (it is Folder && it.id == folderId) transform(it) else it })
-        },
-    )
+    mapPinned { if (it is Folder && it.id == folderId) listOf(transform(it)) else listOf(it) }
 
 /** Applies [transform] to the tab wherever it lives. */
 fun SpacesState.updateTab(tabId: String, transform: (Tab) -> Tab): SpacesState {
     val edit = { tab: Tab -> if (tab.id == tabId) transform(tab) else tab }
-    return copy(
-        essentials = essentials.map(edit),
-        spaces = spaces.map { space ->
-            space.copy(
-                pinned = space.pinned.map { item ->
-                    when (item) {
-                        is PinnedTab -> PinnedTab(edit(item.tab))
-                        is Folder -> item.copy(tabs = item.tabs.map(edit))
-                    }
-                },
-                tabs = space.tabs.map(edit),
-            )
-        },
-    )
+    return mapPinned { if (it is PinnedTab) listOf(PinnedTab(edit(it.tab))) else listOf(it) }.let { state ->
+        state.copy(
+            essentials = state.essentials.map(edit),
+            spaces = state.spaces.map { it.copy(tabs = it.tabs.map(edit)) },
+        )
+    }
 }
 
 /** Takes the tab out of wherever it lives. */
-fun SpacesState.removeTab(tabId: String) = copy(
-    essentials = essentials.filterNot { it.id == tabId },
-    spaces = spaces.map { space ->
-        space.copy(
-            pinned = space.pinned.mapNotNull { item ->
-                when (item) {
-                    is PinnedTab -> item.takeUnless { it.id == tabId }
-                    is Folder -> item.copy(tabs = item.tabs.filterNot { it.id == tabId })
-                }
-            },
-            tabs = space.tabs.filterNot { it.id == tabId },
+fun SpacesState.removeTab(tabId: String): SpacesState =
+    mapPinned { if (it is PinnedTab && it.id == tabId) emptyList() else listOf(it) }.let { state ->
+        state.copy(
+            essentials = state.essentials.filterNot { it.id == tabId },
+            spaces = state.spaces.map { space -> space.copy(tabs = space.tabs.filterNot { it.id == tabId }) },
         )
-    },
-)
+    }
 
 /** Adds [tab] to the current space's open tabs, just below [afterId], or at the top when that isn't an open tab. */
 fun SpacesState.addOpenTab(tab: Tab, afterId: String?) = updateSpace(currentSpaceId) { space ->
@@ -109,41 +99,30 @@ fun SpacesState.addToEssentials(tabId: String): SpacesState {
 
 fun SpacesState.moveToFolder(tabId: String, folderId: String): SpacesState {
     val entry = find(tabId) ?: return this
-    return removeTab(tabId).updateFolder(folderId) { it.copy(tabs = it.tabs + entry.tab.asPinned()) }
+    return removeTab(tabId).updateFolder(folderId) { it.copy(items = it.items + PinnedTab(entry.tab.asPinned())) }
 }
 
 fun SpacesState.moveToNewFolder(tabId: String, folderName: String): SpacesState {
     val entry = find(tabId) ?: return this
     val spaceId = entry.place.space?.id ?: currentSpaceId
-    val folder = Folder(id = newId(), name = folderName, expanded = true, tabs = listOf(entry.tab.asPinned()))
+    val folder = Folder(id = newId(), name = folderName, expanded = true, items = listOf(PinnedTab(entry.tab.asPinned())))
     return removeTab(tabId).updateSpace(spaceId) { it.copy(pinned = it.pinned + folder) }
 }
 
 /** Moves a tab out of its folder to just below the folder, still pinned. */
 fun SpacesState.removeFromFolder(tabId: String): SpacesState {
     val entry = find(tabId) ?: return this
-    val place = entry.place as? TabPlace.Pinned ?: return this
-    val folder = place.folder ?: return this
-    return removeTab(tabId).updateSpace(place.space.id) { space ->
-        val index = space.pinned.indexOfFirst { it.id == folder.id } + 1
-        space.copy(pinned = space.pinned.toMutableList().apply { add(index, PinnedTab(entry.tab)) })
-    }
+    val folder = (entry.place as? TabPlace.Pinned)?.folder ?: return this
+    return removeTab(tabId).mapPinned { if (it.id == folder.id) listOf(it, PinnedTab(entry.tab)) else listOf(it) }
 }
 
 fun SpacesState.toggleFolder(folderId: String) = updateFolder(folderId) { it.copy(expanded = !it.expanded) }
 
 fun SpacesState.renameFolder(folderId: String, name: String) = updateFolder(folderId) { it.copy(name = name) }
 
-/** Deletes a folder. Its tabs stay pinned where the folder was. */
-fun SpacesState.deleteFolder(folderId: String) = copy(
-    spaces = spaces.map { space ->
-        space.copy(
-            pinned = space.pinned.flatMap { item ->
-                if (item is Folder && item.id == folderId) item.tabs.map(::PinnedTab) else listOf(item)
-            },
-        )
-    },
-)
+/** Deletes a folder. What was in it stays pinned where the folder was. */
+fun SpacesState.deleteFolder(folderId: String) =
+    mapPinned { if (it is Folder && it.id == folderId) it.items else listOf(it) }
 
 /** The tab to show after [tabId] closes or unloads: its neighbor among the open tabs, else the first open tab. */
 fun SpacesState.nextAfterClosing(tabId: String): String? {

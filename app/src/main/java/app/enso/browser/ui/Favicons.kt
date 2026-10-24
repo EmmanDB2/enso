@@ -67,7 +67,7 @@ fun LetterFavicon(
 fun Tab.displayTitle(): String =
     title.ifBlank { AddressInput.displayHost(url) }.ifBlank { stringResource(R.string.new_tab_title) }
 
-/** Line icons for the spaces in the mockups. Synced Zen icons get mapped onto these in step 5. */
+/** Line icons for the spaces in the mockups, by key. Zen's built-in icons map onto some of them ([ZenIcons]). */
 object SpaceIcons {
     private val icons = mapOf(
         "home" to R.drawable.ic_space_home,
@@ -78,18 +78,42 @@ object SpaceIcons {
         "server" to R.drawable.ic_space_server,
     )
 
-    fun drawable(key: String): Int? = icons[key]
+    /** A line icon for [icon]: one of these keys, or a Zen icon URL that maps to one. */
+    fun drawable(icon: String): Int? = icons[ZenIcons.nameOf(icon)?.let { ZenIcons.lineIcons[it] } ?: icon]
+
+    /** Text to show for [icon] when there's no line icon: the emoji itself, or one close to Zen's icon. */
+    fun text(icon: String): String? = when (val zenName = ZenIcons.nameOf(icon)) {
+        null -> icon.ifEmpty { null }
+        else -> ZenIcons.emoji(zenName)
+    }
 }
 
-/** A space's icon: one of [SpaceIcons], or the emoji the user set. */
+/**
+ * A space's icon: a line icon, an emoji, or (when the space has none Ensō can show) the first letter of
+ * [fallbackName].
+ */
 @Composable
-fun SpaceIcon(icon: String, modifier: Modifier = Modifier, size: Dp = 24.dp, tint: Color = EnsoColors.TextPrimary) {
+fun SpaceIcon(
+    icon: String,
+    modifier: Modifier = Modifier,
+    size: Dp = 24.dp,
+    tint: Color = EnsoColors.TextPrimary,
+    fallbackName: String = "",
+) {
     val drawable = SpaceIcons.drawable(icon)
     if (drawable != null) {
         Icon(painterResource(drawable), contentDescription = null, modifier = modifier.size(size), tint = tint)
-    } else {
-        Box(modifier.size(size), contentAlignment = Alignment.Center) {
-            Text(icon, style = EnsoType.Row.copy(fontSize = (size.value * 0.8f).sp))
+        return
+    }
+    val text = SpaceIcons.text(icon)
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        if (text != null) {
+            Text(text, style = EnsoType.Row.copy(fontSize = (size.value * 0.8f).sp))
+        } else {
+            Text(
+                fallbackName.take(1).uppercase(),
+                style = EnsoType.Row.copy(fontSize = (size.value * 0.75f).sp, fontWeight = FontWeight.Bold, color = tint),
+            )
         }
     }
 }

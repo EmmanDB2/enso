@@ -29,10 +29,12 @@ data class SpacesState(
 data class Space(
     val id: String,
     val name: String,
-    /** A [app.enso.browser.ui.SpaceIcons] key, or an emoji. */
+    /** A [app.enso.browser.ui.SpaceIcons] key, an emoji, or a Zen icon URL from sync. */
     val icon: String,
     /** ARGB. */
     val accent: Long,
+    /** The Zen container the space opens tabs in, or null for none. Decides which Essentials it shows. */
+    val container: String? = null,
     /** Pinned tabs and folders, in order. */
     val pinned: List<PinnedItem> = emptyList(),
     /** Open tabs, in order. */
@@ -41,13 +43,20 @@ data class Space(
 ) {
     /** Pinned tabs (including those in folders) and open tabs. Essentials aren't counted. */
     val allTabs: List<Tab> get() = pinned.flatMap { it.tabs } + tabs
-    val folders: List<Folder> get() = pinned.filterIsInstance<Folder>()
+
+    /** Every folder in the space, nested ones included, top to bottom. */
+    val folders: List<Folder> get() = pinned.flatMap { it.folders }
 }
 
 @Serializable
 sealed interface PinnedItem {
     val id: String
+
+    /** Every tab in this item, including inside nested folders. */
     val tabs: List<Tab>
+
+    /** This item if it's a folder, and every folder nested in it. */
+    val folders: List<Folder>
 }
 
 @Serializable
@@ -55,6 +64,7 @@ sealed interface PinnedItem {
 data class PinnedTab(val tab: Tab) : PinnedItem {
     override val id: String get() = tab.id
     override val tabs: List<Tab> get() = listOf(tab)
+    override val folders: List<Folder> get() = emptyList()
 }
 
 @Serializable
@@ -63,8 +73,12 @@ data class Folder(
     override val id: String,
     val name: String,
     val expanded: Boolean = false,
-    override val tabs: List<Tab> = emptyList(),
-) : PinnedItem
+    /** Tabs and subfolders, in order. Zen folders can nest. */
+    val items: List<PinnedItem> = emptyList(),
+) : PinnedItem {
+    override val tabs: List<Tab> get() = items.flatMap { it.tabs }
+    override val folders: List<Folder> get() = listOf(this) + items.flatMap { it.folders }
+}
 
 @Serializable
 data class Tab(
@@ -75,6 +89,10 @@ data class Tab(
     val pinnedUrl: String? = null,
     /** Set while this is a Quick Tab: temporary, never synced, cleared after a while unviewed. */
     val quick: QuickTab? = null,
+    /** Mirrors a tab record in Zen's spaces sync. Tabs without it exist only on the phone. */
+    val synced: Boolean = false,
+    /** For Essentials: the Zen container it belongs to, or null for none. */
+    val container: String? = null,
 )
 
 @Serializable
@@ -83,6 +101,8 @@ data class QuickTab(val lastViewedAt: Long)
 /** Where a tab lives. */
 sealed interface TabPlace {
     data object Essential : TabPlace
+
+    /** [folder] is the innermost folder holding the tab, if any. */
     data class Pinned(val space: Space, val folder: Folder?) : TabPlace
     data class Open(val space: Space) : TabPlace
 }
@@ -99,13 +119,36 @@ data class TabEntry(val tab: Tab, val place: TabPlace)
 fun SpacesState.find(tabId: String): TabEntry? {
     essentials.firstOrNull { it.id == tabId }?.let { return TabEntry(it, TabPlace.Essential) }
     for (space in spaces) {
-        for (item in space.pinned) {
-            val tab = item.tabs.firstOrNull { it.id == tabId } ?: continue
-            return TabEntry(tab, TabPlace.Pinned(space, item as? Folder))
+        findPinned(space.pinned, tabId, folder = null)?.let { (tab, folder) ->
+            return TabEntry(tab, TabPlace.Pinned(space, folder))
         }
         space.tabs.firstOrNull { it.id == tabId }?.let { return TabEntry(it, TabPlace.Open(space)) }
     }
     return null
+}
+
+private fun findPinned(items: List<PinnedItem>, tabId: String, folder: Folder?): Pair<Tab, Folder?>? {
+    for (item in items) {
+        when (item) {
+            is PinnedTab -> if (item.id == tabId) return item.tab to folder
+            is Folder -> findPinned(item.items, tabId, item)?.let { return it }
+        }
+    }
+    return null
+}
+
+/**
+ * The Essentials [space] shows. Like Zen, each container has its own Essentials unless [perContainer] is off,
+ * in which case every space shows all of them.
+ */
+fun SpacesState.essentialsFor(space: Space = currentSpace, perContainer: Boolean = true): List<Tab> =
+    if (perContainer) essentials.filter { it.container == space.container } else essentials
+
+/** Whether [tabId] shows in the current space: one of its tabs, or one of the Essentials it shows. */
+fun SpacesState.isInCurrentSpace(tabId: String, essentialsPerContainer: Boolean = true): Boolean {
+    val place = find(tabId)?.place ?: return false
+    return place.space?.let { it.id == currentSpaceId }
+        ?: essentialsFor(perContainer = essentialsPerContainer).any { it.id == tabId }
 }
 
 internal fun newId() = UUID.randomUUID().toString()

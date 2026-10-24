@@ -101,6 +101,7 @@ fun TopBar(
     onForward: () -> Unit,
     onOpenTabSheet: () -> Unit,
     onSwitchTab: (step: Int) -> Boolean,
+    onOpenZenSync: () -> Unit,
 ) {
     MaterialTheme {
         Box(
@@ -128,7 +129,7 @@ fun TopBar(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(2.dp))
-                OverflowMenu(state, onBack, onForward)
+                OverflowMenu(state, onBack, onForward, onOpenZenSync)
             }
             LoadProgress(state, accent, Modifier.align(Alignment.BottomStart))
         }
@@ -319,7 +320,7 @@ private fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: 
 }
 
 @Composable
-private fun OverflowMenu(state: TopBarState, onBack: () -> Unit, onForward: () -> Unit) {
+private fun OverflowMenu(state: TopBarState, onBack: () -> Unit, onForward: () -> Unit, onOpenZenSync: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }) {
@@ -343,6 +344,10 @@ private fun OverflowMenu(state: TopBarState, onBack: () -> Unit, onForward: () -
             MenuRow(R.drawable.ic_arrow_right, R.string.menu_forward, state.canGoForward) {
                 expanded = false
                 onForward()
+            }
+            MenuRow(R.drawable.ic_sync, R.string.menu_zen_sync, enabled = true) {
+                expanded = false
+                onOpenZenSync()
             }
         }
     }

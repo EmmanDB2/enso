@@ -94,6 +94,36 @@ class TabManager(
         return nothingLeft
     }
 
+    /**
+     * Replaces the spaces model in one go (a sync), closing the pages of tabs that no longer exist and moving off
+     * the shown tab if it's gone.
+     */
+    fun applySpaces(transform: (SpacesState) -> SpacesState) {
+        val after = transform(spaces.state.value)
+        val kept = (after.essentials + after.spaces.flatMap { it.allTabs }).mapTo(mutableSetOf()) { it.id }
+        val gone = store.state.tabs.map { it.id }.filterNot { it in kept }
+        closingTabIds += gone
+        spaces.update(transform)
+        val selected = store.state.selectedTabId
+        if (selected in gone) {
+            val state = spaces.state.value
+            val next = state.currentSpace.selectedTabId?.takeIf { it in kept && it != selected }
+                ?: state.currentSpace.tabs.firstOrNull()?.id
+            next?.let(::select)
+        }
+        gone.forEach { tabsUseCases.removeTab(it) }
+    }
+
+    /** Moves to the next (+1) or previous (-1) space, showing its last tab. False when there's none. */
+    fun switchSpace(step: Int): Boolean {
+        val state = spaces.state.value
+        val index = state.spaces.indexOfFirst { it.id == state.currentSpaceId }
+        val target = state.spaces.getOrNull(index + step) ?: return false
+        spaces.update { it.copy(currentSpaceId = target.id) }
+        target.selectedTabId?.takeIf { state.find(it) != null }?.let(::select)
+        return true
+    }
+
     /** Restarts the expiry clock of the Quick Tab on screen, if it is one. */
     fun markSelectedViewed() {
         val selected = store.state.selectedTabId ?: return

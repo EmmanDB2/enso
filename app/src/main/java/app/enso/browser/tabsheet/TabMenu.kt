@@ -112,6 +112,7 @@ internal fun TabMenu(
     spaces: SpacesState,
     selectedTabId: String?,
     quickTabLifetimeMs: Long,
+    canOrganize: Boolean,
     actions: TabSheetActions,
     onDismiss: () -> Unit,
 ) {
@@ -164,7 +165,20 @@ internal fun TabMenu(
                 val moveToFolder = MenuItem(R.drawable.ic_folder, R.string.menu_move_to_folder, opensMore = true) {
                     choosingFolder = true
                 }
+                val unload = MenuItem(R.drawable.ic_space_moon, R.string.action_unload_tab) {
+                    actions.unload(id)
+                    onDismiss()
+                }
+                val close = MenuItem(R.drawable.ic_close, R.string.action_close_tab, destructive = true) {
+                    actions.close(id)
+                    onDismiss()
+                }
                 when (val place = entry.place) {
+                    // Pinning, folders and Essentials come from Zen while sync is read-only.
+                    is TabPlace.Pinned -> if (!canOrganize) listOf(unload) else null
+                    is TabPlace.Open -> if (!canOrganize) listOf(close) else null
+                    TabPlace.Essential -> if (!canOrganize) listOf(unload) else null
+                } ?: when (val place = entry.place) {
                     TabPlace.Essential -> listOf(
                         MenuItem(R.drawable.ic_essentials, R.string.menu_remove_from_essentials) { edit { it.unpin(id) } },
                     )
@@ -175,22 +189,13 @@ internal fun TabMenu(
                         MenuItem(R.drawable.ic_pin, R.string.menu_unpin_tab) { edit { it.unpin(id) } },
                         MenuItem(R.drawable.ic_essentials, R.string.menu_add_to_essentials) { edit { it.addToEssentials(id) } },
                         moveToFolder,
-                    ) + listOf(
-                        null,
-                        MenuItem(R.drawable.ic_space_moon, R.string.action_unload_tab) {
-                            actions.unload(id)
-                            onDismiss()
-                        },
-                    )
+                    ) + listOf(null, unload)
                     is TabPlace.Open -> listOf(
                         MenuItem(R.drawable.ic_pin, R.string.menu_pin_tab) { edit { it.pin(id) } },
                         MenuItem(R.drawable.ic_essentials, R.string.menu_add_to_essentials) { edit { it.addToEssentials(id) } },
                         moveToFolder,
                         null,
-                        MenuItem(R.drawable.ic_close, R.string.action_close_tab, destructive = true) {
-                            actions.close(id)
-                            onDismiss()
-                        },
+                        close,
                     )
                 }
             }

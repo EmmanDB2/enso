@@ -17,6 +17,13 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.io.File
 import java.io.FileNotFoundException
 
@@ -41,7 +48,7 @@ class SpacesStore(context: Context) {
 
     private fun load(): SpacesState =
         try {
-            json.decodeFromString<SpacesState>(file.readText())
+            json.decodeFromJsonElement<SpacesState>(migrate(json.parseToJsonElement(file.readText())))
         } catch (_: FileNotFoundException) {
             SpacesState.initial()
         } catch (e: Exception) {
@@ -51,6 +58,21 @@ class SpacesStore(context: Context) {
 
     @Synchronized
     private fun save(state: SpacesState) = file.writeText(json.encodeToString(state))
+
+    /** Folders used to hold only `tabs`; now they hold `items` (tabs and subfolders), as Zen's do. */
+    private fun migrate(element: JsonElement): JsonElement = when (element) {
+        is JsonObject -> {
+            val folderTabs = element["tabs"].takeIf { element["type"]?.jsonPrimitive?.content == "folder" }
+            if (folderTabs is JsonArray && "items" !in element) {
+                val items = JsonArray(folderTabs.map { buildJsonObject { put("type", "tab"); put("tab", it) } })
+                JsonObject(element - "tabs" + ("items" to items))
+            } else {
+                JsonObject(element.mapValues { migrate(it.value) })
+            }
+        }
+        is JsonArray -> JsonArray(element.map(::migrate))
+        else -> element
+    }
 
     private companion object {
         const val TAG = "SpacesStore"

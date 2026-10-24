@@ -12,3 +12,6 @@ captures/
 .cxx/
 
 .DS_Store
+
+# Copies of the Fold's app data taken before testing (personal data, never commit)
+device-backups/

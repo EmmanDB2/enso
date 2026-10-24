@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -47,9 +49,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -60,6 +64,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.enso.browser.R
 import app.enso.browser.spaces.Folder
+import app.enso.browser.spaces.PinnedItem
 import app.enso.browser.spaces.PinnedTab
 import app.enso.browser.spaces.Space
 import app.enso.browser.spaces.SpacesState
@@ -67,6 +72,7 @@ import app.enso.browser.spaces.Tab
 import app.enso.browser.spaces.TabEntry
 import app.enso.browser.spaces.TabPlace
 import app.enso.browser.spaces.find
+import app.enso.browser.spaces.space
 import app.enso.browser.spaces.toggleFolder
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
@@ -77,6 +83,7 @@ import app.enso.browser.ui.displayTitle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import mozilla.components.support.ktx.util.URLStringUtils
+import kotlin.math.abs
 
 /** What the tab sheet asks the app to do. */
 interface TabSheetActions {
@@ -93,6 +100,9 @@ interface TabSheetActions {
 
     fun edit(transform: (SpacesState) -> SpacesState)
 
+    /** Moves to the next (+1) or previous (-1) space. False when there's none. */
+    fun switchSpace(step: Int): Boolean
+
     fun dismiss()
 }
 
@@ -100,9 +110,15 @@ interface TabSheetActions {
 @Composable
 fun TabSheet(
     spaces: SpacesState,
+    /** The Essentials this space shows (see [app.enso.browser.spaces.essentialsFor]). */
+    essentials: List<Tab>,
     selectedTabId: String?,
     statusBarInset: Dp,
     quickTabLifetimeMs: Long,
+    /** Whether the hold menu offers pin, folder and Essentials actions (off while sync is read-only). */
+    canOrganize: Boolean,
+    /** Whether swiping the header sideways switches spaces. */
+    headerSwitchesSpaces: Boolean,
     actions: TabSheetActions,
 ) {
     val accent = Color(spaces.currentSpace.accent)
@@ -110,7 +126,7 @@ fun TabSheet(
     var query by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf<MenuTarget?>(null) }
     val current = selectedTabId?.let { spaces.find(it) }
-    val rows = remember(spaces, current, query) { sheetRows(spaces, current, query) }
+    val rows = remember(spaces, essentials, current, query) { sheetRows(spaces, essentials, current, query) }
     val listState = rememberLazyListState()
 
     BackHandler(enabled = menu != null) { menu = null }
@@ -141,17 +157,27 @@ fun TabSheet(
                 items(rows, key = { it.key }, contentType = { it::class }) { row ->
                     val openMenu = { target: MenuTarget -> menu = target }
                     when (row) {
-                        is SheetRow.Header -> SheetHeader(row.space)
+                        is SheetRow.Header -> SheetHeader(
+                            space = row.space,
+                            onSwipe = actions::switchSpace.takeIf { headerSwitchesSpaces },
+                        )
                         is SheetRow.Essentials -> EssentialsGrid(row.tabs, selectedTabId, actions, openMenu)
                         is SheetRow.PinnedTabRow -> TabRow(
                             tab = row.tab,
                             background = if (row.tab.id == selectedTabId) lerp(tint, Color.White, 0.55f) else tint,
-                            indent = row.inFolder,
+                            depth = row.depth,
                             swipe = SwipeAction.Unload,
                             actions = actions,
                             onLongClick = openMenu,
                         )
-                        is SheetRow.FolderRow -> FolderRow(row.folder, tint, accent, actions, openMenu)
+                        is SheetRow.FolderRow -> FolderRow(
+                            folder = row.folder,
+                            depth = row.depth,
+                            background = tint,
+                            accent = accent,
+                            actions = actions,
+                            onLongClick = openMenu.takeIf { canOrganize },
+                        )
                         SheetRow.Divider -> SheetDivider()
                         is SheetRow.Current -> CurrentTabCard(row.entry, actions, openMenu)
                         is SheetRow.OpenTabRow -> TabRow(
@@ -185,6 +211,7 @@ fun TabSheet(
                 spaces = spaces,
                 selectedTabId = selectedTabId,
                 quickTabLifetimeMs = quickTabLifetimeMs,
+                canOrganize = canOrganize,
                 actions = actions,
                 onDismiss = { menu = null },
             )
@@ -204,11 +231,12 @@ private sealed interface SheetRow {
         override val key get() = "essentials"
     }
 
-    data class PinnedTabRow(val tab: Tab, val inFolder: Boolean) : SheetRow {
+    /** [depth] is how many folders deep the row sits. */
+    data class PinnedTabRow(val tab: Tab, val depth: Int) : SheetRow {
         override val key get() = tab.id
     }
 
-    data class FolderRow(val folder: Folder) : SheetRow {
+    data class FolderRow(val folder: Folder, val depth: Int) : SheetRow {
         override val key get() = folder.id
     }
 
@@ -229,39 +257,68 @@ private sealed interface SheetRow {
     }
 }
 
-private fun sheetRows(spaces: SpacesState, current: TabEntry?, query: String): List<SheetRow> {
+private fun sheetRows(spaces: SpacesState, essentials: List<Tab>, current: TabEntry?, query: String): List<SheetRow> {
     val space = spaces.currentSpace
     if (query.isNotBlank()) {
-        return (spaces.essentials + space.allTabs)
+        return (essentials + space.allTabs)
             .filter { it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true) }
             .map(SheetRow::Match)
     }
     return buildList {
         add(SheetRow.Header(space))
-        if (spaces.essentials.isNotEmpty()) add(SheetRow.Essentials(spaces.essentials))
-        for (item in space.pinned) {
-            when (item) {
-                is PinnedTab -> add(SheetRow.PinnedTabRow(item.tab, inFolder = false))
-                is Folder -> {
-                    add(SheetRow.FolderRow(item))
-                    if (item.expanded) item.tabs.forEach { add(SheetRow.PinnedTabRow(it, inFolder = true)) }
+        if (essentials.isNotEmpty()) add(SheetRow.Essentials(essentials))
+        fun addPinned(items: List<PinnedItem>, depth: Int) {
+            for (item in items) {
+                when (item) {
+                    is PinnedTab -> add(SheetRow.PinnedTabRow(item.tab, depth))
+                    is Folder -> {
+                        add(SheetRow.FolderRow(item, depth))
+                        if (item.expanded) addPinned(item.items, depth + 1)
+                    }
                 }
             }
         }
+        addPinned(space.pinned, depth = 0)
         if (space.pinned.isNotEmpty()) add(SheetRow.Divider)
-        current?.let { add(SheetRow.Current(it)) }
+        // The current tab only gets the card when it belongs to this space (not after switching spaces).
+        current?.takeIf { entry -> entry.place.space?.id == space.id || essentials.any { it.id == entry.tab.id } }
+            ?.let { add(SheetRow.Current(it)) }
         space.tabs.filterNot { it.id == current?.tab?.id }.forEach { add(SheetRow.OpenTabRow(it)) }
     }
 }
 
+/** Space icon, name and tab count. With [onSwipe], swiping it sideways switches spaces. */
 @Composable
-private fun SheetHeader(space: Space) {
+private fun SheetHeader(space: Space, onSwipe: ((Int) -> Boolean)?) {
     val count = space.allTabs.size
+    val haptics = LocalHapticFeedback.current
+    val swipe by rememberUpdatedState(onSwipe)
     Row(
-        Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .pointerInput(onSwipe != null) {
+                if (onSwipe == null) return@pointerInput
+                val threshold = 48.dp.toPx()
+                var dragged = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dragged = 0f },
+                    onHorizontalDrag = { change, amount ->
+                        change.consume()
+                        dragged += amount
+                    },
+                    onDragEnd = {
+                        // Swiping left shows the next space, like turning a page.
+                        val step = if (dragged < 0) 1 else -1
+                        if (abs(dragged) > threshold && swipe?.invoke(step) == true) {
+                            haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                        }
+                    },
+                )
+            }
+            .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SpaceIcon(space.icon, size = 26.dp)
+        SpaceIcon(space.icon, size = 26.dp, fallbackName = space.name)
         Spacer(Modifier.width(12.dp))
         Text(space.name, style = EnsoType.SpaceName, modifier = Modifier.weight(1f), maxLines = 1)
         Text(pluralStringResource(R.plurals.tab_count, count, count), style = EnsoType.Secondary)
@@ -315,7 +372,7 @@ private fun TabRow(
     swipe: SwipeAction?,
     actions: TabSheetActions,
     onLongClick: ((MenuTarget) -> Unit)?,
-    indent: Boolean = false,
+    depth: Int = 0,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     val content = @Composable {
@@ -331,7 +388,7 @@ private fun TabRow(
                     onClick = { actions.select(tab.id) },
                     onLongClick = onLongClick?.let { { it(MenuTarget.ForTab(tab.id, bounds)) } },
                 )
-                .padding(start = if (indent) 44.dp else 12.dp, end = 12.dp),
+                .padding(start = 12.dp + FolderIndent * depth, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             LetterFavicon(tab.title, tab.url)
@@ -392,10 +449,11 @@ private fun SwipeToClose(
 @Composable
 private fun FolderRow(
     folder: Folder,
+    depth: Int,
     background: Color,
     accent: Color,
     actions: TabSheetActions,
-    onLongClick: (MenuTarget) -> Unit,
+    onLongClick: ((MenuTarget) -> Unit)?,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     Row(
@@ -407,9 +465,9 @@ private fun FolderRow(
             .background(background)
             .combinedClickable(
                 onClick = { actions.edit { it.toggleFolder(folder.id) } },
-                onLongClick = { onLongClick(MenuTarget.ForFolder(folder.id, bounds)) },
+                onLongClick = onLongClick?.let { { it(MenuTarget.ForFolder(folder.id, bounds)) } },
             )
-            .padding(horizontal = 12.dp),
+            .padding(start = 12.dp + FolderIndent * depth, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -535,6 +593,9 @@ private fun SheetSearchField(
         )
     }
 }
+
+/** How much deeper each folder level sits. */
+private val FolderIndent = 32.dp
 
 /** Quick Tabs get a 2dp gold outline (spec: Quick Tabs, "Look"). */
 internal fun Modifier.quickTabOutline(tab: Tab, shape: Shape): Modifier =

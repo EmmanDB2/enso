@@ -37,9 +37,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import app.enso.browser.spaces.SpacesState
+import app.enso.browser.spaces.essentialsFor
+import app.enso.browser.spaces.isInCurrentSpace
 import app.enso.browser.start.HistoryMatch
 import app.enso.browser.start.StartScreen
 import app.enso.browser.start.StartScreenActions
+import app.enso.browser.sync.MozillaAccount
+import app.enso.browser.sync.ZenSyncSheet
+import app.enso.browser.sync.ZenSyncStatus
 import app.enso.browser.tabsheet.TabSheet
 import app.enso.browser.tabsheet.TabSheetActions
 import app.enso.browser.toolbar.AddressInput
@@ -56,6 +61,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.concept.engine.EngineView
+import mozilla.components.feature.accounts.FxaWebChannelFeature
 import mozilla.components.feature.session.SessionFeature
 import mozilla.components.feature.tabs.WindowFeature
 import mozilla.components.lib.state.ext.flow
@@ -76,6 +82,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var topEdge: View
     private lateinit var sessionFeature: SessionFeature
     private lateinit var windowFeature: WindowFeature
+    private lateinit var webChannelFeature: FxaWebChannelFeature
 
     private var editing by mutableStateOf(false)
     private var tabSheetOpen by mutableStateOf(false)
@@ -83,7 +90,19 @@ class MainActivity : ComponentActivity() {
 
     /** Set when the app comes back after being away a while; cleared by opening or switching to a tab. */
     private var startScreenRequested by mutableStateOf(false)
-    private val startScreenVisible get() = selectedTabId == null || startScreenRequested
+
+    /** Shown when no tab is selected, the selected tab belongs to another space, or after time away. */
+    private val startScreenVisible: Boolean
+        get() {
+            val selected = selectedTabId ?: return true
+            return startScreenRequested ||
+                !components.spaces.state.value.isInCurrentSpace(selected, components.settings.essentialsPerContainer)
+        }
+
+    private var zenSyncSheetOpen by mutableStateOf(false)
+
+    /** The sign-in page's tab, closed once the account is signed in. */
+    private var signInTabId: String? = null
 
     private var statusBarInset by mutableIntStateOf(0)
     private var barHeight = 0
@@ -172,6 +191,14 @@ class MainActivity : ComponentActivity() {
         )
         // Links that open a new window (target=_blank, window.open) become tabs.
         windowFeature = WindowFeature(components.store, components.tabsUseCases)
+        // Mozilla's sign-in page talks to the account manager over a web channel.
+        webChannelFeature = FxaWebChannelFeature(
+            customTabSessionId = null,
+            runtime = components.engine,
+            store = components.store,
+            accountManager = components.accountManager,
+            serverConfig = MozillaAccount.serverConfig,
+        )
         onBackPressedDispatcher.addCallback(this, backCallback)
         observeState()
     }
@@ -185,12 +212,15 @@ class MainActivity : ComponentActivity() {
         if (away != null && away >= settings.startScreenAfterMs) startScreenRequested = true
         sessionFeature.start()
         windowFeature.start()
+        webChannelFeature.start()
+        components.zenSync.syncNow(minIntervalMs = ZEN_SYNC_MIN_INTERVAL_MS)
     }
 
     override fun onStop() {
         super.onStop()
         sessionFeature.stop()
         windowFeature.stop()
+        webChannelFeature.stop()
         if (!startScreenVisible) components.tabs.markSelectedViewed()
         components.settings.lastStoppedAt = System.currentTimeMillis()
         components.spaces.flush()
@@ -221,6 +251,7 @@ class MainActivity : ComponentActivity() {
             onForward = { useCases.goForward() },
             onOpenTabSheet = { tabSheetOpen = true },
             onSwitchTab = { step -> components.tabs.switchBy(step, components.settings.tabSwipeScope) },
+            onOpenZenSync = { zenSyncSheetOpen = true },
         )
     }
 
@@ -228,6 +259,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun OverlayContent() {
         val spaces by components.spaces.state.collectAsState()
+        val zenStatus by components.zenSync.status.collectAsState()
         val statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() }
         if (startScreenVisible) {
             // Back from the start screen returns to the last tab, if there is one.
@@ -242,11 +274,37 @@ class MainActivity : ComponentActivity() {
             BackHandler { tabSheetOpen = false }
             TabSheet(
                 spaces = spaces,
+                essentials = spaces.essentialsFor(perContainer = components.settings.essentialsPerContainer),
                 selectedTabId = selectedTabId,
                 statusBarInset = statusBarInset,
                 quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
+                // While sync is read-only, pins, folders and Essentials come from Zen.
+                canOrganize = zenStatus !is ZenSyncStatus.SignedIn,
+                headerSwitchesSpaces = components.settings.switchSpacesFromSheetHeader,
                 actions = tabSheetActions,
             )
+        }
+        if (zenSyncSheetOpen) {
+            BackHandler { zenSyncSheetOpen = false }
+            ZenSyncSheet(
+                status = zenStatus,
+                accent = ComposeColor(spaces.currentSpace.accent),
+                onSignIn = ::signIn,
+                onSyncNow = { components.zenSync.syncNow() },
+                onSignOut = { components.zenSync.signOut() },
+                onDismiss = { zenSyncSheetOpen = false },
+            )
+        }
+    }
+
+    /** Opens Mozilla's sign-in page in a Quick Tab; the web channel finishes signing in. */
+    private fun signIn() {
+        zenSyncSheetOpen = false
+        lifecycleScope.launch {
+            val url = components.zenSync.beginSignIn() ?: return@launch
+            components.tabs.openNewTab(url, quick = true)
+            signInTabId = components.store.state.selectedTabId
+            startScreenRequested = false
         }
     }
 
@@ -268,6 +326,8 @@ class MainActivity : ComponentActivity() {
         }
 
         override fun edit(transform: (SpacesState) -> SpacesState) = components.spaces.update(transform)
+
+        override fun switchSpace(step: Int) = components.tabs.switchSpace(step)
 
         override fun dismiss() {
             tabSheetOpen = false
@@ -333,6 +393,25 @@ class MainActivity : ComponentActivity() {
             snapshotFlow { startScreenVisible to tabSheetOpen }.collect { (startScreen, _) ->
                 if (startScreen) editing = false
                 updateStatusBar()
+            }
+        }
+        lifecycleScope.launch {
+            // Pull from Zen every few minutes while the app is open.
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    delay(ZEN_SYNC_INTERVAL_MS)
+                    components.zenSync.syncNow()
+                }
+            }
+        }
+        lifecycleScope.launch {
+            // Close the sign-in page once the account is signed in.
+            components.zenSync.status.collect { status ->
+                val tab = signInTabId
+                if (status is ZenSyncStatus.SignedIn && tab != null) {
+                    signInTabId = null
+                    components.tabs.close(tab)
+                }
             }
         }
         lifecycleScope.launch {
@@ -415,5 +494,7 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val QUICK_TAB_CHECK_INTERVAL_MS = 60_000L
+        const val ZEN_SYNC_INTERVAL_MS = 5 * 60_000L
+        const val ZEN_SYNC_MIN_INTERVAL_MS = 60_000L
     }
 }

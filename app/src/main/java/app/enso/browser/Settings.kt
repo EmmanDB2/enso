@@ -29,6 +29,16 @@ class Settings(context: Context) {
             ?: TabSwipeScope.OpenTabs
         set(value) = prefs.edit { putString(KEY_TAB_SWIPE_SCOPE, value.name) }
 
+    /** Swipe the tab sheet's header sideways to switch spaces. The way to switch until the arc menu (step 6). */
+    var switchSpacesFromSheetHeader: Boolean
+        get() = prefs.getBoolean(KEY_SWITCH_SPACES_FROM_SHEET_HEADER, true)
+        set(value) = prefs.edit { putBoolean(KEY_SWITCH_SPACES_FROM_SHEET_HEADER, value) }
+
+    /** Each Zen container has its own Essentials, as in Zen; off shows every Essential in every space. */
+    var essentialsPerContainer: Boolean
+        get() = prefs.getBoolean(KEY_ESSENTIALS_PER_CONTAINER, true)
+        set(value) = prefs.edit { putBoolean(KEY_ESSENTIALS_PER_CONTAINER, value) }
+
     /** How long a Quick Tab lasts after it was last viewed. */
     var quickTabLifetimeHours: Int
         get() = prefs.getInt(KEY_QUICK_TAB_LIFETIME_HOURS, 24)
@@ -52,6 +62,8 @@ class Settings(context: Context) {
     private companion object {
         const val KEY_HIDE_STATUS_BAR = "hide_status_bar_with_top_bar"
         const val KEY_TAB_SWIPE_SCOPE = "tab_swipe_scope"
+        const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
+        const val KEY_ESSENTIALS_PER_CONTAINER = "essentials_per_container"
         const val KEY_QUICK_TAB_LIFETIME_HOURS = "quick_tab_lifetime_hours"
         const val KEY_START_SCREEN_AFTER_MINUTES = "start_screen_after_minutes"
         const val KEY_LAST_STOPPED_AT = "last_stopped_at"

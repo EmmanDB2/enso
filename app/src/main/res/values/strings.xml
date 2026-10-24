@@ -60,4 +60,21 @@
     <string name="palette_history_row">%1$s — %2$s</string>
     <string name="palette_footer">New searches open as Quick Tabs</string>
     <string name="action_open_search">Search or type a URL</string>
+
+    <!-- Zen sync (step 5) -->
+    <string name="menu_zen_sync">Sync with Zen</string>
+    <string name="zen_sync_title">Sync with Zen</string>
+    <string name="zen_sync_signed_out">Sign in with your Mozilla account to bring your Zen Spaces, pinned tabs, folders and Essentials to this phone.</string>
+    <string name="zen_sync_read_only">For now syncing is one way: Zen to the phone. Changes made here stay on the phone.</string>
+    <string name="zen_sync_sign_in">Sign in</string>
+    <string name="zen_sync_sync_now">Sync now</string>
+    <string name="zen_sync_sign_out">Sign out</string>
+    <string name="zen_sync_starting">Loading your account…</string>
+    <string name="zen_sync_syncing">Syncing…</string>
+    <string name="zen_sync_synced_never">Signed in. Waiting for the first sync.</string>
+    <string name="zen_sync_synced_at">Last synced %s</string>
+    <string name="zen_sync_off">Spaces sync is off for this account. In Zen, turn on Settings › Sync › “Sync your Spaces across devices”.</string>
+    <string name="zen_sync_needs_update">Zen uses a newer sync format than this version of Ensō reads.</string>
+    <string name="zen_sync_needs_sign_in">Your Mozilla account needs you to sign in again.</string>
+    <string name="zen_sync_failed">Sync failed: %s</string>
 </resources>
