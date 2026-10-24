@@ -73,7 +73,12 @@ data class Tab(
     val title: String = "",
     /** Pinned tabs and Essentials go back to this URL when unloaded. */
     val pinnedUrl: String? = null,
+    /** Set while this is a Quick Tab: temporary, never synced, cleared after a while unviewed. */
+    val quick: QuickTab? = null,
 )
+
+@Serializable
+data class QuickTab(val lastViewedAt: Long)
 
 /** Where a tab lives. */
 sealed interface TabPlace {

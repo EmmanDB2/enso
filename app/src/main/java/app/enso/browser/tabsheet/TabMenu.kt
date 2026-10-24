@@ -41,6 +41,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
@@ -55,6 +56,7 @@ import app.enso.browser.spaces.TabPlace
 import app.enso.browser.spaces.addToEssentials
 import app.enso.browser.spaces.deleteFolder
 import app.enso.browser.spaces.find
+import app.enso.browser.spaces.keepQuickTab
 import app.enso.browser.spaces.moveToFolder
 import app.enso.browser.spaces.moveToNewFolder
 import app.enso.browser.spaces.pin
@@ -65,6 +67,9 @@ import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.SpaceIcon
+import app.enso.browser.ui.displayTitle
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 /** What was held, and where its row is on screen. */
@@ -81,6 +86,10 @@ private class MenuItem(
     @StringRes val label: Int = 0,
     /** Shown instead of [label], for names that come from data (folders). */
     val text: String? = null,
+    /** A space's icon, in its accent, shown instead of [icon]. */
+    val spaceIcon: String? = null,
+    /** The primary action, on a light gray fill (board 4b). */
+    val highlighted: Boolean = false,
     val destructive: Boolean = false,
     val opensMore: Boolean = false,
     val onClick: () -> Unit,
@@ -93,11 +102,19 @@ private sealed interface FolderDialog {
 }
 
 /**
- * Hold menu for organizing tabs on the phone until Zen sync (step 5): the held row lifts,
- * everything else dims, and a white menu opens beside it (board 4b's style).
+ * Hold menu: the held row lifts, everything else dims, and a white menu opens beside it (board 4b).
+ * Quick Tabs get the spec's menu. Other tabs and folders get local organizing actions that stand
+ * in until Zen sync (step 5).
  */
 @Composable
-internal fun TabMenu(target: MenuTarget, spaces: SpacesState, actions: TabSheetActions, onDismiss: () -> Unit) {
+internal fun TabMenu(
+    target: MenuTarget,
+    spaces: SpacesState,
+    selectedTabId: String?,
+    quickTabLifetimeMs: Long,
+    actions: TabSheetActions,
+    onDismiss: () -> Unit,
+) {
     var choosingFolder by remember(target) { mutableStateOf(false) }
     var dialog by remember(target) { mutableStateOf<FolderDialog?>(null) }
     val accent = Color(spaces.currentSpace.accent)
@@ -113,8 +130,32 @@ internal fun TabMenu(target: MenuTarget, spaces: SpacesState, actions: TabSheetA
         is MenuTarget.ForTab -> {
             val entry = spaces.find(target.tabId) ?: return DismissGone(onDismiss)
             val id = target.tabId
-            header = AddressInput.displayHost(entry.tab.url).ifEmpty { entry.tab.displayTitle() }
-            items = if (choosingFolder) {
+            val quick = entry.tab.quick
+            header = if (quick != null) {
+                // The tab on screen restarts its clock when you leave it, so it has the full time.
+                val viewedAt = if (id == selectedTabId) System.currentTimeMillis() else quick.lastViewedAt
+                val remaining = quickTabLifetimeMs - (System.currentTimeMillis() - viewedAt)
+                stringResource(R.string.quick_tab_header, clearsIn(remaining))
+            } else {
+                AddressInput.displayHost(entry.tab.url).ifEmpty { entry.tab.displayTitle() }
+            }
+            val space = spaces.currentSpace
+            items = if (quick != null) {
+                // "Add to another space" opens the arc picker, which arrives with the arc menu (step 6).
+                listOf(
+                    MenuItem(
+                        icon = 0,
+                        text = stringResource(R.string.menu_add_to_space, space.name),
+                        spaceIcon = space.icon,
+                        highlighted = true,
+                    ) { edit { it.keepQuickTab(id) } },
+                    null,
+                    MenuItem(R.drawable.ic_close, R.string.action_close_tab, destructive = true) {
+                        actions.close(id)
+                        onDismiss()
+                    },
+                )
+            } else if (choosingFolder) {
                 val currentFolder = (entry.place as? TabPlace.Pinned)?.folder?.id
                 spaces.currentSpace.folders.filterNot { it.id == currentFolder }.map { folder ->
                     MenuItem(R.drawable.ic_folder, text = folder.name) { edit { it.moveToFolder(id, folder.id) } }
@@ -175,7 +216,7 @@ internal fun TabMenu(target: MenuTarget, spaces: SpacesState, actions: TabSheetA
     ) {
         LiftedRow(target, spaces)
         MenuCardPlacement(target.bounds) {
-            MenuCard(header, items)
+            MenuCard(header, items, accent)
         }
     }
 
@@ -200,6 +241,17 @@ internal fun TabMenu(target: MenuTarget, spaces: SpacesState, actions: TabSheetA
     }
 }
 
+/** "9 hours", "45 minutes" or "under a minute". */
+@Composable
+private fun clearsIn(remainingMs: Long): String {
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(remainingMs.coerceAtLeast(0)).toInt()
+    return when {
+        minutes >= 60 -> ((minutes + 30) / 60).let { pluralStringResource(R.plurals.duration_hours, it, it) }
+        minutes >= 1 -> pluralStringResource(R.plurals.duration_minutes, minutes, minutes)
+        else -> stringResource(R.string.duration_under_a_minute)
+    }
+}
+
 /** The held tab or folder disappeared (closed by its page, say), so close the menu. */
 @Composable
 private fun DismissGone(onDismiss: () -> Unit) {
@@ -212,12 +264,14 @@ private fun LiftedRow(target: MenuTarget, spaces: SpacesState) {
     val bounds = target.bounds
     val density = LocalDensity.current
     val shape = RoundedCornerShape(14.dp)
+    val heldTab = (target as? MenuTarget.ForTab)?.let { spaces.find(it.tabId)?.tab }
     Box(
         Modifier
             .offset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
             .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })
             .shadow(10.dp, shape)
             .background(EnsoColors.CurrentTab, shape)
+            .then(if (heldTab != null) Modifier.quickTabOutline(heldTab, shape) else Modifier)
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -269,7 +323,7 @@ private fun MenuCardPlacement(bounds: Rect, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun MenuCard(header: String, items: List<MenuItem?>) {
+private fun MenuCard(header: String, items: List<MenuItem?>, accent: Color) {
     val shape = RoundedCornerShape(18.dp)
     Column(
         Modifier
@@ -297,7 +351,7 @@ private fun MenuCard(header: String, items: List<MenuItem?>) {
                         .background(EnsoColors.TextSecondary.copy(alpha = 0.2f)),
                 )
             } else {
-                MenuRow(item)
+                MenuRow(item, accent)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -305,17 +359,22 @@ private fun MenuCard(header: String, items: List<MenuItem?>) {
 }
 
 @Composable
-private fun MenuRow(item: MenuItem) {
+private fun MenuRow(item: MenuItem, accent: Color) {
     val color = if (item.destructive) EnsoColors.CloseMenuText else EnsoColors.TextPrimary
     Row(
         Modifier
             .fillMaxWidth()
             .height(52.dp)
+            .then(if (item.highlighted) Modifier.background(EnsoColors.TextPrimary.copy(alpha = 0.05f)) else Modifier)
             .clickable(onClick = item.onClick)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(painterResource(item.icon), contentDescription = null, Modifier.size(22.dp), tint = color)
+        if (item.spaceIcon != null) {
+            SpaceIcon(item.spaceIcon, size = 22.dp, tint = accent)
+        } else {
+            Icon(painterResource(item.icon), contentDescription = null, Modifier.size(22.dp), tint = color)
+        }
         Spacer(Modifier.width(16.dp))
         Text(
             item.text ?: stringResource(item.label),

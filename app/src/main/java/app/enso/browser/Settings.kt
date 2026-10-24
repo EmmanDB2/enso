@@ -2,6 +2,7 @@ package app.enso.browser
 
 import android.content.Context
 import androidx.core.content.edit
+import java.util.concurrent.TimeUnit
 
 /** Which tabs a sideways swipe on the address field moves through. */
 enum class TabSwipeScope {
@@ -15,20 +16,44 @@ enum class TabSwipeScope {
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("enso_settings", Context.MODE_PRIVATE)
 
-    /** Hide the Android status bar together with the top bar. Not in the UI yet. */
+    // User preferences. None are in a settings UI yet; they're meant to become settings later.
+
+    /** Hide the Android status bar together with the top bar. */
     var hideStatusBarWithTopBar: Boolean
         get() = prefs.getBoolean(KEY_HIDE_STATUS_BAR, true)
         set(value) = prefs.edit { putBoolean(KEY_HIDE_STATUS_BAR, value) }
 
-    /** Not in the UI yet. */
     var tabSwipeScope: TabSwipeScope
         get() = prefs.getString(KEY_TAB_SWIPE_SCOPE, null)
             ?.let { name -> TabSwipeScope.entries.firstOrNull { it.name == name } }
             ?: TabSwipeScope.OpenTabs
         set(value) = prefs.edit { putString(KEY_TAB_SWIPE_SCOPE, value.name) }
 
+    /** How long a Quick Tab lasts after it was last viewed. */
+    var quickTabLifetimeHours: Int
+        get() = prefs.getInt(KEY_QUICK_TAB_LIFETIME_HOURS, 24)
+        set(value) = prefs.edit { putInt(KEY_QUICK_TAB_LIFETIME_HOURS, value) }
+
+    /** How long the app must be away before it reopens on the start screen. */
+    var startScreenAfterMinutes: Int
+        get() = prefs.getInt(KEY_START_SCREEN_AFTER_MINUTES, 30)
+        set(value) = prefs.edit { putInt(KEY_START_SCREEN_AFTER_MINUTES, value) }
+
+    val quickTabLifetimeMs get() = TimeUnit.HOURS.toMillis(quickTabLifetimeHours.toLong())
+    val startScreenAfterMs get() = TimeUnit.MINUTES.toMillis(startScreenAfterMinutes.toLong())
+
+    // App state.
+
+    /** When the app last went to the background. */
+    var lastStoppedAt: Long?
+        get() = prefs.getLong(KEY_LAST_STOPPED_AT, 0L).takeIf { it > 0 }
+        set(value) = prefs.edit { putLong(KEY_LAST_STOPPED_AT, value ?: 0L) }
+
     private companion object {
         const val KEY_HIDE_STATUS_BAR = "hide_status_bar_with_top_bar"
         const val KEY_TAB_SWIPE_SCOPE = "tab_swipe_scope"
+        const val KEY_QUICK_TAB_LIFETIME_HOURS = "quick_tab_lifetime_hours"
+        const val KEY_START_SCREEN_AFTER_MINUTES = "start_screen_after_minutes"
+        const val KEY_LAST_STOPPED_AT = "last_stopped_at"
     }
 }

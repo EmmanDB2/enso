@@ -39,4 +39,25 @@
     <string name="dialog_create">Create</string>
     <string name="dialog_rename">Rename</string>
     <string name="dialog_cancel">Cancel</string>
+
+    <!-- Quick Tabs (boards 4, 4b) -->
+    <string name="quick_tab_header">Quick Tab · clears in %s</string>
+    <string name="menu_add_to_space">Add to %s</string>
+    <plurals name="duration_hours">
+        <item quantity="one">%d hour</item>
+        <item quantity="other">%d hours</item>
+    </plurals>
+    <plurals name="duration_minutes">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
+    <string name="duration_under_a_minute">under a minute</string>
+
+    <!-- Start screen and search palette (boards 9, 9b) -->
+    <string name="palette_search_web">Search the web</string>
+    <string name="palette_go_to">Go to %s</string>
+    <string name="palette_switch_to_tab">Switch to Tab</string>
+    <string name="palette_history_row">%1$s — %2$s</string>
+    <string name="palette_footer">New searches open as Quick Tabs</string>
+    <string name="action_open_search">Search or type a URL</string>
 </resources>

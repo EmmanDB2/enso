@@ -69,7 +69,23 @@ fun SpacesState.resetToPinnedUrl(tabId: String) = updateTab(tabId) { tab ->
     if (tab.url == pinnedUrl) tab else tab.copy(url = pinnedUrl, title = "")
 }
 
-private fun Tab.asPinned() = copy(pinnedUrl = pinnedUrl ?: url)
+/** Pinning a Quick Tab (or making it an Essential) keeps it, so it stops being quick. */
+private fun Tab.asPinned() = copy(pinnedUrl = pinnedUrl ?: url, quick = null)
+
+/** Keeps a Quick Tab: it loses its gold outline and becomes a normal open tab. */
+fun SpacesState.keepQuickTab(tabId: String) = updateTab(tabId) { it.copy(quick = null) }
+
+/** Records that a Quick Tab was on screen at [now], restarting its expiry clock. */
+fun SpacesState.markViewed(tabId: String, now: Long) =
+    updateTab(tabId) { tab -> tab.quick?.let { tab.copy(quick = QuickTab(lastViewedAt = now)) } ?: tab }
+
+/** Quick Tabs not viewed for longer than [lifetimeMs]. */
+fun SpacesState.expiredQuickTabs(now: Long, lifetimeMs: Long): List<String> =
+    spaces.flatMap { it.tabs }
+        .filter { tab -> tab.quick?.let { now - it.lastViewedAt > lifetimeMs } == true }
+        .map { it.id }
+
+fun SpacesState.clearSelection() = updateSpace(currentSpaceId) { it.copy(selectedTabId = null) }
 
 fun SpacesState.pin(tabId: String): SpacesState {
     val entry = find(tabId) ?: return this

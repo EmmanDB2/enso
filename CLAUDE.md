@@ -10,7 +10,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Build **one step of the spec's build order at a time**. Each step must build, install and run on the Fold before the next one starts.
 - Don't build UI or features from later steps early, even as stubs.
 - If the spec is unclear or silent, ask instead of guessing. The spec lists its own open questions at the end.
-- Current step: **3, tabs and local spaces**. Local spaces model, cover tab sheet (board 4), swipe-to-close, address-field swipes. There's one space ("Home") until sync (step 5) and the arc menu (step 6). The inner screen shows the cover layout stretched until step 7.
+- Current step: **4, Quick Tabs, start screen and search palette** (boards 4, 4b, 9, 9b). There's one space ("Home") until sync (step 5) and the arc menu (step 6). The inner screen shows the cover layout stretched until step 7.
+- When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
 
@@ -18,11 +19,13 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Mozilla libraries come from `https://maven.mozilla.org/maven2/`. GeckoView comes in through `browser-engine-gecko`, so bumping `mozilla-components` bumps both together.
 - Android Components keeps many modules as internal dependencies. If the compiler says it "cannot access" an AC class, declare that module (for example `concept-engine`) in the catalog yourself.
 - AC 158 requires `compileSdk` 37.2, which is why `app/build.gradle.kts` uses the minor-version `compileSdk { }` block.
+- `app/build.gradle.kts` has a capability rule that picks GeckoView's copy of `glean-native`. GeckoView's omni build bundles it, and application-services (Places) asks for the standalone one. Keep the rule while both are in the build.
 - The build is limited to `arm64-v8a`, the Fold's chip type.
 
 ## Code map
 
-- `Components.kt`: app-wide singletons, created lazily by `EnsoApplication`: `GeckoEngine`, `BrowserStore`, the use cases, `SpacesStore` and `TabManager`. Only one `GeckoRuntime` may exist per process, and it lives here.
+- `Components.kt`: app-wide singletons, created lazily by `EnsoApplication`: `GeckoEngine`, `BrowserStore`, the use cases, `SpacesStore`, `TabManager` and `PlacesHistoryStorage`. Only one `GeckoRuntime` may exist per process, and it lives here.
+  - History goes into Firefox's Places database through `HistoryDelegate`; the palette reads it, and step 5 syncs it.
 - `spaces/`: the local spaces model, shaped after Zen so step 5 can sync it.
   - Structure: `SpacesState` holds the spaces and the shared Essentials. A `Space` holds its pinned items (tabs and folders, in order) and its open tabs.
   - Edits are pure functions in `SpacesEdits.kt`.
@@ -30,10 +33,22 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - `TabManager`: the only place tabs are opened, selected, closed or unloaded. Don't add or remove tabs in the `BrowserStore` directly.
   - The model and the `BrowserStore` share tab IDs. A tab exists in the BrowserStore only while it's loaded, so pinned tabs and Essentials can sit unloaded.
   - It copies URL and title changes, page-opened tabs (`WindowFeature`) and selection back into the model.
+  - Any open tab that leaves the BrowserStore is removed from the model. A bug that drops BrowserStore tabs therefore deletes them from the user's saved tabs.
+  - No selected tab is a real state: the start screen shows.
+- Quick Tabs: `Tab.quick` holds `lastViewedAt`, and sync must skip these tabs.
+  - New searches from the palette and the tab sheet's search field create them, and so do pages a Quick Tab opens. The top bar loads in the current tab.
+  - Expiry runs in `onStart` and every minute while the app is open. The tab on screen is never cleared while you're viewing it.
 - `tabsheet/`:
-  - `TabSheet.kt` is the cover tab sheet (board 4), drawn over the page in its own `ComposeView`.
-  - `TabMenu.kt` is the hold menu (board 4b style) for pin, unpin, folders and Essentials. These actions stand in for organizing tabs on the phone until sync.
-- `MainActivity.kt`: a `CoordinatorLayout` holding the engine view, the top bar and the tab sheet.
+  - `TabSheet.kt` is the cover tab sheet (board 4). Quick Tabs get a gold outline.
+  - Rows that can swap which tab they show (like the current-tab card) must key their swipe state by tab ID, or a dismissed state carries over and closes the next tab.
+  - `TabMenu.kt` is the hold menu (board 4b).
+    - On a Quick Tab it shows the spec's menu: Add to [space] and Close tab. "Add to another space" waits for the arc menu (step 6).
+    - On other tabs and folders it shows local pin, unpin, folder and Essentials actions, which stand in until sync.
+- `start/StartScreen.kt`: start screen (board 9) and search palette (board 9b).
+  - The start screen shows when no tab is selected, or when the app was away for `startScreenAfterMinutes`.
+  - Tap it for the palette; swipe down for the tab sheet.
+  - Back returns to the last tab.
+- `MainActivity.kt`: a `CoordinatorLayout` holding the engine view, the top bar, and one overlay `ComposeView` for the start screen and tab sheet.
   - Hide-on-scroll uses AC's `EngineViewScrollingDataBehavior` and `EngineViewClippingBehavior` together with GeckoView's dynamic toolbar height.
   - Don't switch to `EngineViewScrollingGesturesBehavior`. GeckoView blocks parent touch interception for gestures that start mid-page, so that behavior can hide the bar but never bring it back.
   - The back gesture goes back a page, or cancels an edit.
@@ -44,9 +59,12 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - `ui/`:
   - `Theme.kt` holds color tokens from the spec's Visual style table and the Inter font (bundled in `res/font`; its license is in `assets/licenses`).
   - `Favicons.kt` has the letter favicon placeholders and the space icons.
-- `Settings.kt`: SharedPreferences switches, not yet in any UI, meant to become user settings later.
+- `Settings.kt`: SharedPreferences values, not yet in any UI, meant to become user settings later.
   - `hideStatusBarWithTopBar` (default on) hides the status bar along with the bar.
   - `tabSwipeScope` (default `OpenTabs`) sets which tabs the address-field swipe moves through.
+  - `quickTabLifetimeHours` (default 24, counted since last viewed) sets when Quick Tabs clear.
+  - `startScreenAfterMinutes` (default 30) sets how long the app must be away before it reopens on the start screen.
+  - `lastStoppedAt` is app state, not a preference.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
 
 ## Toolchain (macOS)
@@ -75,3 +93,15 @@ The Fold connects over wireless debugging. Wireless debugging must be on in Deve
   - Long press: `swipe x y x y 900`.
   - Hold a swipe partway: `motionevent DOWN|MOVE|UP x y`.
 - **Test pages from the Mac:** serve them on `127.0.0.1:<port>` and run `adb reverse tcp:<port> tcp:<port>`. The Fold can then open `http://localhost:<port>/…`.
+
+## Testing on the Fold
+
+The user browses with this build on the Fold, so its tabs are real.
+
+- **Back up before testing:** save `adb shell run-as app.enso.browser cat files/spaces.json` (and `shared_prefs/enso_settings.xml`) first.
+- **Use your own test tabs:** create them, close only those, and check the user's tabs are intact afterwards.
+- **Restore if needed:** stop the app with `am force-stop`, then run `adb exec-in run-as app.enso.browser sh -c 'cat > files/spaces.json' < backup.json`.
+- **Edge swipes:** a swipe that starts within about 60 px of the left or right edge is Android's back gesture. Start sideways swipes further in.
+- **Faking time:**
+  - Away time: edit `last_stopped_at` in the prefs file while the app is stopped.
+  - Quick Tab expiry: edit a test tab's `quick.lastViewedAt` in `spaces.json`.

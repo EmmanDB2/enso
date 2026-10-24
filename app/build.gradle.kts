@@ -39,10 +39,24 @@ android {
     }
 }
 
+// GeckoView's omni build bundles Glean's native library; application-services (Places) asks
+// for the standalone one too. Take GeckoView's, as Mozilla's own apps do.
+configurations.configureEach {
+    resolutionStrategy.capabilitiesResolution.withCapability("org.mozilla.telemetry:glean-native") {
+        val geckoView = candidates.firstOrNull {
+            (it.id as? ModuleComponentIdentifier)?.module?.contains("geckoview") == true
+        }
+        if (geckoView != null) select(geckoView)
+        because("GeckoView already ships Glean's native library")
+    }
+}
+
 dependencies {
     implementation(libs.mozilla.browser.engine.gecko)
     implementation(libs.mozilla.browser.state)
+    implementation(libs.mozilla.browser.storage.sync)
     implementation(libs.mozilla.concept.engine)
+    implementation(libs.mozilla.concept.storage)
     implementation(libs.mozilla.concept.toolbar)
     implementation(libs.mozilla.feature.session)
     implementation(libs.mozilla.feature.tabs)

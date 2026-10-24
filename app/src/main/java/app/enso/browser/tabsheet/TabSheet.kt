@@ -3,6 +3,7 @@ package app.enso.browser.tabsheet
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,6 +32,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +44,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,6 +73,7 @@ import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.LetterFavicon
 import app.enso.browser.ui.SpaceIcon
+import app.enso.browser.ui.displayTitle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import mozilla.components.support.ktx.util.URLStringUtils
@@ -98,6 +102,7 @@ fun TabSheet(
     spaces: SpacesState,
     selectedTabId: String?,
     statusBarInset: Dp,
+    quickTabLifetimeMs: Long,
     actions: TabSheetActions,
 ) {
     val accent = Color(spaces.currentSpace.accent)
@@ -175,7 +180,14 @@ fun TabSheet(
             )
         }
         menu?.let { target ->
-            TabMenu(target = target, spaces = spaces, actions = actions, onDismiss = { menu = null })
+            TabMenu(
+                target = target,
+                spaces = spaces,
+                selectedTabId = selectedTabId,
+                quickTabLifetimeMs = quickTabLifetimeMs,
+                actions = actions,
+                onDismiss = { menu = null },
+            )
         }
     }
 }
@@ -314,6 +326,7 @@ private fun TabRow(
                 .onGloballyPositioned { bounds = it.boundsInRoot() }
                 .clip(RoundedCornerShape(12.dp))
                 .background(background)
+                .quickTabOutline(tab, RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClick = { actions.select(tab.id) },
                     onLongClick = onLongClick?.let { { it(MenuTarget.ForTab(tab.id, bounds)) } },
@@ -438,6 +451,7 @@ private fun CurrentTabCard(entry: TabEntry, actions: TabSheetActions, onLongClic
                 .shadow(6.dp, RoundedCornerShape(14.dp))
                 .clip(RoundedCornerShape(14.dp))
                 .background(EnsoColors.CurrentTab)
+                .quickTabOutline(tab, RoundedCornerShape(14.dp))
                 .combinedClickable(
                     onClick = { actions.dismiss() },
                     onLongClick = { onLongClick(MenuTarget.ForTab(tab.id, bounds)) },
@@ -473,7 +487,11 @@ private fun CurrentTabCard(entry: TabEntry, actions: TabSheetActions, onLongClic
         }
     }
     val swipe = if (place is TabPlace.Open) SwipeAction.Close else SwipeAction.Unload
-    SwipeToClose(swipe, onSwiped = { actions.swipe(tab.id, swipe) }, Modifier.padding(vertical = 4.dp)) { card() }
+    // The card's list slot stays while the tab in it changes. Keying the swipe state to the tab
+    // stops a dismissed state from carrying over and closing each next tab in turn.
+    key(tab.id) {
+        SwipeToClose(swipe, onSwiped = { actions.swipe(tab.id, swipe) }, Modifier.padding(vertical = 4.dp)) { card() }
+    }
 }
 
 @Composable
@@ -518,6 +536,6 @@ private fun SheetSearchField(
     }
 }
 
-@Composable
-internal fun Tab.displayTitle(): String =
-    title.ifBlank { AddressInput.displayHost(url) }.ifBlank { stringResource(R.string.new_tab_title) }
+/** Quick Tabs get a 2dp gold outline (spec: Quick Tabs, "Look"). */
+internal fun Modifier.quickTabOutline(tab: Tab, shape: Shape): Modifier =
+    if (tab.quick != null) border(2.dp, EnsoColors.QuickTabOutlineOnLight, shape) else this

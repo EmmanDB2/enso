@@ -33,8 +33,13 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import app.enso.browser.spaces.SpacesState
+import app.enso.browser.start.HistoryMatch
+import app.enso.browser.start.StartScreen
+import app.enso.browser.start.StartScreenActions
 import app.enso.browser.tabsheet.TabSheet
 import app.enso.browser.tabsheet.TabSheetActions
 import app.enso.browser.toolbar.AddressInput
@@ -43,9 +48,12 @@ import app.enso.browser.toolbar.TopBarState
 import app.enso.browser.toolbar.TopBarView
 import app.enso.browser.toolbar.toTopBarState
 import app.enso.browser.ui.EnsoColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.feature.session.SessionFeature
@@ -71,6 +79,12 @@ class MainActivity : ComponentActivity() {
 
     private var editing by mutableStateOf(false)
     private var tabSheetOpen by mutableStateOf(false)
+    private var selectedTabId by mutableStateOf<String?>(null)
+
+    /** Set when the app comes back after being away a while; cleared by opening or switching to a tab. */
+    private var startScreenRequested by mutableStateOf(false)
+    private val startScreenVisible get() = selectedTabId == null || startScreenRequested
+
     private var statusBarInset by mutableIntStateOf(0)
     private var barHeight = 0
     private var barCollapsed = false
@@ -92,11 +106,9 @@ class MainActivity : ComponentActivity() {
         WindowCompat.getInsetsController(window, window.decorView).systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-        // Until the start screen (step 4), an empty space opens a blank tab ready for typing.
-        if (components.store.state.selectedTab == null && !components.tabs.restore()) {
-            components.tabs.openNewTab(AddressInput.BLANK_PAGE)
-            editing = true
-        }
+        // With nothing to restore, the start screen shows.
+        if (components.store.state.selectedTab == null) components.tabs.restore()
+        selectedTabId = components.store.state.selectedTabId
 
         engineView = components.engine.createView(this)
         engineView.setActivityContext(this)
@@ -110,7 +122,7 @@ class MainActivity : ComponentActivity() {
             contentDescription = getString(R.string.action_show_top_bar)
             setOnClickListener { topBar.expand() }
         }
-        val tabSheet = ComposeView(this).apply { setContent { TabSheetContent() } }
+        val overlay = ComposeView(this).apply { setContent { OverlayContent() } }
         val immersive = components.settings.hideStatusBarWithTopBar
         root = CoordinatorLayout(this).apply {
             val accent = ComposeColor(components.spaces.state.value.currentSpace.accent)
@@ -119,7 +131,7 @@ class MainActivity : ComponentActivity() {
             addView(engineContainer)
             addView(topBar)
             addView(topEdge)
-            addView(tabSheet, CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(overlay, CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         setContentView(root)
 
@@ -166,6 +178,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        val settings = components.settings
+        // Anything that expired while we were away goes, even the tab that was on screen.
+        components.tabs.clearExpiredQuickTabs(settings.quickTabLifetimeMs, keep = null)
+        val away = settings.lastStoppedAt?.let { System.currentTimeMillis() - it }
+        if (away != null && away >= settings.startScreenAfterMs) startScreenRequested = true
         sessionFeature.start()
         windowFeature.start()
     }
@@ -174,6 +191,8 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         sessionFeature.stop()
         windowFeature.stop()
+        if (!startScreenVisible) components.tabs.markSelectedViewed()
+        components.settings.lastStoppedAt = System.currentTimeMillis()
         components.spaces.flush()
     }
 
@@ -205,10 +224,16 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /** The start screen and the tab sheet, drawn over the page and top bar. */
     @Composable
-    private fun TabSheetContent() {
+    private fun OverlayContent() {
         val spaces by components.spaces.state.collectAsState()
-        val selectedTabId by components.store.observeAsComposableState { it.selectedTabId }
+        val statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() }
+        if (startScreenVisible) {
+            // Back from the start screen returns to the last tab, if there is one.
+            BackHandler(enabled = selectedTabId != null) { startScreenRequested = false }
+            StartScreen(spaces, statusBarInset, startScreenActions)
+        }
         AnimatedVisibility(
             visible = tabSheetOpen,
             enter = fadeIn() + slideInVertically { -it / 12 },
@@ -218,7 +243,8 @@ class MainActivity : ComponentActivity() {
             TabSheet(
                 spaces = spaces,
                 selectedTabId = selectedTabId,
-                statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() },
+                statusBarInset = statusBarInset,
+                quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
                 actions = tabSheetActions,
             )
         }
@@ -228,6 +254,7 @@ class MainActivity : ComponentActivity() {
         override fun select(tabId: String) {
             components.tabs.select(tabId)
             tabSheetOpen = false
+            startScreenRequested = false
         }
 
         override fun close(tabId: String) = afterClosing(components.tabs.close(tabId))
@@ -235,8 +262,9 @@ class MainActivity : ComponentActivity() {
         override fun unload(tabId: String) = afterClosing(components.tabs.unload(tabId))
 
         override fun open(input: String) {
-            components.tabs.openNewTab(AddressInput.toUrl(input))
+            components.tabs.openNewTab(AddressInput.toUrl(input), quick = true)
             tabSheetOpen = false
+            startScreenRequested = false
         }
 
         override fun edit(transform: (SpacesState) -> SpacesState) = components.spaces.update(transform)
@@ -245,12 +273,33 @@ class MainActivity : ComponentActivity() {
             tabSheetOpen = false
         }
 
-        /** When the last tab went, a blank one replaced it: leave the sheet and start typing. */
-        private fun afterClosing(openedBlank: Boolean) {
-            if (openedBlank) {
-                tabSheetOpen = false
-                editing = true
-            }
+        /** When the last tab went, leave the sheet for the start screen. */
+        private fun afterClosing(nothingLeft: Boolean) {
+            if (nothingLeft) tabSheetOpen = false
+        }
+    }
+
+    private val startScreenActions = object : StartScreenActions {
+        override fun search(input: String) = openQuickTab(AddressInput.toUrl(input))
+
+        override fun switchTo(tabId: String) {
+            components.tabs.select(tabId)
+            startScreenRequested = false
+        }
+
+        override fun openHistory(url: String) = openQuickTab(url)
+
+        override fun openTabSheet() {
+            tabSheetOpen = true
+        }
+
+        override suspend fun history(query: String, limit: Int) = withContext(Dispatchers.IO) {
+            components.historyStorage.getSuggestions(query, limit).map { HistoryMatch(it.url, it.title.orEmpty()) }
+        }
+
+        private fun openQuickTab(url: String) {
+            components.tabs.openNewTab(url, quick = true)
+            startScreenRequested = false
         }
     }
 
@@ -271,6 +320,28 @@ class MainActivity : ComponentActivity() {
                 } else {
                     topBar.enableScrolling()
                     WindowCompat.getInsetsController(window, root).hide(WindowInsetsCompat.Type.ime())
+                }
+            }
+        }
+        lifecycleScope.launch {
+            components.store.flow(this@MainActivity)
+                .map { it.selectedTabId }
+                .distinctUntilChanged()
+                .collect { selectedTabId = it }
+        }
+        lifecycleScope.launch {
+            snapshotFlow { startScreenVisible to tabSheetOpen }.collect { (startScreen, _) ->
+                if (startScreen) editing = false
+                updateStatusBar()
+            }
+        }
+        lifecycleScope.launch {
+            // While the app is open: keep the Quick Tab on screen fresh, and clear expired ones.
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    delay(QUICK_TAB_CHECK_INTERVAL_MS)
+                    if (!startScreenVisible) components.tabs.markSelectedViewed()
+                    components.tabs.clearExpiredQuickTabs(components.settings.quickTabLifetimeMs, keep = selectedTabId)
                 }
             }
         }
@@ -328,13 +399,21 @@ class MainActivity : ComponentActivity() {
 
     private fun onTopBarCollapsedChanged(collapsed: Boolean) {
         topEdge.isVisible = collapsed
-        if (components.settings.hideStatusBarWithTopBar) {
-            val controller = WindowCompat.getInsetsController(window, root)
-            if (collapsed) {
-                controller.hide(WindowInsetsCompat.Type.statusBars())
-            } else {
-                controller.show(WindowInsetsCompat.Type.statusBars())
-            }
+        updateStatusBar()
+    }
+
+    /** The status bar hides with the top bar, but stays up over the start screen and tab sheet. */
+    private fun updateStatusBar() {
+        if (!components.settings.hideStatusBarWithTopBar) return
+        val controller = WindowCompat.getInsetsController(window, root)
+        if (barCollapsed && !startScreenVisible && !tabSheetOpen) {
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.statusBars())
         }
+    }
+
+    private companion object {
+        const val QUICK_TAB_CHECK_INTERVAL_MS = 60_000L
     }
 }

@@ -6,6 +6,9 @@ import app.enso.browser.spaces.TabManager
 import mozilla.components.browser.engine.gecko.GeckoEngine
 import mozilla.components.browser.state.engine.EngineMiddleware
 import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.browser.storage.sync.PlacesHistoryStorage
+import mozilla.components.concept.engine.DefaultSettings
+import mozilla.components.feature.session.HistoryDelegate
 import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.tabs.TabsUseCases
 import org.mozilla.geckoview.GeckoRuntime
@@ -15,7 +18,13 @@ class Components(private val context: Context) {
     // Gecko allows one runtime per process.
     private val runtime by lazy { GeckoRuntime.create(context) }
 
-    val engine by lazy { GeckoEngine(context, runtime = runtime) }
+    /** Firefox's Places database; the search palette reads it and step 5 syncs it. */
+    val historyStorage by lazy { PlacesHistoryStorage(context) }
+
+    val engine by lazy {
+        val settings = DefaultSettings(historyTrackingDelegate = HistoryDelegate(lazy { historyStorage }))
+        GeckoEngine(context, settings, runtime)
+    }
     val store by lazy { BrowserStore(middleware = EngineMiddleware.create(engine)) }
     val sessionUseCases by lazy { SessionUseCases(store) }
     val tabsUseCases by lazy { TabsUseCases(store) }

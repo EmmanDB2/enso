@@ -1,7 +1,6 @@
 package app.enso.browser.spaces
 
 import app.enso.browser.TabSwipeScope
-import app.enso.browser.toolbar.AddressInput
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -71,28 +70,40 @@ class TabManager(
         tabsUseCases.selectTab(tabId)
     }
 
-    /** Opens [url] in a new tab just below the current one. */
-    fun openNewTab(url: String) {
-        val tab = Tab(id = newId(), url = url)
+    /** Opens [url] in a new tab just below the current one. New searches pass [quick] to make a Quick Tab. */
+    fun openNewTab(url: String, quick: Boolean = false) {
+        val tab = Tab(id = newId(), url = url, quick = if (quick) QuickTab(lastViewedAt = now()) else null)
         spaces.update { it.addOpenTab(tab, afterId = store.state.selectedTabId) }
         store.dispatch(TabListAction.AddTabAction(createTab(url, id = tab.id), select = true))
     }
 
-    /** Closes an open tab. Returns true when nothing was left and a blank tab took its place. */
+    /** Closes an open tab. Returns true when no tab is left to show. */
     fun close(tabId: String): Boolean {
-        val openedBlank = moveSelectionOff(tabId)
+        val nothingLeft = moveSelectionOff(tabId)
         closingTabIds += tabId
         spaces.update { it.removeTab(tabId) }
         tabsUseCases.removeTab(tabId)
-        return openedBlank
+        return nothingLeft
     }
 
     /** Unloads a pinned tab or Essential: the page goes away, the row stays, back at its pinned URL. */
     fun unload(tabId: String): Boolean {
-        val openedBlank = moveSelectionOff(tabId)
+        val nothingLeft = moveSelectionOff(tabId)
         spaces.update { it.resetToPinnedUrl(tabId) }
         if (store.state.findTab(tabId) != null) tabsUseCases.removeTab(tabId)
-        return openedBlank
+        return nothingLeft
+    }
+
+    /** Restarts the expiry clock of the Quick Tab on screen, if it is one. */
+    fun markSelectedViewed() {
+        val selected = store.state.selectedTabId ?: return
+        spaces.update { it.markViewed(selected, now()) }
+    }
+
+    /** Closes Quick Tabs unviewed for longer than [lifetimeMs], except [keep]. True when no tab is left to show. */
+    fun clearExpiredQuickTabs(lifetimeMs: Long, keep: String?): Boolean {
+        val expired = spaces.state.value.expiredQuickTabs(now(), lifetimeMs) - setOfNotNull(keep)
+        return expired.map { close(it) }.lastOrNull() ?: false
     }
 
     /** Moves to the next (+1) or previous (-1) tab in swipe order. False when there's none. */
@@ -108,30 +119,35 @@ class TabManager(
         return true
     }
 
-    /** If [tabId] is showing, shows its neighbor instead, or a new blank tab if there's none. */
+    /** If [tabId] is showing, shows its neighbor instead. True when there's none, leaving no tab selected. */
     private fun moveSelectionOff(tabId: String): Boolean {
-        if (store.state.selectedTabId != tabId) return false
-        val next = spaces.state.value.nextAfterClosing(tabId)
-        if (next != null) {
-            select(next)
-            return false
-        }
-        openNewTab(AddressInput.BLANK_PAGE)
-        return true
+        if (store.state.selectedTabId != tabId) return store.state.selectedTabId == null
+        val next = spaces.state.value.nextAfterClosing(tabId) ?: return true
+        select(next)
+        return false
     }
+
+    private fun now() = System.currentTimeMillis()
 
     /** Copies what pages did on their own (new windows, closing, navigating, switching) into the model. */
     private fun syncFromEngine(snapshot: EngineSnapshot) {
         val ids = snapshot.tabs.mapTo(mutableSetOf()) { it.id }
         val closedByEngine = loadedTabIds - ids
         closingTabIds.retainAll(ids)
+        val now = now()
         spaces.update { initial ->
             var state = initial
             for (tab in snapshot.tabs) {
                 if (tab.id in closingTabIds) continue
                 state = if (state.find(tab.id) == null) {
-                    // Opened by a page (target=_blank, window.open): goes below the tab that opened it.
-                    state.addOpenTab(Tab(tab.id, tab.url, tab.title), afterId = tab.parentId ?: state.currentSpace.selectedTabId)
+                    // Opened by a page (target=_blank, window.open): goes below the tab that opened it,
+                    // and is a Quick Tab when that one is.
+                    val parent = tab.parentId?.let { state.find(it)?.tab }
+                    val quick = parent?.quick?.let { QuickTab(lastViewedAt = now) }
+                    state.addOpenTab(
+                        Tab(tab.id, tab.url, tab.title, quick = quick),
+                        afterId = tab.parentId ?: state.currentSpace.selectedTabId,
+                    )
                 } else {
                     state.syncContent(tab.id, tab.url, tab.title)
                 }
@@ -140,7 +156,14 @@ class TabManager(
                 val place = state.find(id)?.place ?: continue
                 state = if (place is TabPlace.Open) state.removeTab(id) else state.resetToPinnedUrl(id)
             }
-            snapshot.selectedTabId?.let { state = state.select(it) }
+            val previous = state.currentSpace.selectedTabId
+            val selected = snapshot.selectedTabId
+            if (selected != previous) {
+                // Leaving a Quick Tab and arriving at one both count as viewing it.
+                previous?.let { state = state.markViewed(it, now) }
+                selected?.let { state = state.markViewed(it, now) }
+            }
+            state = if (selected != null) state.select(selected) else state.clearSelection()
             state
         }
         loadedTabIds = ids
