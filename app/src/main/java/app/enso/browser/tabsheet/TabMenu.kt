@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.enso.browser.R
+import app.enso.browser.spacemenu.BlockSpaceMenu
 import app.enso.browser.spaces.Folder
 import app.enso.browser.spaces.SpacesState
 import app.enso.browser.spaces.TabPlace
@@ -119,6 +120,7 @@ internal fun TabMenu(
     actions: TabSheetActions,
     onDismiss: () -> Unit,
 ) {
+    BlockSpaceMenu()
     var choosingFolder by remember(target) { mutableStateOf(false) }
     var dialog by remember(target) { mutableStateOf<FolderDialog?>(null) }
     val accent = Color(spaces.currentSpace.accent)
@@ -145,20 +147,29 @@ internal fun TabMenu(
             }
             val space = spaces.currentSpace
             items = if (quick != null) {
-                // "Add to another space" opens the arc picker, which arrives with the arc menu (step 6).
-                listOf(
-                    MenuItem(
-                        icon = 0,
-                        text = stringResource(R.string.menu_add_to_space, space.name),
-                        spaceIcon = space.icon,
-                        highlighted = true,
-                    ) { edit { it.keepQuickTab(id) } },
-                    null,
-                    MenuItem(R.drawable.ic_close, R.string.action_close_tab, destructive = true) {
-                        actions.close(id)
-                        onDismiss()
-                    },
-                )
+                buildList {
+                    add(
+                        MenuItem(
+                            icon = 0,
+                            text = stringResource(R.string.menu_add_to_space, space.name),
+                            spaceIcon = space.icon,
+                            highlighted = true,
+                        ) { edit { it.keepQuickTab(id) } },
+                    )
+                    if (spaces.spaces.size > 1) {
+                        add(MenuItem(R.drawable.ic_add_to_space, R.string.menu_add_to_another_space, opensMore = true) {
+                            onDismiss()
+                            actions.addToAnotherSpace(id)
+                        })
+                    }
+                    add(null)
+                    add(
+                        MenuItem(R.drawable.ic_close, R.string.action_close_tab, destructive = true) {
+                            actions.close(id)
+                            onDismiss()
+                        },
+                    )
+                }
             } else if (choosingFolder) {
                 val currentFolder = (entry.place as? TabPlace.Pinned)?.folder?.id
                 spaces.currentSpace.folders.filterNot { it.id == currentFolder }.map { folder ->

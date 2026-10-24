@@ -65,6 +65,25 @@ private fun Tab.asPinned() = copy(pinnedUrl = pinnedUrl ?: url, quick = null)
 /** Keeps a Quick Tab: it loses its gold outline and becomes a normal open tab. */
 fun SpacesState.keepQuickTab(tabId: String) = updateTab(tabId) { it.copy(quick = null) }
 
+/**
+ * Keeps a Quick Tab as a normal tab of another space, below that space's current tab. If it was its own
+ * space's current tab, the tab after it takes over there.
+ */
+fun SpacesState.keepQuickTabIn(tabId: String, spaceId: String): SpacesState {
+    val entry = find(tabId) ?: return this
+    val from = entry.place.space ?: return this
+    if (from.id == spaceId) return keepQuickTab(tabId)
+    if (spaces.none { it.id == spaceId }) return this
+    val index = from.tabs.indexOfFirst { it.id == tabId }
+    val next = from.tabs.getOrNull(index + 1) ?: from.tabs.getOrNull(index - 1)
+    return removeTab(tabId)
+        .updateSpace(from.id) { if (it.selectedTabId == tabId) it.copy(selectedTabId = next?.id) else it }
+        .updateSpace(spaceId) { space ->
+            val at = space.tabs.indexOfFirst { it.id == space.selectedTabId } + 1
+            space.copy(tabs = space.tabs.toMutableList().apply { add(at, entry.tab.copy(quick = null)) })
+        }
+}
+
 /** Records that a Quick Tab was on screen at [now], restarting its expiry clock. */
 fun SpacesState.markViewed(tabId: String, now: Long) =
     updateTab(tabId) { tab -> tab.quick?.let { tab.copy(quick = QuickTab(lastViewedAt = now)) } ?: tab }

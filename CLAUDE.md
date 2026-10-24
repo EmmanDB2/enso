@@ -4,16 +4,14 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 
 - **Spec:** [docs/SPEC.md](docs/SPEC.md). It is the source of truth for behavior, layout and the build order.
 - **Mockups:** [docs/mockups/](docs/mockups/). Filenames start with the spec's board numbers (for example `4 · Tab sheet.png` is board 4). Look at the relevant boards before building any UI.
+- **Logo:** [docs/logo.png](docs/logo.png), an ensō brush circle.
 
 ## How we work
 
 - Build **one step of the spec's build order at a time**. Each step must build, install and run on the Fold before the next one starts.
 - Don't build UI or features from later steps early, even as stubs.
 - If the spec is unclear or silent, ask instead of guessing. The spec lists its own open questions at the end.
-- Current step: **5, Mozilla account and Zen sync**, in two passes.
-  - **5a (done): read-only, Zen → phone.**
-  - **5b (now): phone → Zen**, making sync two-way, with a snapshot of the server collection saved before the first write.
-  - Until the arc menu (step 6), you switch spaces by swiping the tab sheet's header.
+- Current step: **6, the space menu** (the edge wave, haptics, page tint and gesture exclusion). Step 5 (two-way Zen sync) is done.
   - The inner screen shows the cover layout stretched until step 7.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
@@ -49,7 +47,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `TabSheet.kt` is the cover tab sheet (board 4). Quick Tabs get a gold outline.
   - Rows that can swap which tab they show (like the current-tab card) must key their swipe state by tab ID, or a dismissed state carries over and closes the next tab.
   - `TabMenu.kt` is the hold menu (board 4b).
-    - On a Quick Tab it shows the spec's menu: Add to [space] and Close tab. "Add to another space" waits for the arc menu (step 6).
+    - On a Quick Tab it shows the spec's menu: Add to [space], Add to another space (the wave as a picker; hidden with one space) and Close tab.
     - On other tabs and folders it shows pin, unpin, folder and Essentials actions. While signed in, these sync to Zen.
     - Folder names confirm with the keyboard's Done key too, since a floating overlay can cover the dialog's button.
 - `sync/`: Zen sync over the user's Mozilla account.
@@ -70,7 +68,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **Mapper:** `ZenSpacesMapper` applies the mirror through `TabManager.applySpaces`. Zen owns spaces, pinned tabs, folders (which can nest) and Essentials. The phone keeps its Quick Tabs and its own open tabs (`Tab.synced` tells them apart).
     - Open tabs follow Zen's order, and each phone-only tab stays after the tab it followed.
     - A tab ID must never be listed twice, or Zen gets duplicate children.
-  - **Space look:** the accent comes from the theme's primary gradient color. Icons go through `ZenIcons`.
+  - **Space look:** the accent comes from the theme's primary gradient color, and `Space.gradient` keeps all of its colors (Zen allows up to three). Icons go through `ZenIcons`.
   - **Essentials are per container**, as in Zen.
     - `layout.essentials` maps a container guid ("default" for none) to tab ids.
     - Each space has a `container` and shows `essentialsFor(space)`.
@@ -80,6 +78,36 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - It never applies Zen's state over an edit made during a sync; it syncs again instead.
     - In dry-run it doesn't apply Zen's state while the phone has unsent changes, so the test edits survive.
   - **Sign-in:** the page opens in a Quick Tab, and `FxaWebChannelFeature` completes it.
+- `spacemenu/`: the space menu (board 3).
+  - **Opening:** `SpaceMenuGesture` watches touches from `MainActivity.dispatchTouchEvent`, because GeckoView blocks parent interception.
+    - A 300 ms hold (`spaceMenuHoldMs`) in a trigger zone opens it, then the views get an `ACTION_CANCEL` and the rest of the touch drives the menu. Taps and scrolls in the zones pass through as before.
+    - The zones (`SpaceMenuZones`): the right edge (the left in left-handed mode), about 28 dp wide, from the bottom up to the top bar's bottom edge (`spaceMenuStripHeight`), and the address field while the bar shows.
+    - The strip can be taller than Android's 200 dp exclusion cap, because the hold, not the exclusion, stops the back gesture.
+    - Samsung's Edge panel handle sits on the cover's right edge at about 112–251 dp. It's a system window, so holds there never reach the app.
+    - The Fold's long-press delay is 500 ms, so the hold beats a row's own long press in the edge strip.
+  - **Blocking:** it doesn't open while editing, over the sync sheet, or over anything that calls `BlockSpaceMenu()` (the hold menu, the palette). Dialogs are their own windows, so touches there never reach it.
+  - **Tap detectors:** a hand-written tap detector must treat a consumed release as a cancel, or a hold the menu took over also counts as a tap.
+  - **The wave:** `SpaceWave` draws in its own `ComposeView`, added beside the root with `addContentView` so the tint covers the system bars.
+    - The spaces are a list along the edge in Zen's order, top to bottom, 72 dp apart. The current space starts under the thumb.
+    - **Calm:** the rows stay still, and the wave follows the thumb one-to-one (a row per 72 dp of travel), so nothing slides against the thumb.
+      - Don't let rows spread apart around the thumb. It made them move against it at about 70% of its speed, which felt jumpy.
+      - The drawn bulge eases after the thumb on a soft, critically damped spring (stiffness 400).
+      - The hovered space holds on 0.12 rows past halfway, so the tick doesn't flutter.
+    - **Travel:** the user calls a slower, calmer wave "lower travel". Each time they asked for less travel to calm it, more thumb travel per space was what they meant (52 → 60 → 72 dp).
+    - `SpaceWaveState.position` is the wave's centre as a row index with fractions. `WaveShape` turns it into each row's place, so the bulge glides between rows.
+    - **The string:** rows sit on a line held at the top and bottom of the window and pushed out 50 dp at the thumb. The line itself isn't drawn.
+      - 22% of the push is the string's lean (`lean()`, near-straight lines to both ends, rounded at the tip). The rest is the bump (`falloff()`, rounded at its peak, half at one row, about a sixth at two). A pointed peak looked wrong.
+    - **The look:**
+      - **Backdrop:** the page is captured with `EngineView.captureThumbnail` as the wave opens and shown blurred (`Modifier.blur`, Android 12+) under a frost. There's no capture over the start screen or the tab sheet.
+      - **Tint:** each space's Zen gradient (`Space.gradient`) runs top to bottom at 24%, or its accent when the theme has none. It cross-fades between spaces.
+      - **Ink stroke:** a tapered stroke along the wave, 16 dp at the thumb, with a Gaussian taper over about two rows.
+      - **Hovered space:** a frosted pill with a 22 sp name and its icon (no ring). The other names are 16, 13 and 12 sp and lighten with distance.
+      - **Colors:** `EnsoColors.WaveFrost`, `WavePill`, `WaveInk` and `WaveText`, so dark mode can swap them.
+    - **Tab sheet:** it doesn't blur yet; the spec puts its blurred snapshot in step 10.
+    - When there isn't room to reach every space, a row takes less travel (down to 22 dp), and the list scrolls so the hovered row stays under the thumb.
+    - Past either end, or 160 dp sideways, nothing is hovered, the bulge eases back, and letting go does nothing.
+  - **Picker:** "Add to another space" opens the wave without the tab's space, resting a little below the middle of the screen. Touch or drag on the list and lift on a space: the tab becomes a normal tab there (`keepQuickTabIn`), and Ensō follows it. A touch away from the list, or Back, cancels.
+  - **System gestures:** while it's open, the wave's stretch of the edges is excluded from them. Android only checks exclusions at touch-down, so during the hold it's the resting finger that cancels the back gesture.
 - `start/StartScreen.kt`: start screen (board 9) and search palette (board 9b).
   - The start screen shows when no tab is selected, when the selected tab belongs to another space, or when the app was away for `startScreenAfterMinutes`.
   - Tap it for the palette; swipe down for the tab sheet.
@@ -100,7 +128,10 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `tabSwipeScope` (default `OpenTabs`) sets which tabs the address-field swipe moves through.
   - `quickTabLifetimeHours` (default 24, counted since last viewed) sets when Quick Tabs clear.
   - `startScreenAfterMinutes` (default 30) sets how long the app must be away before it reopens on the start screen.
-  - `switchSpacesFromSheetHeader` (default on) lets a sideways swipe on the sheet header switch spaces.
+  - `switchSpacesFromSheetHeader` (default off) lets a sideways swipe on the sheet header switch spaces too. It was the way to switch before the space menu.
+  - `spaceMenuHoldMs` (default 300) sets how long a hold takes to open the space menu.
+  - `spaceMenuLeftHanded` (default off) moves the space menu's wave and trigger strip to the left edge.
+  - `spaceMenuStripHeight` (default 1, the whole edge) sets how much of the screen's height the edge strip covers, from the bottom up. It never reaches into the top bar.
   - `essentialsPerContainer` (default on) shows each space only the Essentials of its Zen container.
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.
   - `syncTabNavigations` (default off) lets navigating a tab from Zen move it on the desktop too. It's off because phone pages often redirect, to a login page for example.
@@ -132,7 +163,7 @@ The Fold connects over wireless debugging. Wireless debugging must be on in Deve
 - **Screenshots:** the Fold has two displays, so `screencap` needs a display ID. List them with `adb shell dumpsys SurfaceFlinger --display-id`, then run `adb shell screencap -d <id> -p /sdcard/x.png`.
 - **Scripted input:** `adb shell input -d <logical display> tap|swipe|text …`. The cover screen is logical display 0, and coordinates are in full-resolution pixels (1248×1972 on the cover). To place a tap on a popup, read its frame from `adb shell dumpsys window windows`.
   - Long press: `swipe x y x y 900`.
-  - Hold a swipe partway: `motionevent DOWN|MOVE|UP x y`.
+  - Hold a swipe partway: `motionevent DOWN|MOVE|UP x y`. The space menu tests this way: `DOWN 1235 1650` on the right edge, wait, `MOVE` up or down about 189 px (72 dp) per space, then `UP`. The user often uses the Fold while you test, so check the state between gestures rather than assuming your touches were the only ones.
 - **Test pages from the Mac:** serve them on `127.0.0.1:<port>` and run `adb reverse tcp:<port> tcp:<port>`. The Fold can then open `http://localhost:<port>/…`.
 
 ## Testing on the Fold

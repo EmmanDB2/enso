@@ -43,20 +43,35 @@ The cover screen shows one top bar and the page, nothing else. There is no botto
 
 ## Cover screen: space menu (board 3)
 
-Spaces switch through a swipe-up arc menu that fans out from the thumb. The menu shows spaces only; tabs live in the tab sheet.
+Spaces switch through an edge wave, in the style of Niagara Launcher. The menu shows spaces only; tabs live in the tab sheet.
 
-1. Hold for about 300–500 ms in the trigger zone (lower part of the right edge, or the address field when visible). A haptic tick confirms the menu is open.
-2. The arc appears with the thumb as its pivot near the bottom right. Each space shows its Zen icon and name, with the name inside the curve so it never clips at the left edge.
-3. Sliding up and down moves the selection along the arc, with a haptic tick per space. The selected space gets a white ring and bold name, and a dotted trail runs from the thumb to it.
-4. The whole page tints to the selected space's color while hovering.
-5. Release to switch. Slide off the arc to cancel.
+1. Hold for about 300 ms in the trigger zone (the right edge, from the bottom up to the top bar, or the address field when visible). A haptic tick confirms the menu is open.
+2. Every space appears in a vertical list along the right edge, in Zen's order from top to bottom. Each row shows the space's Zen icon at the edge and its name to the left. The current space starts under the thumb.
+3. Moving the thumb up and down sends a wave along the list. The goal is a calm, satisfying switcher:
+   - The rows stay still, about 72 dp apart. The wave follows the thumb one-to-one, one space per 72 dp of travel.
+   - The bulge follows the thumb on a soft, damped spring, with no overshoot.
+   - The rows sit on a line held at the top and bottom of the screen and pushed out by the thumb, like a taut string.
+   - The space under the thumb bulges farthest from the edge (about 50 dp), and its neighbors bulge less.
+   - The bulge is a smooth falloff around the thumb's exact position, rounded at its peak, so it glides between rows instead of stepping from one to the next.
+   - A haptic tick marks each change of the hovered space. The hovered space holds on a little past the halfway point between rows, so a resting thumb doesn't flicker between two.
+4. The look:
+   - **Background:** the page is captured as the wave opens and shown blurred under a light frost. On top goes the hovered space's tint at about 24% opacity: its Zen theme gradient from top to bottom, or its accent as a single color when the theme has none. The tint cross-fades over about 150 ms when the hovered space changes.
+   - **Ink stroke:** a tapered ink brush stroke follows the wave. It's about 16 dp wide at the thumb and tapers (Gaussian) to nothing about two rows above and below, in dark ink at about 20% opacity. It moves with the thumb.
+   - **Hovered space:** it sits in a frosted white pill (about 78% white, soft shadow, fully rounded). The pill holds the name at about 22 sp semibold and the space's icon, with no ring around it. The pill's colors are theme tokens, so dark mode can change them.
+   - **Other spaces:** dark gray text with no pill, at about 16, 13 and 12 sp by distance. The text gets lighter farther from the thumb, and names sit 10 dp from their icons.
+   - **Opening:** the labels fade in.
+5. Release to switch. To cancel, slide past either end of the list or away from the edge.
 
 Gesture rules:
 
 - The trigger is a hold, then vertical movement, so Android's horizontal back gesture is not triggered in normal use.
-- While the menu is open, exclude the arc area from system gestures, then release the exclusion on lift. Android caps edge exclusion at about 200 dp of height per edge, so keep the trigger strip in the lower part of the screen.
+- While the menu is open, exclude the list's stretch of the edge from system gestures, then release the exclusion on lift. Android caps edge exclusion at about 200 dp of height per edge.
+- The trigger strip can still run the whole edge below the top bar. Android only checks the exclusion when a touch starts, and the resting thumb is what stops the back gesture during a hold.
+- On the Fold, Samsung's Edge panel handle sits on the right edge just below the top bar. Its touches go to the system, so the strip works above and below it but not on it.
+- If there are more spaces than fit, the list scrolls along with the wave.
+- A left-handed mode setting mirrors the wave and its trigger strip to the left edge.
 - Space icons come from Zen's sync data (icon or emoji the user set on desktop).
-- The arc also serves as the "Add to another space" picker for Quick Tabs.
+- The wave also serves as the "Add to another space" picker for Quick Tabs.
 
 ## Cover screen: tab sheet (board 4)
 
@@ -97,7 +112,7 @@ Every new search or typed URL opens as a Quick Tab: a temporary tab that clears 
 Hold menu (board 4b): holding a Quick Tab lifts the row and dims everything else. A white menu shows a header ("Quick Tab · clears in 9 hours"), then:
 
 1. **Add to \[current space\]**, the primary action.
-2. **Add to another space**, which opens the arc space menu as a picker.
+2. **Add to another space**, which opens the space wave as a picker.
 3. **Close tab**, in red, below a divider.
 
 Once added to a space, the tab loses its outline, becomes a normal tab and syncs to Zen.
@@ -156,7 +171,7 @@ Shapes and type:
 - Rows 44–48 px tall with 12 px corners; current-tab card 14 px corners; menus and the palette 16–18 px corners.
 - Font in mockups: Inter, 15–16 px for rows, 22–24 px for the space name.
 - Icons: thin line icons (about 1.8 px stroke). Real favicons replace the letter placeholders, inside a small neutral circle so white icons stay visible; letters remain as the fallback.
-- The space menu (board 3) is the one dark overlay: a dark scrim with the space tint.
+- The space menu (board 3) is a frosted overlay: the blurred page under a light frost and the space's tint.
 
 ## Extensions
 
@@ -176,7 +191,7 @@ Build the browser core first, then sync, then the signature interactions. Each s
 3. **Tabs and local spaces:** a local data model for spaces, Essentials, pinned tabs, folders and tabs; the cover tab sheet; swipe-to-close.
 4. **Quick Tabs:** default for new searches, gold outline, expiry, the hold menu, the start screen and search palette.
 5. **Mozilla account and Zen sync:** sign-in, then read and write Zen's Spaces, folders and tabs. Study how Dejavu does this and check its license before reusing code.
-6. **Space menu:** the swipe-up arc, haptics, page tint and gesture exclusion.
+6. **Space menu:** the edge wave, haptics, page tint and gesture exclusion.
 7. **Inner screen:** collapsed rail, full sidebar, sidebar swipe for spaces, fold continuity.
 8. **Split view and Glance.**
 9. **Extensions:** bundled uBlock Origin and the add-ons UI.

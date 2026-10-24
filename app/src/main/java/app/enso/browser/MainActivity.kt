@@ -3,9 +3,13 @@ package app.enso.browser
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -19,15 +23,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -38,9 +47,21 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import app.enso.browser.spacemenu.LocalSpaceMenuBlocks
+import app.enso.browser.spacemenu.SpaceMenuBlocks
+import app.enso.browser.spacemenu.SpaceMenuGesture
+import app.enso.browser.spacemenu.SpaceMenuZones
+import app.enso.browser.spacemenu.SpaceWave
+import app.enso.browser.spacemenu.SpaceWaveState
+import app.enso.browser.spacemenu.WaveSpace
+import app.enso.browser.spaces.Space
 import app.enso.browser.spaces.SpacesState
 import app.enso.browser.spaces.essentialsFor
+import app.enso.browser.spaces.find
 import app.enso.browser.spaces.isInCurrentSpace
+import app.enso.browser.spaces.keepQuickTabIn
+import app.enso.browser.spaces.select
+import app.enso.browser.spaces.space
 import app.enso.browser.start.HistoryMatch
 import app.enso.browser.start.StartScreen
 import app.enso.browser.start.StartScreenActions
@@ -103,6 +124,17 @@ class MainActivity : ComponentActivity() {
 
     private var zenSyncSheetOpen by mutableStateOf(false)
 
+    /** The space menu (board 3) and its picker, drawn over everything in [spaceWaveView]. */
+    private val spaceWave = SpaceWaveState()
+    private lateinit var spaceWaveView: ComposeView
+    private lateinit var spaceMenuGesture: SpaceMenuGesture
+
+    /** Menus and the palette register here while they're up, so a hold doesn't open the space menu over them. */
+    private val spaceMenuBlocks = SpaceMenuBlocks()
+
+    /** The address field inside the top bar, where a hold also opens the space menu. */
+    private var addressFieldBounds: Rect? = null
+
     /** The sign-in page's tab, closed once the account is signed in. */
     private var signInTabId: String? = null
 
@@ -143,7 +175,9 @@ class MainActivity : ComponentActivity() {
             contentDescription = getString(R.string.action_show_top_bar)
             setOnClickListener { topBar.expand() }
         }
-        val overlay = ComposeView(this).apply { setContent { OverlayContent() } }
+        val overlay = ComposeView(this).apply {
+            setContent { CompositionLocalProvider(LocalSpaceMenuBlocks provides spaceMenuBlocks) { OverlayContent() } }
+        }
         val immersive = components.settings.hideStatusBarWithTopBar
         root = CoordinatorLayout(this).apply {
             val accent = ComposeColor(components.spaces.state.value.currentSpace.accent)
@@ -155,6 +189,19 @@ class MainActivity : ComponentActivity() {
             addView(overlay, CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         setContentView(root)
+        // Beside the root rather than in it, so the tint covers the system bars too.
+        spaceWaveView = ComposeView(this).apply {
+            isVisible = false
+            setContent { SpaceWave(spaceWave, onPick = ::addToSpace) }
+        }
+        addContentView(spaceWaveView, ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        spaceMenuGesture = SpaceMenuGesture(
+            host = root,
+            holdMs = { components.settings.spaceMenuHoldMs },
+            opensAt = ::spaceMenuOpensAt,
+            dispatchToViews = { window.superDispatchTouchEvent(it) },
+            listener = spaceMenuListener,
+        )
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
             val statusTop = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top
@@ -206,6 +253,9 @@ class MainActivity : ComponentActivity() {
         handleDebugIntent(intent)
     }
 
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean =
+        spaceMenuGesture.onTouchEvent(event) || super.dispatchTouchEvent(event)
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDebugIntent(intent)
@@ -241,6 +291,8 @@ class MainActivity : ComponentActivity() {
         sessionFeature.stop()
         windowFeature.stop()
         webChannelFeature.stop()
+        spaceMenuGesture.reset()
+        spaceWave.close()
         if (!startScreenVisible) components.tabs.markSelectedViewed()
         components.settings.lastStoppedAt = System.currentTimeMillis()
         components.spaces.flush()
@@ -272,6 +324,7 @@ class MainActivity : ComponentActivity() {
             onOpenTabSheet = { tabSheetOpen = true },
             onSwitchTab = { step -> components.tabs.switchBy(step, components.settings.tabSwipeScope) },
             onOpenZenSync = { zenSyncSheetOpen = true },
+            onAddressFieldPlaced = { addressFieldBounds = it },
         )
     }
 
@@ -353,6 +406,17 @@ class MainActivity : ComponentActivity() {
 
         override fun switchSpace(step: Int) = components.tabs.switchSpace(step)
 
+        override fun addToAnotherSpace(tabId: String) {
+            val state = components.spaces.state.value
+            val from = state.find(tabId)?.place?.space ?: state.currentSpace
+            val others = state.spaces.filter { it.id != from.id }.map { it.toWaveSpace() }
+            if (others.isEmpty()) return
+            val leftHanded = components.settings.spaceMenuLeftHanded
+            val screenHeight = window.decorView.height.toFloat()
+            spaceWave.openPicker(tabId, others, from.toWaveSpace().tint, leftHanded, spaceMenuBounds(), screenHeight, Density(this@MainActivity))
+            captureWaveBackdrop()
+        }
+
         override fun dismiss() {
             tabSheetOpen = false
         }
@@ -387,6 +451,119 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Whether a hold here opens the space menu: a strip up the wave's edge from the bottom to the top bar (or the
+     * top of the screen while the bar is hidden), or the address field while the bar shows (spec: board 3). Not
+     * while editing, or over a menu, the palette or the sync sheet.
+     */
+    private fun spaceMenuOpensAt(x: Float, y: Float): Boolean {
+        if (editing || zenSyncSheetOpen || spaceWave.mode != null || spaceMenuBlocks.count > 0) return false
+        if (components.spaces.state.value.spaces.size < 2) return false
+        val bar = IntArray(2).also(topBar::getLocationInWindow)
+        val barShows = !startScreenVisible && !tabSheetOpen
+        val addressField = addressFieldBounds?.takeIf { barShows && !barCollapsed }?.translate(bar[0].toFloat(), bar[1].toFloat())
+        val decor = window.decorView
+        val bottom = (decor.height - root.paddingBottom).toFloat()
+        val bounds = spaceMenuBounds()
+        // The strip stops at the bar's bottom edge, which moves up as the bar slides away.
+        val barBottom = if (barShows) (bar[1] + topBar.height).toFloat() else bounds.top
+        val stripTop = maxOf(bounds.bottom - bounds.height * components.settings.spaceMenuStripHeight, barBottom)
+        val leftHanded = components.settings.spaceMenuLeftHanded
+        return SpaceMenuZones.contains(x, y, decor.width.toFloat(), stripTop, bottom, addressField, leftHanded, Density(this))
+    }
+
+    private val spaceMenuListener = object : SpaceMenuGesture.Listener {
+        override fun onOpen(touch: Offset): Boolean {
+            val state = components.spaces.state.value
+            val current = state.spaces.indexOfFirst { it.id == state.currentSpaceId }
+            if (state.spaces.size < 2 || current < 0) return false
+            val spaces = state.spaces.map { it.toWaveSpace() }
+            val leftHanded = components.settings.spaceMenuLeftHanded
+            val screenHeight = window.decorView.height.toFloat()
+            spaceWave.openMenu(spaces, current, touch, leftHanded, spaceMenuBounds(), screenHeight, Density(this@MainActivity))
+            captureWaveBackdrop()
+            root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            excludeWaveFromSystemGestures(true)
+            return true
+        }
+
+        override fun onMove(finger: Offset) {
+            if (spaceWave.move(finger)) root.performHapticFeedback(SPACE_TICK)
+        }
+
+        override fun onRelease() {
+            excludeWaveFromSystemGestures(false)
+            spaceWave.release()?.let { spaceId ->
+                components.tabs.switchTo(spaceId)
+                startScreenRequested = false
+            }
+        }
+
+        override fun onCancel() {
+            excludeWaveFromSystemGestures(false)
+            spaceWave.close()
+        }
+    }
+
+    /**
+     * Captures the page for the wave's frosted backdrop; the wave shows frost alone until it arrives. Over the
+     * start screen or the tab sheet there's no page on screen to capture.
+     */
+    private fun captureWaveBackdrop() {
+        if (startScreenVisible || tabSheetOpen) return
+        val page = engineView.asView()
+        val at = IntArray(2).also(page::getLocationInWindow)
+        val opening = spaceWave.openings
+        engineView.captureThumbnail { bitmap ->
+            if (bitmap == null) return@captureThumbnail
+            val bounds = Rect(at[0].toFloat(), at[1].toFloat(), (at[0] + bitmap.width).toFloat(), (at[1] + bitmap.height).toFloat())
+            spaceWave.showBackdrop(opening, bitmap.asImageBitmap(), bounds)
+        }
+    }
+
+    /** The screen minus the system bars, in window pixels: where the wave has to fit. */
+    private fun spaceMenuBounds(): Rect {
+        val decor = window.decorView
+        val bars = ViewCompat.getRootWindowInsets(decor)?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars())
+        return Rect(
+            left = (bars?.left ?: 0).toFloat(),
+            top = (bars?.top ?: 0).toFloat(),
+            right = (decor.width - (bars?.right ?: 0)).toFloat(),
+            bottom = (decor.height - (bars?.bottom ?: 0)).toFloat(),
+        )
+    }
+
+    /**
+     * While the menu is open, the stretch of the edges beside the wave ignores Android's back gesture (spec:
+     * board 3); Android keeps at most 200 dp of it per edge. It only checks this when a touch starts, so it guards
+     * the next touch; during the hold itself, the resting finger is what stops the back gesture.
+     */
+    private fun excludeWaveFromSystemGestures(exclude: Boolean) {
+        val rects = if (!exclude || spaceWave.mode == null) {
+            emptyList()
+        } else {
+            val shape = spaceWave.shape(1f)
+            val margin = resources.getDimensionPixelSize(R.dimen.top_bar_height)
+            val top = minOf(shape.y(0f), spaceWave.finger?.y ?: Float.MAX_VALUE).toInt() - margin
+            val bottom = maxOf(shape.y(shape.count - 1f), spaceWave.finger?.y ?: 0f).toInt() + margin
+            listOf(android.graphics.Rect(0, top, root.width, bottom))
+        }
+        ViewCompat.setSystemGestureExclusionRects(root, rects)
+    }
+
+    /** "Add to another space": the Quick Tab becomes a normal tab of [spaceId], and Ensō follows it there. */
+    private fun addToSpace(tabId: String, spaceId: String) {
+        components.spaces.update { it.keepQuickTabIn(tabId, spaceId).copy(currentSpaceId = spaceId).select(tabId) }
+        components.tabs.select(tabId)
+        tabSheetOpen = false
+        startScreenRequested = false
+        components.zenSync.localEdited()
+    }
+
+    /** The wave's view of a space: tinted with its Zen gradient, or its accent when the theme has no colors. */
+    private fun Space.toWaveSpace() =
+        WaveSpace(id, name, icon, tint = gradient.map(::ComposeColor).ifEmpty { listOf(ComposeColor(accent)) })
+
     private fun submit(input: String) {
         val text = input.trim()
         if (text.isEmpty()) return
@@ -412,6 +589,9 @@ class MainActivity : ComponentActivity() {
                 .map { it.selectedTabId }
                 .distinctUntilChanged()
                 .collect { selectedTabId = it }
+        }
+        lifecycleScope.launch {
+            snapshotFlow { spaceWave.mode != null }.collect { spaceWaveView.isVisible = it }
         }
         lifecycleScope.launch {
             snapshotFlow { startScreenVisible to tabSheetOpen }.collect { (startScreen, _) ->
@@ -521,5 +701,12 @@ class MainActivity : ComponentActivity() {
         const val ZEN_SYNC_INTERVAL_MS = 5 * 60_000L
         const val ZEN_SYNC_MIN_INTERVAL_MS = 60_000L
         const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
+
+        /** The tick for each space the space menu's selection moves through. */
+        val SPACE_TICK = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            HapticFeedbackConstants.SEGMENT_TICK
+        } else {
+            HapticFeedbackConstants.CLOCK_TICK
+        }
     }
 }

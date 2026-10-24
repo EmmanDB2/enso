@@ -88,6 +88,7 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             name = record.data.string("name").orEmpty(),
             icon = record.data.string("icon").orEmpty(),
             accent = accentOf(record.data["theme"]) ?: local?.accent ?: DEFAULT_ACCENT,
+            gradient = gradientOf(record.data["theme"]),
             container = record.data.string("containerGuid"),
             pinned = pinned,
             tabs = withPhoneOnlyTabs(syncedOpen, local?.tabs.orEmpty()),
@@ -146,8 +147,19 @@ private fun withPhoneOnlyTabs(synced: List<Tab>, local: List<Tab>): List<Tab> {
 
 /** A space's accent: the primary color of its Zen theme gradient, as ARGB. */
 private fun accentOf(theme: JsonElement?): Long? {
-    val colors = ((theme as? JsonObject)?.get("gradientColors") as? JsonArray)?.mapNotNull { it as? JsonObject }
-    val color = colors?.firstOrNull { it.bool("isPrimary") == true } ?: colors?.firstOrNull() ?: return null
+    val colors = gradientColorsOf(theme)
+    val color = colors.firstOrNull { it.bool("isPrimary") == true } ?: colors.firstOrNull() ?: return null
+    return argbOf(color)
+}
+
+/** All the colors of a space's Zen theme gradient, as ARGB, in Zen's order. */
+private fun gradientOf(theme: JsonElement?): List<Long> = gradientColorsOf(theme).mapNotNull(::argbOf)
+
+private fun gradientColorsOf(theme: JsonElement?): List<JsonObject> =
+    ((theme as? JsonObject)?.get("gradientColors") as? JsonArray)?.mapNotNull { it as? JsonObject }.orEmpty()
+
+/** A gradient color's `c` (red, green, blue) as opaque ARGB. */
+private fun argbOf(color: JsonObject): Long? {
     val rgb = (color["c"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.doubleOrNull?.toInt()?.coerceIn(0, 255) }
     if (rgb == null || rgb.size < 3) return null
     return 0xFF000000L or (rgb[0].toLong() shl 16) or (rgb[1].toLong() shl 8) or rgb[2].toLong()

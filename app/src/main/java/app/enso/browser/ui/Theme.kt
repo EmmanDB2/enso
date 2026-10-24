@@ -36,6 +36,20 @@ object EnsoColors {
 
     /** A space's surface color: its accent at 16% over the base. */
     fun spaceTint(accent: Color) = lerp(SurfaceBase, accent, 0.16f)
+
+    // The space menu (board 3). Tokens rather than inline colors, so a dark theme can swap them.
+
+    /** The light frost over the blurred page. */
+    val WaveFrost = Page.copy(alpha = 0.62f)
+
+    /** The selected space's pill. */
+    val WavePill = Color.White.copy(alpha = 0.78f)
+
+    /** The ink brush stroke along the wave. */
+    val WaveInk = TextPrimary.copy(alpha = 0.20f)
+
+    /** Space names and icons on the wave. Rows farther from the thumb fade it. */
+    val WaveText = TextPrimary
 }
 
 private fun inter(weight: Int) = Font(

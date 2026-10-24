@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.enso.browser.R
+import app.enso.browser.spacemenu.BlockSpaceMenu
 import app.enso.browser.spaces.SpacesState
 import app.enso.browser.spaces.Tab
 import app.enso.browser.toolbar.AddressInput
@@ -130,7 +131,8 @@ private suspend fun PointerInputScope.detectTapOrSwipeDown(onTap: () -> Unit, on
         while (true) {
             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) {
-                lifted = true
+                // A consumed release is a cancel, such as the space menu taking over a hold.
+                lifted = !change.isConsumed
                 break
             }
             total += change.positionChange()
@@ -151,6 +153,7 @@ private fun SearchPalette(
     actions: StartScreenActions,
     onDismiss: () -> Unit,
 ) {
+    BlockSpaceMenu()
     var query by remember { mutableStateOf("") }
     var history by remember { mutableStateOf(emptyList<HistoryMatch>()) }
     val tabs = remember(spaces, query) { matchingTabs(spaces, query) }

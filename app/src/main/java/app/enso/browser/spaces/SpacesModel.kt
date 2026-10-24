@@ -34,6 +34,8 @@ data class Space(
     val icon: String,
     /** ARGB. */
     val accent: Long,
+    /** The Zen theme's gradient colors as ARGB, in Zen's order. Empty when the theme has none. */
+    val gradient: List<Long> = emptyList(),
     /** The Zen container the space opens tabs in, or null for none. Decides which Essentials it shows. */
     val container: String? = null,
     /** Pinned tabs and folders, in order. */

@@ -43,6 +43,7 @@
     <!-- Quick Tabs (boards 4, 4b) -->
     <string name="quick_tab_header">Quick Tab · clears in %s</string>
     <string name="menu_add_to_space">Add to %s</string>
+    <string name="menu_add_to_another_space">Add to another space</string>
     <plurals name="duration_hours">
         <item quantity="one">%d hour</item>
         <item quantity="other">%d hours</item>

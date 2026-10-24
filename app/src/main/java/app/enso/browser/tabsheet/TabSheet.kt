@@ -103,6 +103,9 @@ interface TabSheetActions {
     /** Moves to the next (+1) or previous (-1) space. False when there's none. */
     fun switchSpace(step: Int): Boolean
 
+    /** Opens the space picker for a Quick Tab, which then moves to the chosen space. */
+    fun addToAnotherSpace(tabId: String)
+
     fun dismiss()
 }
 

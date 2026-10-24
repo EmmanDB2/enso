@@ -29,10 +29,28 @@ class Settings(context: Context) {
             ?: TabSwipeScope.OpenTabs
         set(value) = prefs.edit { putString(KEY_TAB_SWIPE_SCOPE, value.name) }
 
-    /** Swipe the tab sheet's header sideways to switch spaces. The way to switch until the arc menu (step 6). */
+    /** Swipe the tab sheet's header sideways to switch spaces, as well as the space menu. */
     var switchSpacesFromSheetHeader: Boolean
-        get() = prefs.getBoolean(KEY_SWITCH_SPACES_FROM_SHEET_HEADER, true)
+        get() = prefs.getBoolean(KEY_SWITCH_SPACES_FROM_SHEET_HEADER, false)
         set(value) = prefs.edit { putBoolean(KEY_SWITCH_SPACES_FROM_SHEET_HEADER, value) }
+
+    /** How long to hold the edge or the address field before the space menu opens (spec: 300–500 ms). */
+    var spaceMenuHoldMs: Long
+        get() = prefs.getLong(KEY_SPACE_MENU_HOLD_MS, 300L)
+        set(value) = prefs.edit { putLong(KEY_SPACE_MENU_HOLD_MS, value) }
+
+    /**
+     * How much of the screen's height, from the bottom up, the space menu's edge strip covers. It never reaches
+     * into the top bar; the default runs the whole edge below it.
+     */
+    var spaceMenuStripHeight: Float
+        get() = prefs.getFloat(KEY_SPACE_MENU_STRIP_HEIGHT, 1f)
+        set(value) = prefs.edit { putFloat(KEY_SPACE_MENU_STRIP_HEIGHT, value) }
+
+    /** Left-handed mode: the space menu's wave and its trigger strip move to the left edge. */
+    var spaceMenuLeftHanded: Boolean
+        get() = prefs.getBoolean(KEY_SPACE_MENU_LEFT_HANDED, false)
+        set(value) = prefs.edit { putBoolean(KEY_SPACE_MENU_LEFT_HANDED, value) }
 
     /** Each Zen container has its own Essentials, as in Zen; off shows every Essential in every space. */
     var essentialsPerContainer: Boolean
@@ -81,6 +99,9 @@ class Settings(context: Context) {
         const val KEY_HIDE_STATUS_BAR = "hide_status_bar_with_top_bar"
         const val KEY_TAB_SWIPE_SCOPE = "tab_swipe_scope"
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
+        const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"
+        const val KEY_SPACE_MENU_LEFT_HANDED = "space_menu_left_handed"
+        const val KEY_SPACE_MENU_STRIP_HEIGHT = "space_menu_strip_height"
         const val KEY_ESSENTIALS_PER_CONTAINER = "essentials_per_container"
         const val KEY_SYNC_OPEN_TABS = "sync_open_tabs"
         const val KEY_SYNC_TAB_NAVIGATIONS = "sync_tab_navigations"

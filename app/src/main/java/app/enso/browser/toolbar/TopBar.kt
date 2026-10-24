@@ -37,10 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.math.abs
@@ -102,6 +105,8 @@ fun TopBar(
     onOpenTabSheet: () -> Unit,
     onSwitchTab: (step: Int) -> Boolean,
     onOpenZenSync: () -> Unit,
+    /** The address field's bounds inside the bar, where a hold opens the space menu. */
+    onAddressFieldPlaced: (Rect) -> Unit,
 ) {
     MaterialTheme {
         Box(
@@ -126,7 +131,9 @@ fun TopBar(
                     onStop = onStop,
                     onOpenTabSheet = onOpenTabSheet,
                     onSwitchTab = onSwitchTab,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .onGloballyPositioned { onAddressFieldPlaced(it.boundsInRoot()) },
                 )
                 Spacer(Modifier.width(2.dp))
                 OverflowMenu(state, onBack, onForward, onOpenZenSync)
@@ -242,7 +249,8 @@ private suspend fun PointerInputScope.detectAddressFieldGestures(
         while (true) {
             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
             if (!change.pressed) {
-                lifted = true
+                // A consumed release is a cancel, such as the space menu taking over a hold.
+                lifted = !change.isConsumed
                 break
             }
             total += change.positionChange()

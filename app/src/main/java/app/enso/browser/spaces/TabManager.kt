@@ -119,9 +119,16 @@ class TabManager(
         val state = spaces.state.value
         val index = state.spaces.indexOfFirst { it.id == state.currentSpaceId }
         val target = state.spaces.getOrNull(index + step) ?: return false
+        switchTo(target.id)
+        return true
+    }
+
+    /** Moves to [spaceId], showing its last tab. With none, nothing of that space is selected (the start screen). */
+    fun switchTo(spaceId: String) {
+        val state = spaces.state.value
+        val target = state.spaces.firstOrNull { it.id == spaceId } ?: return
         spaces.update { it.copy(currentSpaceId = target.id) }
         target.selectedTabId?.takeIf { state.find(it) != null }?.let(::select)
-        return true
     }
 
     /** Restarts the expiry clock of the Quick Tab on screen, if it is one. */
