@@ -1,6 +1,7 @@
 package app.enso.browser
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Build
@@ -22,14 +23,23 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asImageBitmap
@@ -37,7 +47,10 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.coordinatorlayout.widget.CoordinatorLayout
+import androidx.core.graphics.Insets
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -47,6 +60,15 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import app.enso.browser.sidebar.CardCorner
+import app.enso.browser.sidebar.InnerFrame
+import app.enso.browser.sidebar.MediaCardState
+import app.enso.browser.sidebar.Rail
+import app.enso.browser.sidebar.RailWidth
+import app.enso.browser.sidebar.Sidebar
+import app.enso.browser.sidebar.SidebarActions
+import app.enso.browser.sidebar.SidebarWidth
+import app.enso.browser.sidebar.mediaCardFor
 import app.enso.browser.spacemenu.LocalSpaceMenuBlocks
 import app.enso.browser.spacemenu.SpaceMenuBlocks
 import app.enso.browser.spacemenu.SpaceMenuGesture
@@ -62,12 +84,15 @@ import app.enso.browser.spaces.isInCurrentSpace
 import app.enso.browser.spaces.keepQuickTabIn
 import app.enso.browser.spaces.select
 import app.enso.browser.spaces.space
+import app.enso.browser.spaces.toggleFolder
 import app.enso.browser.start.HistoryMatch
 import app.enso.browser.start.StartScreen
 import app.enso.browser.start.StartScreenActions
 import app.enso.browser.sync.MozillaAccount
 import app.enso.browser.sync.ZenSyncSheet
 import app.enso.browser.sync.ZenSyncStatus
+import app.enso.browser.tabsheet.MenuTarget
+import app.enso.browser.tabsheet.TabMenu
 import app.enso.browser.tabsheet.TabSheet
 import app.enso.browser.tabsheet.TabSheetActions
 import app.enso.browser.toolbar.AddressInput
@@ -76,6 +101,8 @@ import app.enso.browser.toolbar.TopBarState
 import app.enso.browser.toolbar.TopBarView
 import app.enso.browser.toolbar.toTopBarState
 import app.enso.browser.ui.EnsoColors
+import app.enso.browser.ui.colors
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -84,6 +111,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.concept.engine.EngineView
+import mozilla.components.concept.engine.mediasession.MediaSession
 import mozilla.components.feature.accounts.FxaWebChannelFeature
 import mozilla.components.feature.session.SessionFeature
 import mozilla.components.feature.tabs.WindowFeature
@@ -94,7 +122,12 @@ import mozilla.components.ui.widgets.behavior.EngineViewClippingBehavior
 import mozilla.components.ui.widgets.behavior.EngineViewScrollingDataBehavior
 import androidx.compose.ui.graphics.Color as ComposeColor
 
-/** Cover-screen browser: the tinted top bar, the page, and the tab sheet over them. */
+/**
+ * The browser. Folded, the cover's tinted top bar sits over the page (boards 1–4); unfolded, the sidebar or rail
+ * sits beside the page as a rounded card (boards 5 and 6). The start screen, tab sheet and menus go over them.
+ * Folding keeps the page, tab, space and scroll position: the activity handles the change itself, so only the
+ * layout around the page changes.
+ */
 class MainActivity : ComponentActivity() {
     private val components get() = (application as EnsoApplication).components
 
@@ -123,6 +156,31 @@ class MainActivity : ComponentActivity() {
         }
 
     private var zenSyncSheetOpen by mutableStateOf(false)
+
+    /** Unfolded: the sidebar or rail beside the page card instead of the cover's top bar. */
+    private var inner by mutableStateOf(false)
+    private var sidebarExpanded by mutableStateOf(false)
+
+    /** The rail's search button opened the sidebar, so it closes again when the edit ends. */
+    private var collapseAfterEdit = false
+
+    /** The page card on the inner screen, in window pixels. */
+    private var cardRect by mutableStateOf(Rect.Zero)
+
+    /** The system bars and cutout around the window: the status bar on top, the navigation bar below. */
+    private var barInsets by mutableStateOf(Insets.NONE)
+
+    /** The start screen's search palette. New Tab in the sidebar opens it too (board 9c). */
+    private var paletteOpen by mutableStateOf(false)
+
+    /** The hold menu opened from the sidebar or rail. */
+    private var sidebarMenu by mutableStateOf<MenuTarget?>(null)
+
+    /**
+     * Whether Ensō muted each tab's media, with the media session it muted: Gecko doesn't report mute changes,
+     * and a new session on the tab starts unmuted.
+     */
+    private val mutedMedia = mutableStateMapOf<String, Pair<MediaSession.Controller, Boolean>>()
 
     /** The space menu (board 3) and its picker, drawn over everything in [spaceWaveView]. */
     private val spaceWave = SpaceWaveState()
@@ -162,6 +220,8 @@ class MainActivity : ComponentActivity() {
         // With nothing to restore, the start screen shows.
         if (components.store.state.selectedTab == null) components.tabs.restore()
         selectedTabId = components.store.state.selectedTabId
+        inner = isInnerScreen(resources.configuration)
+        sidebarExpanded = components.settings.innerSidebarExpanded
 
         engineView = components.engine.createView(this)
         engineView.setActivityContext(this)
@@ -169,7 +229,10 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(EnsoColors.Page.toArgb())
             addView(engineView.asView(), MATCH_PARENT, MATCH_PARENT)
         }
-        topBar = TopBarView(this).apply { setContent { TopBarContent() } }
+        topBar = TopBarView(this).apply {
+            isVisible = !inner
+            setContent { TopBarContent() }
+        }
         topEdge = View(this).apply {
             isVisible = false
             contentDescription = getString(R.string.action_show_top_bar)
@@ -210,18 +273,32 @@ class MainActivity : ComponentActivity() {
                     WindowInsetsCompat.Type.displayCutout() or
                     WindowInsetsCompat.Type.ime(),
             )
-            view.updatePadding(
-                left = edges.left,
-                top = if (immersive) 0 else statusTop,
-                right = edges.right,
-                bottom = edges.bottom,
-            )
-            layoutTopBar(statusBarInset = if (immersive) statusTop else 0)
+            val bars = insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout())
+            barInsets = Insets.of(bars.left, statusTop, bars.right, bars.bottom)
+            if (inner) {
+                // The frame and sidebar draw under the system bars themselves; only the keyboard moves things up.
+                view.updatePadding(left = 0, top = 0, right = 0, bottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
+                layoutInner()
+            } else {
+                view.updatePadding(
+                    left = edges.left,
+                    top = if (immersive) 0 else statusTop,
+                    right = edges.right,
+                    bottom = edges.bottom,
+                )
+                layoutTopBar(statusBarInset = if (immersive) statusTop else 0)
+            }
             // Back with the keyboard up only closes the keyboard; treat that as cancelling the edit too.
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             if (imeWasVisible && !imeVisible) editing = false
             imeWasVisible = imeVisible
             WindowInsetsCompat.CONSUMED
+        }
+        root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            // Rotating the unfolded screen resizes the window without changing the layout, and the insets
+            // arrive before the new size does, so the page card is laid out again once the size is in.
+            val resized = right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop
+            if (inner && resized) root.post { if (inner) layoutInner() }
         }
         root.viewTreeObserver.addOnPreDrawListener {
             val collapsed = barHeight > 0 && topBar.translationY <= -barHeight + 1f
@@ -251,6 +328,27 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, backCallback)
         observeState()
         handleDebugIntent(intent)
+    }
+
+    /**
+     * Folding or unfolding: the page, its tab, the space and the scroll position stay as they are. Only the
+     * layout around the page changes, and anything half-done on the old screen (an edit, the tab sheet) closes.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val nowInner = isInnerScreen(newConfig)
+        if (nowInner == inner) return
+        inner = nowInner
+        editing = false
+        tabSheetOpen = false
+        sidebarMenu = null
+        spaceMenuGesture.reset()
+        spaceWave.close()
+        topBar.isVisible = !inner
+        // Make the bar lay itself out again when it comes back.
+        if (!inner) barHeight = 0
+        ViewCompat.requestApplyInsets(root)
+        updateStatusBar()
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean =
@@ -312,8 +410,9 @@ class MainActivity : ComponentActivity() {
         val useCases = components.sessionUseCases
         TopBar(
             state = state,
-            accent = ComposeColor(spaces.currentSpace.accent),
-            editing = editing,
+            colors = spaces.currentSpace.colors(),
+            // The sidebar edits the URL on the inner screen, so the hidden bar doesn't take the focus.
+            editing = editing && !inner,
             statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() },
             onEditingChange = { editing = it },
             onSubmit = ::submit,
@@ -328,19 +427,25 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    /** The start screen and the tab sheet, drawn over the page and top bar. */
+    /**
+     * Everything drawn over the page: on the cover, the start screen and the tab sheet; unfolded, the frame and
+     * sidebar around the page card, with the start screen inside the card. The sync sheet goes over both.
+     */
     @Composable
     private fun OverlayContent() {
         val spaces by components.spaces.state.collectAsState()
         val zenStatus by components.zenSync.status.collectAsState()
         val statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() }
-        if (startScreenVisible) {
+        if (inner) {
+            // A plain container, so the rail and sidebar keep their own widths instead of the window's.
+            Box(Modifier.fillMaxSize()) { InnerContent(spaces) }
+        } else if (startScreenVisible) {
             // Back from the start screen returns to the last tab, if there is one.
             BackHandler(enabled = selectedTabId != null) { startScreenRequested = false }
-            StartScreen(spaces, statusBarInset, startScreenActions)
+            StartScreen(spaces, statusBarInset, paletteOpen, { paletteOpen = it }, startScreenActions)
         }
         AnimatedVisibility(
-            visible = tabSheetOpen,
+            visible = tabSheetOpen && !inner,
             enter = fadeIn() + slideInVertically { -it / 12 },
             exit = fadeOut() + slideOutVertically { -it / 12 },
         ) {
@@ -364,6 +469,68 @@ class MainActivity : ComponentActivity() {
                 onSyncNow = { components.zenSync.syncNow() },
                 onSignOut = { components.zenSync.signOut() },
                 onDismiss = { zenSyncSheetOpen = false },
+            )
+        }
+    }
+
+    /** The inner screen (boards 5, 6 and 9c): the frame, the sidebar or rail, and the start screen inside the card. */
+    @Composable
+    private fun InnerContent(spaces: SpacesState) {
+        val page by components.store.observeAsComposableState { it.selectedTab?.toTopBarState() ?: TopBarState() }
+        val playing by components.store.observeAsComposableState { mediaCardFor(it.tabs) }
+        val media = playing?.let { card ->
+            mutedMedia[card.tabId]?.takeIf { (controller, _) -> controller === card.controller }?.let { card.copy(muted = it.second) } ?: card
+        }
+        val density = LocalDensity.current
+        val perContainer = components.settings.essentialsPerContainer
+        InnerFrame(spaces.currentSpace.colors(), cardRect, page)
+        val edges = with(density) { Modifier.padding(top = barInsets.top.toDp(), bottom = barInsets.bottom.toDp()).padding(start = barInsets.left.toDp()) }
+        if (sidebarExpanded) {
+            Sidebar(
+                spaces = spaces,
+                essentialsFor = { space -> spaces.essentialsFor(space, perContainer) },
+                selectedTabId = selectedTabId,
+                page = page,
+                editing = editing,
+                newTabShowing = startScreenVisible,
+                media = media,
+                tabActions = tabSheetActions,
+                actions = sidebarActions,
+                onMenu = { sidebarMenu = it },
+                modifier = edges,
+            )
+        } else {
+            Rail(
+                spaces = spaces,
+                essentials = spaces.essentialsFor(perContainer = perContainer),
+                selectedTabId = selectedTabId,
+                newTabShowing = startScreenVisible,
+                tabActions = tabSheetActions,
+                actions = sidebarActions,
+                onMenu = { sidebarMenu = it },
+                modifier = edges,
+            )
+        }
+        if (startScreenVisible && !cardRect.isEmpty) {
+            BackHandler(enabled = selectedTabId != null) { startScreenRequested = false }
+            Box(
+                Modifier
+                    .offset { IntOffset(cardRect.left.roundToInt(), cardRect.top.roundToInt()) }
+                    .size(with(density) { cardRect.width.toDp() }, with(density) { cardRect.height.toDp() })
+                    .clip(RoundedCornerShape(CardCorner)),
+            ) {
+                StartScreen(spaces, 0.dp, paletteOpen, { paletteOpen = it }, startScreenActions, centered = true)
+            }
+        }
+        sidebarMenu?.let { target ->
+            BackHandler { sidebarMenu = null }
+            TabMenu(
+                target = target,
+                spaces = spaces,
+                selectedTabId = selectedTabId,
+                quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
+                actions = tabSheetActions,
+                onDismiss = { sidebarMenu = null },
             )
         }
     }
@@ -427,6 +594,72 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val sidebarActions = object : SidebarActions {
+        override fun setExpanded(expanded: Boolean) = showSidebar(expanded)
+
+        override fun back() = components.sessionUseCases.goBack()
+
+        override fun forward() = components.sessionUseCases.goForward()
+
+        override fun reload() = components.sessionUseCases.reload()
+
+        override fun stop() = components.sessionUseCases.stopLoading()
+
+        override fun setEditing(editing: Boolean) {
+            this@MainActivity.editing = editing
+        }
+
+        override fun submit(input: String) = this@MainActivity.submit(input)
+
+        override fun openZenSync() {
+            zenSyncSheetOpen = true
+        }
+
+        override fun setMuted(media: MediaCardState, muted: Boolean) {
+            media.controller.muteAudio(muted)
+            mutedMedia[media.tabId] = media.controller to muted
+        }
+
+        override fun newTab() {
+            editing = false
+            startScreenRequested = true
+            paletteOpen = true
+        }
+
+        override fun switchToSpace(spaceId: String) {
+            components.tabs.switchTo(spaceId)
+            startScreenRequested = false
+        }
+
+        override fun switchSpace(step: Int): Boolean {
+            if (!components.tabs.switchSpace(step)) return false
+            startScreenRequested = false
+            return true
+        }
+
+        override fun searchFromRail() {
+            collapseAfterEdit = true
+            showSidebar(true)
+            editing = true
+        }
+
+        override fun openFolder(folderId: String) {
+            components.spaces.update { state ->
+                val folder = state.currentSpace.folders.firstOrNull { it.id == folderId }
+                if (folder != null && !folder.expanded) state.toggleFolder(folderId) else state
+            }
+            showSidebar(true)
+        }
+    }
+
+    /** Opens or closes the inner sidebar, which resizes the page card beside it. */
+    private fun showSidebar(expanded: Boolean) {
+        if (expanded == sidebarExpanded) return
+        sidebarExpanded = expanded
+        components.settings.innerSidebarExpanded = expanded
+        if (inner) layoutInner()
+    }
+
     private val startScreenActions = object : StartScreenActions {
         override fun search(input: String) = openQuickTab(AddressInput.toUrl(input))
 
@@ -438,7 +671,7 @@ class MainActivity : ComponentActivity() {
         override fun openHistory(url: String) = openQuickTab(url)
 
         override fun openTabSheet() {
-            tabSheetOpen = true
+            if (!inner) tabSheetOpen = true
         }
 
         override suspend fun history(query: String, limit: Int) = withContext(Dispatchers.IO) {
@@ -457,7 +690,8 @@ class MainActivity : ComponentActivity() {
      * while editing, or over a menu, the palette or the sync sheet.
      */
     private fun spaceMenuOpensAt(x: Float, y: Float): Boolean {
-        if (editing || zenSyncSheetOpen || spaceWave.mode != null || spaceMenuBlocks.count > 0) return false
+        // Unfolded, the sidebar switches spaces instead (spec: inner-screen gestures).
+        if (inner || editing || zenSyncSheetOpen || spaceWave.mode != null || spaceMenuBlocks.count > 0) return false
         if (components.spaces.state.value.spaces.size < 2) return false
         val bar = IntArray(2).also(topBar::getLocationInWindow)
         val barShows = !startScreenVisible && !tabSheetOpen
@@ -564,10 +798,16 @@ class MainActivity : ComponentActivity() {
     private fun Space.toWaveSpace() =
         WaveSpace(id, name, icon, tint = gradient.map(::ComposeColor).ifEmpty { listOf(ComposeColor(accent)) })
 
+    /** Loads what was typed in the current tab. Over the start screen (the inner sidebar's field), it's a new Quick Tab. */
     private fun submit(input: String) {
         val text = input.trim()
         if (text.isEmpty()) return
-        components.sessionUseCases.loadUrl(AddressInput.toUrl(text))
+        if (startScreenVisible) {
+            components.tabs.openNewTab(AddressInput.toUrl(text), quick = true)
+            startScreenRequested = false
+        } else {
+            components.sessionUseCases.loadUrl(AddressInput.toUrl(text))
+        }
         editing = false
     }
 
@@ -581,8 +821,16 @@ class MainActivity : ComponentActivity() {
                 } else {
                     topBar.enableScrolling()
                     WindowCompat.getInsetsController(window, root).hide(WindowInsetsCompat.Type.ime())
+                    if (collapseAfterEdit) {
+                        collapseAfterEdit = false
+                        showSidebar(false)
+                    }
                 }
             }
+        }
+        lifecycleScope.launch {
+            // The palette belongs to the start screen; it shouldn't reopen with the next one.
+            snapshotFlow { startScreenVisible }.collect { if (!it) paletteOpen = false }
         }
         lifecycleScope.launch {
             components.store.flow(this@MainActivity)
@@ -662,6 +910,7 @@ class MainActivity : ComponentActivity() {
         this.statusBarInset = statusBarInset
 
         topBar.translationY = 0f
+        topBar.isVisible = true
         topBar.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, height).apply {
             gravity = Gravity.TOP
             // Follow the page's real scroll offsets. The touch-gesture variant never sees
@@ -680,6 +929,37 @@ class MainActivity : ComponentActivity() {
         if (!editing) topBar.enableScrolling()
     }
 
+    /**
+     * Lays out the inner screen: the page as a card beside the sidebar or rail, inset from the system bars.
+     * Runs again when the insets change or the sidebar opens or closes.
+     */
+    private fun layoutInner() {
+        val window = window.decorView
+        if (window.width == 0) {
+            root.post { if (inner) layoutInner() }
+            return
+        }
+        val density = resources.displayMetrics.density
+        val sidebar = ((if (sidebarExpanded) SidebarWidth else RailWidth).value * density).toInt()
+        val margin = (CARD_MARGIN_DP * density).toInt()
+        val left = barInsets.left + sidebar + (CARD_GAP_DP * density).toInt()
+        val top = barInsets.top + margin
+        val right = window.width - barInsets.right - margin
+        val bottom = window.height - barInsets.bottom - margin
+        cardRect = Rect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
+        topBar.isVisible = false
+        topEdge.isVisible = false
+        engineContainer.layoutParams = CoordinatorLayout.LayoutParams(right - left, bottom - top).apply {
+            leftMargin = left
+            topMargin = top
+        }
+        // No bar to slide away on the inner screen, and nothing left over from the cover's one sliding the page.
+        engineContainer.translationY = 0f
+        engineView.asView().translationY = 0f
+        engineView.setDynamicToolbarMaxHeight(0)
+        engineView.setVerticalClipping(0)
+    }
+
     private fun onTopBarCollapsedChanged(collapsed: Boolean) {
         topEdge.isVisible = collapsed
         updateStatusBar()
@@ -687,8 +967,12 @@ class MainActivity : ComponentActivity() {
 
     /** The status bar hides with the top bar, but stays up over the start screen and tab sheet. */
     private fun updateStatusBar() {
-        if (!components.settings.hideStatusBarWithTopBar) return
         val controller = WindowCompat.getInsetsController(window, root)
+        if (inner) {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+            return
+        }
+        if (!components.settings.hideStatusBarWithTopBar) return
         if (barCollapsed && !startScreenVisible && !tabSheetOpen) {
             controller.hide(WindowInsetsCompat.Type.statusBars())
         } else {
@@ -696,7 +980,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Whether to use the inner screen's layout: a window at least 600 dp wide at its narrowest (so a rotated cover
+     * doesn't count), unless it's held in portrait and the setting says portrait uses the cover's layout.
+     */
+    private fun isInnerScreen(config: Configuration): Boolean {
+        if (config.smallestScreenWidthDp < INNER_MIN_WIDTH_DP) return false
+        val portrait = config.orientation == Configuration.ORIENTATION_PORTRAIT
+        return !portrait || components.settings.unfoldedPortraitLayout == UnfoldedPortraitLayout.Desktop
+    }
+
     private companion object {
+        const val INNER_MIN_WIDTH_DP = 600
+
+        /** The page card's margin from the screen's edges, and its gap from the sidebar (boards 5 and 6). */
+        const val CARD_MARGIN_DP = 10
+        const val CARD_GAP_DP = 4
+
         const val QUICK_TAB_CHECK_INTERVAL_MS = 60_000L
         const val ZEN_SYNC_INTERVAL_MS = 5 * 60_000L
         const val ZEN_SYNC_MIN_INTERVAL_MS = 60_000L

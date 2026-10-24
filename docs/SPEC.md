@@ -137,7 +137,7 @@ Unfolded, Ensō copies Zen's desktop sidebar layout with rows at least 44 px tal
 
 | Mode | What it shows |
 | --- | --- |
-| Sidebar open (6) | Collapse toggle, back, forward, reload; URL field; Essentials 2×2; space name; pinned tabs and folders; divider; New Tab; current tab as a white pill; open tabs and Quick Tabs; media player card; space icons and + at the bottom |
+| Sidebar open (6) | Collapse toggle, back, forward, reload; URL field with copy link and the ⋮ menu (where Zen has its copy link and site settings buttons); Essentials 2×2; space name; pinned tabs and folders; divider; New Tab; current tab as a white pill; open tabs and Quick Tabs; media player card; space icons at the bottom. There's no + for a new space, because the phone can't create spaces yet |
 | Collapsed rail (5, default) | 64 px rail: expand toggle, a search button that opens the URL field, Essentials, divider, pinned and folder icons, divider, tab favicons (current one as a white tile), space icon at the bottom |
 | Split view (7) | Two page cards side by side. Drag a tab to the right half to split. The focused pane has an accent outline; the rail shows the pair as one stacked tile |
 | Glance (8) | Long-press a link to open a floating preview over a blurred page, with Close, Open as tab and Split buttons beside it |
@@ -145,9 +145,17 @@ Unfolded, Ensō copies Zen's desktop sidebar layout with rows at least 44 px tal
 Inner-screen gestures:
 
 - Swipe sideways on the sidebar to switch spaces, matching Zen's trackpad swipe on desktop. Space icons at the bottom also switch.
-- Tap the rail's toggle to expand or collapse the sidebar.
+- A sideways swipe on a tab row still closes or unloads that tab, as in the tab sheet. Swipes anywhere else on the sidebar, and anywhere on the rail, switch spaces.
+- Tap the rail's toggle to expand or collapse the sidebar. The sidebar stays open or closed the way it was left.
+- The rail's search button opens the sidebar on its URL field, and the sidebar closes again when the edit ends. Tapping a folder in the rail opens the sidebar with that folder expanded. The rail's space icon opens the sidebar.
+- New Tab shows the start screen inside the page card with the search palette centered on it (board 9c). New Tab is the highlighted row meanwhile.
+- The cover's edge wave is a cover gesture; on the inner screen the sidebar switches spaces.
+- Media card: the tab playing media, or the one paused last, with previous, play or pause, next and mute. Tapping its favicon opens that tab.
+  - Previous and next skip tracks when the page offers them, become rewind and fast-forward when it only allows seeking, and are grayed out otherwise.
 
 Fold continuity: the current tab, space and scroll position carry over when folding or unfolding. The cover tab sheet and the inner sidebar read the same data, so nothing reorders. Flex mode is out of scope.
+
+Unfolded portrait: a setting chooses the layout while the unfolded screen is held in portrait. The default is the cover's top-bar layout; the other choice is the sidebar and page card, as in landscape. Rotating keeps the page, which resizes to fit.
 
 ## Visual style
 
@@ -156,7 +164,7 @@ One light, frosted style runs across both screens, tinted by the current space. 
 | Token | Value | Used for |
 | --- | --- | --- |
 | Surface base | #ECE7EA | Sidebar, tab sheet, top bar |
-| Space tint | Space accent at 16% over the base | Same surfaces, so each space reads as its own color |
+| Space tint | Space accent at 16% over the base; from step 7, the space's Zen theme gradient when it has one | Same surfaces, so each space reads as its own color |
 | Page | #FAF9F7 | Page area and page cards |
 | Text primary | #26232B | Names, titles |
 | Text secondary | #5F5B66 | Counts, URLs, muted rows |
@@ -192,7 +200,7 @@ Build the browser core first, then sync, then the signature interactions. Each s
 4. **Quick Tabs:** default for new searches, gold outline, expiry, the hold menu, the start screen and search palette.
 5. **Mozilla account and Zen sync:** sign-in, then read and write Zen's Spaces, folders and tabs. Study how Dejavu does this and check its license before reusing code.
 6. **Space menu:** the edge wave, haptics, page tint and gesture exclusion.
-7. **Inner screen:** collapsed rail, full sidebar, sidebar swipe for spaces, fold continuity.
+7. **Inner screen:** collapsed rail, full sidebar, sidebar swipe for spaces, fold continuity. Also space colors, which the sidebar needs: Zen's theme gradient on the tinted surfaces on both screens (top bar, tab sheet, start screen, sidebar), with the accent kept for small marks.
 8. **Split view and Glance.**
 9. **Extensions:** bundled uBlock Origin and the add-ons UI.
 10. **Polish:** real favicons with letter fallbacks, blur snapshot for the tab sheet, animations, dark mode.

@@ -48,7 +48,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
@@ -78,7 +77,10 @@ import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.SpaceColors
 import app.enso.browser.ui.SpaceIcon
+import app.enso.browser.ui.colors
+import app.enso.browser.ui.spaceSurface
 import app.enso.browser.ui.displayTitle
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -122,8 +124,8 @@ fun TabSheet(
     headerSwitchesSpaces: Boolean,
     actions: TabSheetActions,
 ) {
-    val accent = Color(spaces.currentSpace.accent)
-    val tint = EnsoColors.spaceTint(accent)
+    val colors = spaces.currentSpace.colors()
+    val accent = colors.accent
     var query by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf<MenuTarget?>(null) }
     val current = selectedTabId?.let { spaces.find(it) }
@@ -144,7 +146,7 @@ fun TabSheet(
     Box(
         Modifier
             .fillMaxSize()
-            .background(tint)
+            .spaceSurface(colors)
             // Keep touches from reaching the page underneath.
             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
     ) {
@@ -165,7 +167,8 @@ fun TabSheet(
                         is SheetRow.Essentials -> EssentialsGrid(row.tabs, selectedTabId, actions, openMenu)
                         is SheetRow.PinnedTabRow -> TabRow(
                             tab = row.tab,
-                            background = if (row.tab.id == selectedTabId) lerp(tint, Color.White, 0.55f) else tint,
+                            colors = colors,
+                            highlight = if (row.tab.id == selectedTabId) RowHighlight.Soft else RowHighlight.None,
                             depth = row.depth,
                             swipe = SwipeAction.Unload,
                             actions = actions,
@@ -174,8 +177,7 @@ fun TabSheet(
                         is SheetRow.FolderRow -> FolderRow(
                             folder = row.folder,
                             depth = row.depth,
-                            background = tint,
-                            accent = accent,
+                            colors = colors,
                             actions = actions,
                             onLongClick = openMenu,
                         )
@@ -183,14 +185,14 @@ fun TabSheet(
                         is SheetRow.Current -> CurrentTabCard(row.entry, actions, openMenu)
                         is SheetRow.OpenTabRow -> TabRow(
                             tab = row.tab,
-                            background = tint,
+                            colors = colors,
                             swipe = SwipeAction.Close,
                             actions = actions,
                             onLongClick = openMenu,
                         )
                         is SheetRow.Match -> TabRow(
                             tab = row.tab,
-                            background = tint,
+                            colors = colors,
                             swipe = null,
                             actions = actions,
                             onLongClick = null,
@@ -327,7 +329,7 @@ private fun SheetHeader(space: Space, onSwipe: ((Int) -> Boolean)?) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EssentialsGrid(
+internal fun EssentialsGrid(
     tabs: List<Tab>,
     selectedTabId: String?,
     actions: TabSheetActions,
@@ -364,26 +366,39 @@ private fun EssentialsGrid(
 
 enum class SwipeAction { Close, Unload }
 
+/** How a tab row stands out: not at all, softly (the sheet's pinned current tab), or as the white current-tab pill. */
+enum class RowHighlight { None, Soft, Current }
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TabRow(
+internal fun TabRow(
     tab: Tab,
-    background: Color,
+    colors: SpaceColors,
     swipe: SwipeAction?,
     actions: TabSheetActions,
     onLongClick: ((MenuTarget) -> Unit)?,
     depth: Int = 0,
+    highlight: RowHighlight = RowHighlight.None,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
+    val shape = RoundedCornerShape(12.dp)
     val content = @Composable {
         Row(
             Modifier
                 .fillMaxWidth()
                 .height(48.dp)
                 .onGloballyPositioned { bounds = it.boundsInRoot() }
-                .clip(RoundedCornerShape(12.dp))
-                .background(background)
-                .quickTabOutline(tab, RoundedCornerShape(12.dp))
+                .then(if (highlight == RowHighlight.Current) Modifier.shadow(4.dp, shape) else Modifier)
+                .clip(shape)
+                // Rows paint the surface under them, so the red close area doesn't show through while swiping.
+                .then(
+                    when (highlight) {
+                        RowHighlight.Current -> Modifier.background(EnsoColors.CurrentTab)
+                        RowHighlight.Soft -> Modifier.spaceSurface(colors).background(SoftHighlight)
+                        RowHighlight.None -> Modifier.spaceSurface(colors)
+                    },
+                )
+                .quickTabOutline(tab, shape)
                 .combinedClickable(
                     onClick = { actions.select(tab.id) },
                     onLongClick = onLongClick?.let { { it(MenuTarget.ForTab(tab.id, bounds)) } },
@@ -399,14 +414,14 @@ private fun TabRow(
     if (swipe == null) content() else SwipeToClose(swipe, onSwiped = { actions.swipe(tab.id, swipe) }) { content() }
 }
 
-private fun TabSheetActions.swipe(tabId: String, action: SwipeAction) = when (action) {
+internal fun TabSheetActions.swipe(tabId: String, action: SwipeAction) = when (action) {
     SwipeAction.Close -> close(tabId)
     SwipeAction.Unload -> unload(tabId)
 }
 
 /** Swipe a row sideways to close it: a red close area shows behind it. Unloaded rows spring back. */
 @Composable
-private fun SwipeToClose(
+internal fun SwipeToClose(
     action: SwipeAction,
     onSwiped: () -> Unit,
     modifier: Modifier = Modifier,
@@ -447,11 +462,10 @@ private fun SwipeToClose(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FolderRow(
+internal fun FolderRow(
     folder: Folder,
     depth: Int,
-    background: Color,
-    accent: Color,
+    colors: SpaceColors,
     actions: TabSheetActions,
     onLongClick: ((MenuTarget) -> Unit)?,
 ) {
@@ -462,7 +476,7 @@ private fun FolderRow(
             .height(48.dp)
             .onGloballyPositioned { bounds = it.boundsInRoot() }
             .clip(RoundedCornerShape(12.dp))
-            .background(background)
+            .spaceSurface(colors)
             .combinedClickable(
                 onClick = { actions.edit { it.toggleFolder(folder.id) } },
                 onLongClick = onLongClick?.let { { it(MenuTarget.ForFolder(folder.id, bounds)) } },
@@ -474,7 +488,7 @@ private fun FolderRow(
             painterResource(R.drawable.ic_folder),
             contentDescription = null,
             modifier = Modifier.size(24.dp),
-            tint = accent,
+            tint = colors.accent,
         )
         Spacer(Modifier.width(14.dp))
         Text(folder.name, style = EnsoType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -482,7 +496,7 @@ private fun FolderRow(
 }
 
 @Composable
-private fun SheetDivider() {
+internal fun SheetDivider() {
     Box(
         Modifier
             .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -595,7 +609,10 @@ private fun SheetSearchField(
 }
 
 /** How much deeper each folder level sits. */
-private val FolderIndent = 32.dp
+internal val FolderIndent = 32.dp
+
+/** The white wash over the sheet's pinned current tab. */
+private val SoftHighlight = Color.White.copy(alpha = 0.55f)
 
 /** Quick Tabs get a 2dp gold outline (spec: Quick Tabs, "Look"). */
 internal fun Modifier.quickTabOutline(tab: Tab, shape: Shape): Modifier =

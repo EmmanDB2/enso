@@ -36,6 +36,8 @@ data class Space(
     val accent: Long,
     /** The Zen theme's gradient colors as ARGB, in Zen's order. Empty when the theme has none. */
     val gradient: List<Long> = emptyList(),
+    /** How strongly Zen's theme lays its gradient over the chrome, 0 to 1. */
+    val themeOpacity: Float = DEFAULT_THEME_OPACITY,
     /** The Zen container the space opens tabs in, or null for none. Decides which Essentials it shows. */
     val container: String? = null,
     /** Pinned tabs and folders, in order. */
@@ -163,3 +165,6 @@ internal fun newTabId() = "${System.currentTimeMillis()}-${UUID.randomUUID()}"
 
 /** A folder id in Zen's (Firefox tab group) format, `<time>-<0..99>`. */
 internal fun newFolderId() = "${System.currentTimeMillis()}-${Random.nextInt(100)}"
+
+/** Zen's default theme opacity, for spaces synced before it was stored. */
+const val DEFAULT_THEME_OPACITY = 0.5f

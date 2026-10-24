@@ -1,5 +1,6 @@
 package app.enso.browser.sync
 
+import app.enso.browser.spaces.DEFAULT_THEME_OPACITY
 import app.enso.browser.spaces.Folder
 import app.enso.browser.spaces.PinnedItem
 import app.enso.browser.spaces.PinnedTab
@@ -89,6 +90,7 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             icon = record.data.string("icon").orEmpty(),
             accent = accentOf(record.data["theme"]) ?: local?.accent ?: DEFAULT_ACCENT,
             gradient = gradientOf(record.data["theme"]),
+            themeOpacity = opacityOf(record.data["theme"]),
             container = record.data.string("containerGuid"),
             pinned = pinned,
             tabs = withPhoneOnlyTabs(syncedOpen, local?.tabs.orEmpty()),
@@ -151,6 +153,10 @@ private fun accentOf(theme: JsonElement?): Long? {
     val color = colors.firstOrNull { it.bool("isPrimary") == true } ?: colors.firstOrNull() ?: return null
     return argbOf(color)
 }
+
+/** How strongly the Zen theme lays its gradient over the chrome. */
+private fun opacityOf(theme: JsonElement?): Float =
+    ((theme as? JsonObject)?.get("opacity") as? JsonPrimitive)?.doubleOrNull?.toFloat()?.coerceIn(0f, 1f) ?: DEFAULT_THEME_OPACITY
 
 /** All the colors of a space's Zen theme gradient, as ARGB, in Zen's order. */
 private fun gradientOf(theme: JsonElement?): List<Long> = gradientColorsOf(theme).mapNotNull(::argbOf)

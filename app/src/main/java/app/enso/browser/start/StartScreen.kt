@@ -45,7 +45,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
@@ -67,6 +66,8 @@ import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.LetterFavicon
 import app.enso.browser.ui.displayTitle
+import app.enso.browser.ui.pageColors
+import app.enso.browser.ui.spaceSurface
 import kotlinx.coroutines.delay
 import mozilla.components.support.ktx.util.URLStringUtils
 import kotlin.math.abs
@@ -94,18 +95,25 @@ interface StartScreenActions {
  * app has been away a while. Tap for the search palette (board 9b); swipe down for the tab sheet.
  */
 @Composable
-fun StartScreen(spaces: SpacesState, statusBarInset: Dp, actions: StartScreenActions) {
+fun StartScreen(
+    spaces: SpacesState,
+    statusBarInset: Dp,
+    paletteOpen: Boolean,
+    onPaletteOpenChange: (Boolean) -> Unit,
+    actions: StartScreenActions,
+    /** On the inner screen the palette sits centered on the page card (board 9c) instead of in the upper half. */
+    centered: Boolean = false,
+) {
     val accent = Color(spaces.currentSpace.accent)
-    var paletteOpen by remember { mutableStateOf(false) }
-    val openPalette by rememberUpdatedState { paletteOpen = true }
+    val openPalette by rememberUpdatedState { onPaletteOpenChange(true) }
     val openTabSheet by rememberUpdatedState(actions::openTabSheet)
 
-    BackHandler(enabled = paletteOpen) { paletteOpen = false }
+    BackHandler(enabled = paletteOpen) { onPaletteOpenChange(false) }
 
     Box(
         Modifier
             .fillMaxSize()
-            .background(lerp(EnsoColors.Page, accent, 0.10f))
+            .spaceSurface(spaces.currentSpace.pageColors())
             .pointerInput(Unit) {
                 detectTapOrSwipeDown(onTap = { openPalette() }, onSwipeDown = { openTabSheet() })
             },
@@ -115,8 +123,9 @@ fun StartScreen(spaces: SpacesState, statusBarInset: Dp, actions: StartScreenAct
                 spaces = spaces,
                 accent = accent,
                 statusBarInset = statusBarInset,
+                centered = centered,
                 actions = actions,
-                onDismiss = { paletteOpen = false },
+                onDismiss = { onPaletteOpenChange(false) },
             )
         }
     }
@@ -144,12 +153,13 @@ private suspend fun PointerInputScope.detectTapOrSwipeDown(onTap: () -> Unit, on
     }
 }
 
-/** Command palette modeled on Zen's (board 9b): in the upper half, so the keyboard fits below. */
+/** Command palette modeled on Zen's (board 9b): in the upper half, so the keyboard fits below, or [centered] (9c). */
 @Composable
 private fun SearchPalette(
     spaces: SpacesState,
     accent: Color,
     statusBarInset: Dp,
+    centered: Boolean,
     actions: StartScreenActions,
     onDismiss: () -> Unit,
 ) {
@@ -180,11 +190,11 @@ private fun SearchPalette(
             .background(Color.Black.copy(alpha = 0.06f))
             .pointerInput(Unit) { detectTapGestures { onDismiss() } },
     ) {
-        val top = statusBarInset + maxHeight * 0.12f
+        val top = if (centered) 12.dp else statusBarInset + maxHeight * 0.12f
         val shape = RoundedCornerShape(20.dp)
         Column(
             Modifier
-                .align(Alignment.TopCenter)
+                .align(if (centered) Alignment.Center else Alignment.TopCenter)
                 .padding(top = top, start = 12.dp, end = 12.dp)
                 .widthIn(max = 560.dp)
                 .fillMaxWidth()

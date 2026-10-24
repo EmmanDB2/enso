@@ -13,6 +13,15 @@ enum class TabSwipeScope {
     AllTabs,
 }
 
+/** Which layout the unfolded screen uses while it's held in portrait. */
+enum class UnfoldedPortraitLayout {
+    /** The sidebar or rail beside the page card, as in landscape (boards 5 and 6). */
+    Desktop,
+
+    /** The cover's layout: the top bar over the page (boards 1–4). */
+    Mobile,
+}
+
 class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("enso_settings", Context.MODE_PRIVATE)
 
@@ -46,6 +55,13 @@ class Settings(context: Context) {
     var spaceMenuStripHeight: Float
         get() = prefs.getFloat(KEY_SPACE_MENU_STRIP_HEIGHT, 1f)
         set(value) = prefs.edit { putFloat(KEY_SPACE_MENU_STRIP_HEIGHT, value) }
+
+    /** The unfolded screen's layout in portrait. Landscape always uses the sidebar. */
+    var unfoldedPortraitLayout: UnfoldedPortraitLayout
+        get() = prefs.getString(KEY_UNFOLDED_PORTRAIT_LAYOUT, null)
+            ?.let { name -> UnfoldedPortraitLayout.entries.firstOrNull { it.name == name } }
+            ?: UnfoldedPortraitLayout.Mobile
+        set(value) = prefs.edit { putString(KEY_UNFOLDED_PORTRAIT_LAYOUT, value.name) }
 
     /** Left-handed mode: the space menu's wave and its trigger strip move to the left edge. */
     var spaceMenuLeftHanded: Boolean
@@ -90,6 +106,11 @@ class Settings(context: Context) {
 
     // App state.
 
+    /** Whether the inner screen shows the full sidebar rather than the rail (board 5 is the default). */
+    var innerSidebarExpanded: Boolean
+        get() = prefs.getBoolean(KEY_INNER_SIDEBAR_EXPANDED, false)
+        set(value) = prefs.edit { putBoolean(KEY_INNER_SIDEBAR_EXPANDED, value) }
+
     /** When the app last went to the background. */
     var lastStoppedAt: Long?
         get() = prefs.getLong(KEY_LAST_STOPPED_AT, 0L).takeIf { it > 0 }
@@ -101,6 +122,7 @@ class Settings(context: Context) {
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
         const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"
         const val KEY_SPACE_MENU_LEFT_HANDED = "space_menu_left_handed"
+        const val KEY_UNFOLDED_PORTRAIT_LAYOUT = "unfolded_portrait_layout"
         const val KEY_SPACE_MENU_STRIP_HEIGHT = "space_menu_strip_height"
         const val KEY_ESSENTIALS_PER_CONTAINER = "essentials_per_container"
         const val KEY_SYNC_OPEN_TABS = "sync_open_tabs"
@@ -109,5 +131,6 @@ class Settings(context: Context) {
         const val KEY_QUICK_TAB_LIFETIME_HOURS = "quick_tab_lifetime_hours"
         const val KEY_START_SCREEN_AFTER_MINUTES = "start_screen_after_minutes"
         const val KEY_LAST_STOPPED_AT = "last_stopped_at"
+        const val KEY_INNER_SIDEBAR_EXPANDED = "inner_sidebar_expanded"
     }
 }

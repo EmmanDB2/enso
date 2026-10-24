@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Thin-line icon, 1.8 stroke on a 24 grid (spec: Visual style), filled for the media card (board 6). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M8,5.5v13a1,1 0 0 0 1.5,0.86l10.5,-6.5a1,1 0 0 0 0,-1.72l-10.5,-6.5a1,1 0 0 0 -1.5,0.86z"
+        android:fillColor="#FF26232B" />
+</vector>

@@ -68,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import app.enso.browser.R
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
+import app.enso.browser.ui.SpaceColors
+import app.enso.browser.ui.spaceSurface
 import mozilla.components.browser.state.state.TabSessionState
 
 /** What the top bar shows about the current tab. */
@@ -93,7 +95,7 @@ fun TabSessionState.toTopBarState() = TopBarState(
 @Composable
 fun TopBar(
     state: TopBarState,
-    accent: Color,
+    colors: SpaceColors,
     editing: Boolean,
     statusBarInset: Dp,
     onEditingChange: (Boolean) -> Unit,
@@ -108,11 +110,12 @@ fun TopBar(
     /** The address field's bounds inside the bar, where a hold opens the space menu. */
     onAddressFieldPlaced: (Rect) -> Unit,
 ) {
+    val accent = colors.accent
     MaterialTheme {
         Box(
             Modifier
                 .fillMaxSize()
-                .background(EnsoColors.spaceTint(accent))
+                .spaceSurface(colors)
                 .padding(top = statusBarInset),
         ) {
             Row(
@@ -266,7 +269,7 @@ private suspend fun PointerInputScope.detectAddressFieldGestures(
 }
 
 @Composable
-private fun UrlEditor(
+internal fun UrlEditor(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     accent: Color,
@@ -316,7 +319,7 @@ private fun UrlEditor(
 }
 
 @Composable
-private fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: () -> Unit) {
+internal fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: () -> Unit) {
     IconButton(onClick = onClick) {
         Icon(
             painterResource(icon),
@@ -327,8 +330,15 @@ private fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: 
     }
 }
 
+/** The ⋮ menu. The inner sidebar has its own back and forward buttons, so it leaves them out ([withNavigation]). */
 @Composable
-private fun OverflowMenu(state: TopBarState, onBack: () -> Unit, onForward: () -> Unit, onOpenZenSync: () -> Unit) {
+internal fun OverflowMenu(
+    state: TopBarState,
+    onBack: () -> Unit,
+    onForward: () -> Unit,
+    onOpenZenSync: () -> Unit,
+    withNavigation: Boolean = true,
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }) {
@@ -345,13 +355,15 @@ private fun OverflowMenu(state: TopBarState, onBack: () -> Unit, onForward: () -
             containerColor = Color.White,
             shadowElevation = 8.dp,
         ) {
-            MenuRow(R.drawable.ic_arrow_left, R.string.menu_back, state.canGoBack) {
-                expanded = false
-                onBack()
-            }
-            MenuRow(R.drawable.ic_arrow_right, R.string.menu_forward, state.canGoForward) {
-                expanded = false
-                onForward()
+            if (withNavigation) {
+                MenuRow(R.drawable.ic_arrow_left, R.string.menu_back, state.canGoBack) {
+                    expanded = false
+                    onBack()
+                }
+                MenuRow(R.drawable.ic_arrow_right, R.string.menu_forward, state.canGoForward) {
+                    expanded = false
+                    onForward()
+                }
             }
             MenuRow(R.drawable.ic_sync, R.string.menu_zen_sync, enabled = true) {
                 expanded = false
@@ -381,9 +393,9 @@ private fun MenuRow(@DrawableRes icon: Int, @StringRes label: Int, enabled: Bool
     )
 }
 
-/** 2dp line in the space accent along the bar's bottom edge. */
+/** 2dp line in the space accent along the bar's bottom edge (or the inner page card's top edge). */
 @Composable
-private fun LoadProgress(state: TopBarState, accent: Color, modifier: Modifier = Modifier) {
+internal fun LoadProgress(state: TopBarState, accent: Color, modifier: Modifier = Modifier) {
     val fraction = remember { Animatable(0f) }
     LaunchedEffect(state.progress) {
         val target = state.progress / 100f

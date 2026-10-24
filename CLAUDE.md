@@ -11,8 +11,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Build **one step of the spec's build order at a time**. Each step must build, install and run on the Fold before the next one starts.
 - Don't build UI or features from later steps early, even as stubs.
 - If the spec is unclear or silent, ask instead of guessing. The spec lists its own open questions at the end.
-- Current step: **6, the space menu** (the edge wave, haptics, page tint and gesture exclusion). Step 5 (two-way Zen sync) is done.
-  - The inner screen shows the cover layout stretched until step 7.
+- Current step: **7, the inner screen**: the rail, the full sidebar, the sidebar's space swipe, fold continuity and space colors. Step 6 (the edge wave) is done.
+  - Space colors are part of step 7 because the sidebar needs them. Every tinted surface on both screens uses the space's Zen theme gradient at Zen's own opacity, and the accent stays for small marks.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -112,7 +112,15 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - The start screen shows when no tab is selected, when the selected tab belongs to another space, or when the app was away for `startScreenAfterMinutes`.
   - Tap it for the palette; swipe down for the tab sheet.
   - Back returns to the last tab.
-- `MainActivity.kt`: a `CoordinatorLayout` holding the engine view, the top bar, and one overlay `ComposeView` for the start screen and tab sheet.
+- `MainActivity.kt`: a `CoordinatorLayout` holding the engine view, the top bar, and one overlay `ComposeView` for everything drawn over the page.
+  - **Cover or inner:** a window at least 600 dp wide at its narrowest counts as the inner screen. A rotated cover doesn't count. In portrait, the unfolded screen uses the cover's layout when `unfoldedPortraitLayout` is `Mobile`.
+    - The activity handles folding itself (`configChanges`), so the page, tab, space and scroll position carry over with no extra work. `onConfigurationChanged` swaps the layout and closes the tab sheet and any edit.
+  - **The inner layout** (`layoutInner`): the top bar is hidden, and the engine view becomes the page card beside the sidebar or rail.
+    - It resets the cover's hide-on-scroll leftovers: container translation, dynamic toolbar height and vertical clipping. Without that, the page sat a bar's height too low in the card.
+    - It runs again whenever the root view changes size. Rotating doesn't change the layout mode, and the insets arrive before the new window size, so without this the card kept its old size and the page didn't reflow.
+    - Root padding is only the keyboard; the frame and sidebar handle the system bars themselves.
+  - **The overlay on the inner screen:** `InnerFrame`, then the sidebar or rail, then the start screen clipped into the card, then the hold menu.
+    - The content is wrapped in a full-size `Box`, because the ComposeView's root passes exact window constraints, which stretched the 64 dp rail across the screen.
   - Hide-on-scroll uses AC's `EngineViewScrollingDataBehavior` and `EngineViewClippingBehavior` together with GeckoView's dynamic toolbar height.
   - Don't switch to `EngineViewScrollingGesturesBehavior`. GeckoView blocks parent touch interception for gestures that start mid-page, so that behavior can hide the bar but never bring it back.
   - The back gesture goes back a page, or cancels an edit.
@@ -120,9 +128,21 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `TopBarView` hosts the Compose bar as a `ScrollableToolbar`.
   - `TopBar.kt` is the bar's UI. On the address field, a tap edits, a swipe down opens the tab sheet, and a sideways swipe switches tabs.
   - `AddressInput` decides between URL and search (Google) and formats the domain.
+- `sidebar/`: the inner screen (boards 5, 6 and 9c).
+  - `Sidebar` (300 dp) and `Rail` (64 dp) reuse the tab sheet's rows (`TabRow`, `FolderRow`, `EssentialsGrid`), so holds, swipes and folders behave the same. The current tab is highlighted in place (`RowHighlight.Current`).
+  - A sideways swipe switches spaces wherever a row doesn't take it: rows close on a swipe and consume it first. The space change slides (`AnimatedContent`).
+  - The URL field edits the current tab through the activity's `editing`. Over the start screen, typing opens a Quick Tab instead.
+  - The media card reads `TabSessionState.mediaSessionState` (the engine fills it in) and drives its `MediaSession.Controller`.
+    - Previous and next follow the session's `features`: they skip tracks (`NEXT_TRACK`, `PREVIOUS_TRACK`), seek (`SEEK_FORWARD`, `SEEK_BACKWARD`), or are grayed out.
+    - Mute state: AC's Gecko engine never calls `onMediaMuteChanged`, so `MediaSessionState.muted` stays false. The activity keeps its own record (`mutedMedia`), keyed to the session's controller, so a new session starts unmuted.
+  - `InnerFrame` paints the space colors with a rounded hole for the page card. GeckoView's surface ignores view clipping, so the card's rounded corners are this paint. It has no touch handling, so the page gets the card's touches.
 - `ui/`:
   - `Theme.kt` holds color tokens from the spec's Visual style table and the Inter font (bundled in `res/font`; its license is in `assets/licenses`).
   - `Favicons.kt` has the letter favicon placeholders and the space icons.
+  - `SpaceColors.kt`: a space's chrome colors.
+    - `Space.colors()` lays each gradient color over the base at the theme's opacity (`Space.themeOpacity`). A space without colors gets its accent at 16%.
+    - `Modifier.spaceSurface` paints one gradient down the whole window, lined up by each surface's window position. The top bar, sheet, rows and sidebar therefore read as one, and rows that swipe over it still look seamless.
+    - `Space.pageColors()` is the start screen's faint 10% version.
 - `Settings.kt`: SharedPreferences values, not yet in any UI, meant to become user settings later.
   - `hideStatusBarWithTopBar` (default on) hides the status bar along with the bar.
   - `tabSwipeScope` (default `OpenTabs`) sets which tabs the address-field swipe moves through.
@@ -131,12 +151,13 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `switchSpacesFromSheetHeader` (default off) lets a sideways swipe on the sheet header switch spaces too. It was the way to switch before the space menu.
   - `spaceMenuHoldMs` (default 300) sets how long a hold takes to open the space menu.
   - `spaceMenuLeftHanded` (default off) moves the space menu's wave and trigger strip to the left edge.
+  - `unfoldedPortraitLayout` (default `Mobile`, the cover's top bar) chooses the unfolded screen's layout in portrait. `Desktop` keeps the sidebar and page card there too.
   - `spaceMenuStripHeight` (default 1, the whole edge) sets how much of the screen's height the edge strip covers, from the bottom up. It never reaches into the top bar.
   - `essentialsPerContainer` (default on) shows each space only the Essentials of its Zen container.
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.
   - `syncTabNavigations` (default off) lets navigating a tab from Zen move it on the desktop too. It's off because phone pages often redirect, to a login page for example.
   - `zenSyncDryRun` (default off) logs what sync would upload without uploading. It's for testing.
-  - `lastStoppedAt` is app state, not a preference.
+  - `lastStoppedAt` and `innerSidebarExpanded` (whether the inner screen shows the full sidebar) are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
 
 ## Toolchain (macOS)
@@ -161,7 +182,7 @@ The Fold connects over wireless debugging. Wireless debugging must be on in Deve
 - **First time:** tap "Pair device with pairing code", then run `adb pair <ip>:<pairing-port>` and type the code.
 - **Every session:** adb usually reconnects by itself over mDNS. Check with `adb devices`. If the Fold isn't listed, run `adb connect <ip>:<port>`, using the port on the main Wireless debugging screen (not the pairing port). That port changes each time wireless debugging is turned on.
 - **Screenshots:** the Fold has two displays, so `screencap` needs a display ID. List them with `adb shell dumpsys SurfaceFlinger --display-id`, then run `adb shell screencap -d <id> -p /sdcard/x.png`.
-- **Scripted input:** `adb shell input -d <logical display> tap|swipe|text …`. The cover screen is logical display 0, and coordinates are in full-resolution pixels (1248×1972 on the cover). To place a tap on a popup, read its frame from `adb shell dumpsys window windows`.
+- **Scripted input:** `adb shell input -d <logical display> tap|swipe|text …`. Logical display 0 is whichever screen is on, and coordinates are in full-resolution pixels: 1248×1972 on the cover, 2448×1848 on the inner screen. The inner screen's SurfaceFlinger ID for screenshots is `4630947004648141459`, and the cover's is `4630947123231501204`. Unfolding needs the user. To place a tap on a popup, read its frame from `adb shell dumpsys window windows`.
   - Long press: `swipe x y x y 900`.
   - Hold a swipe partway: `motionevent DOWN|MOVE|UP x y`. The space menu tests this way: `DOWN 1235 1650` on the right edge, wait, `MOVE` up or down about 189 px (72 dp) per space, then `UP`. The user often uses the Fold while you test, so check the state between gestures rather than assuming your touches were the only ones.
 - **Test pages from the Mac:** serve them on `127.0.0.1:<port>` and run `adb reverse tcp:<port> tcp:<port>`. The Fold can then open `http://localhost:<port>/…`.
