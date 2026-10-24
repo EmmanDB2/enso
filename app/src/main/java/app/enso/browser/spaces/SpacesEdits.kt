@@ -91,10 +91,12 @@ fun SpacesState.unpin(tabId: String): SpacesState {
     return removeTab(tabId).updateSpace(spaceId) { it.copy(tabs = listOf(tab) + it.tabs) }
 }
 
+/** Makes a tab an Essential of its space's container, which is where Zen puts it too. */
 fun SpacesState.addToEssentials(tabId: String): SpacesState {
     val entry = find(tabId) ?: return this
     if (entry.place is TabPlace.Essential) return this
-    return removeTab(tabId).let { it.copy(essentials = it.essentials + entry.tab.asPinned()) }
+    val container = (entry.place.space ?: currentSpace).container
+    return removeTab(tabId).let { it.copy(essentials = it.essentials + entry.tab.asPinned().copy(container = container)) }
 }
 
 fun SpacesState.moveToFolder(tabId: String, folderId: String): SpacesState {
@@ -105,7 +107,7 @@ fun SpacesState.moveToFolder(tabId: String, folderId: String): SpacesState {
 fun SpacesState.moveToNewFolder(tabId: String, folderName: String): SpacesState {
     val entry = find(tabId) ?: return this
     val spaceId = entry.place.space?.id ?: currentSpaceId
-    val folder = Folder(id = newId(), name = folderName, expanded = true, items = listOf(PinnedTab(entry.tab.asPinned())))
+    val folder = Folder(id = newFolderId(), name = folderName, expanded = true, items = listOf(PinnedTab(entry.tab.asPinned())))
     return removeTab(tabId).updateSpace(spaceId) { it.copy(pinned = it.pinned + folder) }
 }
 

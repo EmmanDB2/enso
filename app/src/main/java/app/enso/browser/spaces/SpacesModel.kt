@@ -3,6 +3,7 @@ package app.enso.browser.spaces
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.UUID
+import kotlin.random.Random
 
 /**
  * Local spaces data (build step 3), shaped after Zen so step 5 can sync it:
@@ -91,6 +92,8 @@ data class Tab(
     val quick: QuickTab? = null,
     /** Mirrors a tab record in Zen's spaces sync. Tabs without it exist only on the phone. */
     val synced: Boolean = false,
+    /** For synced tabs: the URL Zen's record had when last applied, to tell Zen's navigations from the phone's. */
+    val zenUrl: String? = null,
     /** For Essentials: the Zen container it belongs to, or null for none. */
     val container: String? = null,
 )
@@ -152,3 +155,9 @@ fun SpacesState.isInCurrentSpace(tabId: String, essentialsPerContainer: Boolean 
 }
 
 internal fun newId() = UUID.randomUUID().toString()
+
+/** A tab id in Zen's format (`<time>-<uuid>`), so tabs made on the phone sync like Zen's own. */
+internal fun newTabId() = "${System.currentTimeMillis()}-${UUID.randomUUID()}"
+
+/** A folder id in Zen's (Firefox tab group) format, `<time>-<0..99>`. */
+internal fun newFolderId() = "${System.currentTimeMillis()}-${Random.nextInt(100)}"

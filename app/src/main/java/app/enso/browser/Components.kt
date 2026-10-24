@@ -40,5 +40,7 @@ class Components(private val context: Context) {
     val tabs by lazy { TabManager(spaces, store, tabsUseCases).also { it.start() } }
 
     val accountManager by lazy { MozillaAccount.accountManager(context) }
-    val zenSync by lazy { ZenSync(context, accountManager, FetchSyncHttp(fetchClient), tabs).also { it.start() } }
+    val zenSync by lazy {
+        ZenSync(context, accountManager, FetchSyncHttp(fetchClient), spaces, tabs, settings).also { it.start() }
+    }
 }

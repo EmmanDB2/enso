@@ -32,7 +32,7 @@
     <string name="menu_new_folder">New folder…</string>
     <string name="menu_rename_folder">Rename folder</string>
     <string name="menu_delete_folder">Delete folder</string>
-    <string name="menu_header_folder">Folder · %d tabs</string>
+    <string name="menu_header_folder">Folder · %s</string>
     <string name="dialog_new_folder_title">New folder</string>
     <string name="dialog_rename_folder_title">Rename folder</string>
     <string name="dialog_folder_name_label">Folder name</string>
@@ -65,7 +65,7 @@
     <string name="menu_zen_sync">Sync with Zen</string>
     <string name="zen_sync_title">Sync with Zen</string>
     <string name="zen_sync_signed_out">Sign in with your Mozilla account to bring your Zen Spaces, pinned tabs, folders and Essentials to this phone.</string>
-    <string name="zen_sync_read_only">For now syncing is one way: Zen to the phone. Changes made here stay on the phone.</string>
+    <string name="zen_sync_both_ways">Changes sync both ways. Quick Tabs stay on this phone unless you keep them.</string>
     <string name="zen_sync_sign_in">Sign in</string>
     <string name="zen_sync_sync_now">Sync now</string>
     <string name="zen_sync_sign_out">Sign out</string>

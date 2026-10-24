@@ -66,13 +66,13 @@ fun ZenSyncSheet(
                 ZenSyncStatus.Starting -> Text(stringResource(R.string.zen_sync_starting), style = EnsoType.Secondary)
                 ZenSyncStatus.SignedOut -> {
                     Text(stringResource(R.string.zen_sync_signed_out), style = EnsoType.Row)
-                    Text(stringResource(R.string.zen_sync_read_only), style = EnsoType.Secondary)
+                    Text(stringResource(R.string.zen_sync_both_ways), style = EnsoType.Secondary)
                     SheetButton(R.string.zen_sync_sign_in, accent, primary = true, onClick = onSignIn)
                 }
                 is ZenSyncStatus.SignedIn -> {
                     status.email?.let { Text(it, style = EnsoType.RowTitle) }
                     Text(stateText(status.state), style = EnsoType.Secondary)
-                    Text(stringResource(R.string.zen_sync_read_only), style = EnsoType.Secondary)
+                    Text(stringResource(R.string.zen_sync_both_ways), style = EnsoType.Secondary)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         SheetButton(
                             if (status.state == ZenSyncStatus.State.NeedsSignIn) R.string.zen_sync_sign_in else R.string.zen_sync_sync_now,

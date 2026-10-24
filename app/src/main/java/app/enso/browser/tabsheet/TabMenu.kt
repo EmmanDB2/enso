@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -44,6 +46,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -103,8 +107,8 @@ private sealed interface FolderDialog {
 
 /**
  * Hold menu: the held row lifts, everything else dims, and a white menu opens beside it (board 4b).
- * Quick Tabs get the spec's menu. Other tabs and folders get local organizing actions that stand
- * in until Zen sync (step 5).
+ * Quick Tabs get the spec's menu. Other tabs and folders get organizing actions (pin, folders,
+ * Essentials), which sync to Zen when signed in.
  */
 @Composable
 internal fun TabMenu(
@@ -112,7 +116,6 @@ internal fun TabMenu(
     spaces: SpacesState,
     selectedTabId: String?,
     quickTabLifetimeMs: Long,
-    canOrganize: Boolean,
     actions: TabSheetActions,
     onDismiss: () -> Unit,
 ) {
@@ -174,11 +177,6 @@ internal fun TabMenu(
                     onDismiss()
                 }
                 when (val place = entry.place) {
-                    // Pinning, folders and Essentials come from Zen while sync is read-only.
-                    is TabPlace.Pinned -> if (!canOrganize) listOf(unload) else null
-                    is TabPlace.Open -> if (!canOrganize) listOf(close) else null
-                    TabPlace.Essential -> if (!canOrganize) listOf(unload) else null
-                } ?: when (val place = entry.place) {
                     TabPlace.Essential -> listOf(
                         MenuItem(R.drawable.ic_essentials, R.string.menu_remove_from_essentials) { edit { it.unpin(id) } },
                     )
@@ -202,7 +200,8 @@ internal fun TabMenu(
         }
         is MenuTarget.ForFolder -> {
             val folder = spaces.currentSpace.folders.firstOrNull { it.id == target.folderId } ?: return DismissGone(onDismiss)
-            header = stringResource(R.string.menu_header_folder, folder.tabs.size)
+            val count = folder.tabs.size
+            header = stringResource(R.string.menu_header_folder, pluralStringResource(R.plurals.tab_count, count, count))
             items = listOf(
                 MenuItem(R.drawable.ic_edit, R.string.menu_rename_folder) { dialog = FolderDialog.Rename(folder) },
                 null,
@@ -426,6 +425,8 @@ private fun FolderNameDialog(
                 singleLine = true,
                 textStyle = EnsoType.Row,
                 cursorBrush = SolidColor(accent),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (valid) onConfirm(name.text.trim()) }),
                 modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                 decorationBox = { inner ->
                     Box(

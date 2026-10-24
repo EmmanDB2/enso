@@ -72,7 +72,7 @@ class TabManager(
 
     /** Opens [url] in a new tab just below the current one. New searches pass [quick] to make a Quick Tab. */
     fun openNewTab(url: String, quick: Boolean = false) {
-        val tab = Tab(id = newId(), url = url, quick = if (quick) QuickTab(lastViewedAt = now()) else null)
+        val tab = Tab(id = newTabId(), url = url, quick = if (quick) QuickTab(lastViewedAt = now()) else null)
         spaces.update { it.addOpenTab(tab, afterId = store.state.selectedTabId) }
         store.dispatch(TabListAction.AddTabAction(createTab(url, id = tab.id), select = true))
     }

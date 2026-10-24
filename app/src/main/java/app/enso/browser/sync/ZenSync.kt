@@ -2,10 +2,14 @@ package app.enso.browser.sync
 
 import android.content.Context
 import android.util.Log
+import app.enso.browser.Settings
+import app.enso.browser.spaces.SpacesStore
 import app.enso.browser.spaces.TabManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,19 +52,25 @@ sealed interface ZenSyncStatus {
 }
 
 /**
- * Syncs Zen's spaces to the phone (read-only for now) through the user's Mozilla account: signs in with
- * [accountManager], reads Zen's "spaces" collection, and applies it with [tabs].
+ * Syncs Zen's spaces both ways through the user's Mozilla account: signs in with [accountManager], syncs Zen's
+ * "spaces" collection, and applies the result to the phone with [tabs].
  */
 class ZenSync internal constructor(
     context: Context,
     private val accountManager: FxaAccountManager,
     http: SyncHttp,
+    private val spaces: SpacesStore,
     private val tabs: TabManager,
+    private val settings: Settings,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mirrorStore = ZenMirrorStore(context)
-    private val reader = ZenSpacesReader(http, mirrorStore)
+    private val engine = ZenSpacesEngine(http, mirrorStore, ZenSnapshotStore(context))
     private val running = Mutex()
+
+    /** Counts the user's edits, so a sync can tell whether the phone changed while it ran. */
+    private var edits = 0
+    private var pushJob: Job? = null
 
     private val _status = MutableStateFlow<ZenSyncStatus>(ZenSyncStatus.Starting)
     val status: StateFlow<ZenSyncStatus> = _status.asStateFlow()
@@ -97,7 +107,7 @@ class ZenSync internal constructor(
 
         override fun onLoggedOut() {
             scope.launch {
-                reader.reset()
+                engine.reset()
                 _status.value = ZenSyncStatus.SignedOut
             }
         }
@@ -115,11 +125,38 @@ class ZenSync internal constructor(
         scope.launch { accountManager.logout() }
     }
 
+    /** The user changed spaces, tabs or folders: send it to Zen shortly, once the edits settle. */
+    fun localEdited() {
+        edits++
+        pushJob?.cancel()
+        pushJob = scope.launch {
+            delay(PUSH_DELAY_MS)
+            syncNow()
+        }
+    }
+
+    /** Debug builds only: puts Zen's collection back as it was before the phone's first write. */
+    fun restoreSnapshot() {
+        val account = accountManager.authenticatedAccount() ?: return
+        scope.launch {
+            running.lock()
+            try {
+                val auth = authOf(account) ?: return@launch
+                withContext(Dispatchers.IO) { engine.restoreSnapshot(auth) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Restoring the snapshot failed", e)
+            } finally {
+                running.unlock()
+            }
+            syncNow()
+        }
+    }
+
     /** Syncs unless signed out, already syncing, or [minIntervalMs] hasn't passed since the last sync. */
     fun syncNow(minIntervalMs: Long = 0) {
         val account = accountManager.authenticatedAccount() ?: return
         val now = System.currentTimeMillis()
-        if (now < reader.backoffUntil) return
+        if (now < engine.backoffUntil) return
         val lastSynced = ((_status.value as? ZenSyncStatus.SignedIn)?.state as? ZenSyncStatus.State.Synced)?.at
         if (lastSynced != null && now - lastSynced < minIntervalMs) return
         scope.launch {
@@ -127,15 +164,34 @@ class ZenSync internal constructor(
             try {
                 setState(ZenSyncStatus.State.Syncing)
                 val auth = authOf(account) ?: return@launch setState(ZenSyncStatus.State.NeedsSignIn)
-                val state = when (val result = withContext(Dispatchers.IO) { reader.read(auth) }) {
-                    is ZenReadResult.Synced -> {
-                        tabs.applySpaces { it.withZenSpaces(result.mirror) }
+                val editsBefore = edits
+                val local = spaces.state.value
+                val syncOpenTabs = settings.syncOpenTabs
+                val syncTabNavigations = settings.syncTabNavigations
+                val dryRun = settings.zenSyncDryRun
+                val result = withContext(Dispatchers.IO) {
+                    engine.sync(auth, dryRun) { base -> zenChanges(local, base, syncOpenTabs, syncTabNavigations) }
+                }
+                val state = when (result) {
+                    is ZenSyncResult.Synced -> {
+                        when {
+                            // Edited while syncing: applying now would undo the edit, so sync it first.
+                            edits != editsBefore -> localEdited()
+                            // A dry run never sends, so applying Zen's state would wipe the phone's edits.
+                            dryRun && result.unsent > 0 -> Unit
+                            else -> tabs.applySpaces { it.withZenSpaces(result.mirror) }
+                        }
                         ZenSyncStatus.State.Synced(result.mirror.lastSynced)
                     }
-                    ZenReadResult.NotSetUp, ZenReadResult.NotTurnedOn -> ZenSyncStatus.State.ZenSyncOff
-                    is ZenReadResult.NeedsUpdate -> ZenSyncStatus.State.NeedsUpdate
+                    ZenSyncResult.NotSetUp, ZenSyncResult.NotTurnedOn -> ZenSyncStatus.State.ZenSyncOff
+                    is ZenSyncResult.NeedsUpdate -> ZenSyncStatus.State.NeedsUpdate
                 }
                 setState(state)
+            } catch (e: SyncConflictException) {
+                // Zen wrote while the phone was uploading; download that first, then try again.
+                Log.i(TAG, "Zen changed the collection during the sync; syncing again")
+                setState(ZenSyncStatus.State.Synced(mirrorStore.load().lastSynced))
+                localEdited()
             } catch (e: SyncAuthException) {
                 Log.w(TAG, "Sync refused the account", e)
                 setState(ZenSyncStatus.State.NeedsSignIn)
@@ -165,5 +221,6 @@ class ZenSync internal constructor(
 
     private companion object {
         const val TAG = "ZenSync"
+        const val PUSH_DELAY_MS = 3_000L
     }
 }

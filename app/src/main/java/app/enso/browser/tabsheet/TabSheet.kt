@@ -115,8 +115,6 @@ fun TabSheet(
     selectedTabId: String?,
     statusBarInset: Dp,
     quickTabLifetimeMs: Long,
-    /** Whether the hold menu offers pin, folder and Essentials actions (off while sync is read-only). */
-    canOrganize: Boolean,
     /** Whether swiping the header sideways switches spaces. */
     headerSwitchesSpaces: Boolean,
     actions: TabSheetActions,
@@ -176,7 +174,7 @@ fun TabSheet(
                             background = tint,
                             accent = accent,
                             actions = actions,
-                            onLongClick = openMenu.takeIf { canOrganize },
+                            onLongClick = openMenu,
                         )
                         SheetRow.Divider -> SheetDivider()
                         is SheetRow.Current -> CurrentTabCard(row.entry, actions, openMenu)
@@ -211,7 +209,6 @@ fun TabSheet(
                 spaces = spaces,
                 selectedTabId = selectedTabId,
                 quickTabLifetimeMs = quickTabLifetimeMs,
-                canOrganize = canOrganize,
                 actions = actions,
                 onDismiss = { menu = null },
             )

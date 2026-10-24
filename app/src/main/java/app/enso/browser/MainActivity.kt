@@ -1,5 +1,7 @@
 package app.enso.browser
 
+import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
@@ -201,6 +203,24 @@ class MainActivity : ComponentActivity() {
         )
         onBackPressedDispatcher.addCallback(this, backCallback)
         observeState()
+        handleDebugIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleDebugIntent(intent)
+    }
+
+    /**
+     * Debug builds only: `adb shell am start -n app.enso.browser/.MainActivity --ez enso_restore_zen_snapshot true`
+     * puts Zen's spaces collection back as it was before the phone's first write.
+     */
+    private fun handleDebugIntent(intent: Intent?) {
+        val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        if (debuggable && intent?.getBooleanExtra(EXTRA_RESTORE_ZEN_SNAPSHOT, false) == true) {
+            intent.removeExtra(EXTRA_RESTORE_ZEN_SNAPSHOT)
+            components.zenSync.restoreSnapshot()
+        }
     }
 
     override fun onStart() {
@@ -278,8 +298,6 @@ class MainActivity : ComponentActivity() {
                 selectedTabId = selectedTabId,
                 statusBarInset = statusBarInset,
                 quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
-                // While sync is read-only, pins, folders and Essentials come from Zen.
-                canOrganize = zenStatus !is ZenSyncStatus.SignedIn,
                 headerSwitchesSpaces = components.settings.switchSpacesFromSheetHeader,
                 actions = tabSheetActions,
             )
@@ -315,7 +333,10 @@ class MainActivity : ComponentActivity() {
             startScreenRequested = false
         }
 
-        override fun close(tabId: String) = afterClosing(components.tabs.close(tabId))
+        override fun close(tabId: String) {
+            afterClosing(components.tabs.close(tabId))
+            components.zenSync.localEdited()
+        }
 
         override fun unload(tabId: String) = afterClosing(components.tabs.unload(tabId))
 
@@ -325,7 +346,10 @@ class MainActivity : ComponentActivity() {
             startScreenRequested = false
         }
 
-        override fun edit(transform: (SpacesState) -> SpacesState) = components.spaces.update(transform)
+        override fun edit(transform: (SpacesState) -> SpacesState) {
+            components.spaces.update(transform)
+            components.zenSync.localEdited()
+        }
 
         override fun switchSpace(step: Int) = components.tabs.switchSpace(step)
 
@@ -496,5 +520,6 @@ class MainActivity : ComponentActivity() {
         const val QUICK_TAB_CHECK_INTERVAL_MS = 60_000L
         const val ZEN_SYNC_INTERVAL_MS = 5 * 60_000L
         const val ZEN_SYNC_MIN_INTERVAL_MS = 60_000L
+        const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
     }
 }

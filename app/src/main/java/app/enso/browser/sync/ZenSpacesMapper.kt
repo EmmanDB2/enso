@@ -10,8 +10,6 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 
 /**
@@ -40,13 +38,15 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
         val url = data.string("url")?.ifEmpty { null } ?: return null
         val title = data.string("staticLabel")?.ifEmpty { null } ?: data.string("title").orEmpty()
         val local = localTabs[id]
-        val samePage = local != null && (local.pinnedUrl ?: local.url) == url
+        // Unless Zen moved the tab to another page since, keep what the phone shows.
+        val samePage = local != null && (local.zenUrl ?: local.pinnedUrl ?: local.url) == url
         return Tab(
             id = id,
             url = if (samePage) local.url else url,
             title = if (samePage) local.title.ifEmpty { title } else title,
             pinnedUrl = url.takeIf { data.bool("pinned") != false },
             synced = true,
+            zenUrl = url,
         )
     }
 
@@ -83,10 +83,6 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
         val uuid = record.uuid
         val local = spaces.firstOrNull { it.id == uuid }
         val (pinned, syncedOpen) = childrenOf(record.data.strings("children").orEmpty(), seen)
-        val syncedOpenIds = syncedOpen.mapTo(mutableSetOf()) { it.id }
-        // Phone-only open tabs stay; synced ones Zen no longer has go.
-        val keptOpen = local?.tabs.orEmpty().filter { !it.synced || it.id in syncedOpenIds }
-        val keptIds = keptOpen.mapTo(mutableSetOf()) { it.id }
         Space(
             id = uuid,
             name = record.data.string("name").orEmpty(),
@@ -94,8 +90,7 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             accent = accentOf(record.data["theme"]) ?: local?.accent ?: DEFAULT_ACCENT,
             container = record.data.string("containerGuid"),
             pinned = pinned,
-            tabs = keptOpen.map { tab -> syncedOpen.firstOrNull { it.id == tab.id } ?: tab } +
-                syncedOpen.filterNot { it.id in keptIds },
+            tabs = withPhoneOnlyTabs(syncedOpen, local?.tabs.orEmpty()),
             selectedTabId = local?.selectedTabId,
         )
     }
@@ -128,6 +123,27 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
     )
 }
 
+/**
+ * Open tabs in Zen's order ([synced]), with the phone's own open tabs (Quick Tabs, tabs not uploaded yet) kept
+ * just after the synced tab they followed on the phone. Synced tabs Zen no longer has are gone.
+ */
+private fun withPhoneOnlyTabs(synced: List<Tab>, local: List<Tab>): List<Tab> {
+    val result = synced.toMutableList()
+    val syncedIds = synced.mapTo(mutableSetOf()) { it.id }
+    var previous: String? = null
+    for (tab in local) {
+        // A phone tab Zen now has (just uploaded) is the synced one from here on; never keep both.
+        if (tab.synced || tab.id in syncedIds) {
+            if (tab.id in syncedIds) previous = tab.id
+            continue
+        }
+        val at = previous?.let { id -> result.indexOfFirst { it.id == id } + 1 } ?: 0
+        result.add(at, tab)
+        previous = tab.id
+    }
+    return result
+}
+
 /** A space's accent: the primary color of its Zen theme gradient, as ARGB. */
 private fun accentOf(theme: JsonElement?): Long? {
     val colors = ((theme as? JsonObject)?.get("gradientColors") as? JsonArray)?.mapNotNull { it as? JsonObject }
@@ -137,22 +153,6 @@ private fun accentOf(theme: JsonElement?): Long? {
     return 0xFF000000L or (rgb[0].toLong() shl 16) or (rgb[1].toLong() shl 8) or rgb[2].toLong()
 }
 
-private val ZenRecord.uuid: String get() = data.string("uuid") ?: id
+internal val ZenRecord.uuid: String get() = data.string("uuid") ?: id
 
-private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-private fun JsonObject.bool(key: String): Boolean? = (this[key] as? JsonPrimitive)?.booleanOrNull
-
-private fun JsonObject.strings(key: String): List<String>? = (this[key] as? JsonArray)?.strings()
-
-private fun JsonElement?.strings(): List<String> =
-    (this as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.contentOrNull }.orEmpty()
-
-private const val KIND_SPACE = "space"
-private const val KIND_TAB = "tab"
-private const val KIND_FOLDER = "folder"
-private const val KIND_SPLIT = "split"
-private const val KIND_LAYOUT = "layout"
-private const val LAYOUT_ID = "layout"
-private const val DEFAULT_CONTAINER = "default"
 private const val DEFAULT_ACCENT = 0xFF4F7CFF

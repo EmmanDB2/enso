@@ -27,6 +27,17 @@ internal class SyncCryptoException(message: String) : GeneralSecurityException(m
  * base64 ciphertext text.
  */
 internal class KeyBundle(private val encryptionKey: ByteArray, private val hmacKey: ByteArray) {
+    fun encrypt(cleartext: String): JSONObject {
+        val iv = ByteArray(IV_SIZE).also { random.nextBytes(it) }
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(encryptionKey, "AES"), IvParameterSpec(iv))
+        val ciphertext = encoder.encodeToString(cipher.doFinal(cleartext.toByteArray(Charsets.UTF_8)))
+        return JSONObject()
+            .put("ciphertext", ciphertext)
+            .put("IV", encoder.encodeToString(iv))
+            .put("hmac", hmac(ciphertext))
+    }
+
     fun decrypt(payload: JSONObject): String {
         val ciphertext = payload.optString("ciphertext").ifEmpty { throw SyncCryptoException("No ciphertext") }
         val iv = payload.optString("IV").ifEmpty { throw SyncCryptoException("No IV") }
@@ -53,6 +64,9 @@ internal class KeyBundle(private val encryptionKey: ByteArray, private val hmacK
         private const val TRANSFORMATION = "AES/CBC/PKCS5Padding"
         private const val HMAC = "HmacSHA256"
         private const val KEY_SIZE = 32
+        private const val IV_SIZE = 16
+        private val random = SecureRandom()
+        private val encoder = Base64.getEncoder()
         private val decoder = Base64.getDecoder()
 
         /** The bundle of the account's sync key: the `k` of the sync scope's key, 64 bytes in base64url. */

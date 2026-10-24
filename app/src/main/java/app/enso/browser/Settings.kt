@@ -39,6 +39,24 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_ESSENTIALS_PER_CONTAINER, true)
         set(value) = prefs.edit { putBoolean(KEY_ESSENTIALS_PER_CONTAINER, value) }
 
+    /** Normal open tabs sync both ways with Zen (new, navigated, closed). Quick Tabs never sync. */
+    var syncOpenTabs: Boolean
+        get() = prefs.getBoolean(KEY_SYNC_OPEN_TABS, true)
+        set(value) = prefs.edit { putBoolean(KEY_SYNC_OPEN_TABS, value) }
+
+    /**
+     * Navigating a tab that came from Zen moves it on the desktop too. Off by default: phone pages often redirect
+     * (to a login page, say) in ways that shouldn't reach the desktop.
+     */
+    var syncTabNavigations: Boolean
+        get() = prefs.getBoolean(KEY_SYNC_TAB_NAVIGATIONS, false)
+        set(value) = prefs.edit { putBoolean(KEY_SYNC_TAB_NAVIGATIONS, value) }
+
+    /** For testing: work out and log what Zen sync would upload, without uploading. */
+    var zenSyncDryRun: Boolean
+        get() = prefs.getBoolean(KEY_ZEN_SYNC_DRY_RUN, false)
+        set(value) = prefs.edit { putBoolean(KEY_ZEN_SYNC_DRY_RUN, value) }
+
     /** How long a Quick Tab lasts after it was last viewed. */
     var quickTabLifetimeHours: Int
         get() = prefs.getInt(KEY_QUICK_TAB_LIFETIME_HOURS, 24)
@@ -64,6 +82,9 @@ class Settings(context: Context) {
         const val KEY_TAB_SWIPE_SCOPE = "tab_swipe_scope"
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
         const val KEY_ESSENTIALS_PER_CONTAINER = "essentials_per_container"
+        const val KEY_SYNC_OPEN_TABS = "sync_open_tabs"
+        const val KEY_SYNC_TAB_NAVIGATIONS = "sync_tab_navigations"
+        const val KEY_ZEN_SYNC_DRY_RUN = "zen_sync_dry_run"
         const val KEY_QUICK_TAB_LIFETIME_HOURS = "quick_tab_lifetime_hours"
         const val KEY_START_SCREEN_AFTER_MINUTES = "start_screen_after_minutes"
         const val KEY_LAST_STOPPED_AT = "last_stopped_at"
