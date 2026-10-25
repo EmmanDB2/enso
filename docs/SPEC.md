@@ -10,7 +10,7 @@ The full visual mockups live on the design canvas: [Zen Companion Cover UI](http
 
 Core principles:
 
-- **Content first.** On the cover screen the page gets the whole screen; the only chrome is one top bar that hides on scroll.
+- **Content first.** On the cover screen the page gets the whole screen; the only chrome is one bottom bar that hides on scroll.
 - **In and out.** Phone browsing is mostly quick lookups, so new searches open as temporary Quick Tabs instead of cluttering Spaces.
 - **Zen-native on the big screen.** When unfolded, the layout copies Zen's desktop sidebar, resized for touch.
 - **One system.** Both screens use the same data, the same space tint and the same row style, so folding never makes anything jump.
@@ -31,21 +31,47 @@ Synced Spaces flow from Zen through the Mozilla account into a local store that 
 | Reference app | [Dejavu](https://alternativeto.net/software/dejavu/about/), an Android Gecko browser that already syncs Zen workspaces, containers and pinned tabs. Check its license before reusing code |
 | Favicons | Synced tab records include icon URLs; the browser-icons module fetches and caches them |
 
-## Cover screen: browsing (boards 1–2)
+## Cover screen: the bottom bar (boards B1–B4)
 
-The cover screen shows one top bar and the page, nothing else. There is no bottom bar, tab counter, home button or assistant button.
+The cover screen shows the page and one bar at the bottom, in the style of Arc Search. There's no top bar: the page runs to the top edge, and the URL only shows in the actions sheet. (Boards 1 and 2 show the earlier top bar.)
 
-- **Top bar:** full width, filled with the current space's tint (the same frosted color as the inner sidebar). It holds a translucent address field (lock icon, domain, reload) and one overflow menu button.
-- **Load progress:** a 2 px line in the space's accent color along the bar's bottom edge.
-- **Scrolling:** the bar slides up and out when scrolling down, and returns on scroll up or a tap on the top edge.
-- **Tabs:** swipe sideways on the address field to move between tabs in the current space.
-- **Tab sheet:** swipe down from the address field to open the tab sheet (see below). The bar animates into the sheet's current-tab row.
+**The bar (B1):** one full-width frosted surface along the bottom edge, with rounded top corners (about 26 dp), the space's tint, a soft upward shadow, a small grab handle at the top, and room for the gesture handle below. Its one row holds:
+
+- **The Quick Tabs stack:** the current space's Quick Tabs as two small stacked cards with gold edges and a count badge. The front card shows the latest Quick Tab's page thumbnail, or its favicon until it has one. Kept tabs never show here. Tap it for the Quick Tabs view (B2). With no Quick Tabs it's dimmed.
+- **The "+" pill:** bottom search (B4), for a new Quick Tab.
+- **The chevron:** the actions sheet (B3).
+
+Behavior:
+
+- **Load progress:** a 2 px line in the space's accent along the bar's top edge.
+- **Scrolling:** the bar slides off the bottom edge when scrolling down, and returns on scroll up, when a page starts loading, or on a tap along the bottom edge.
+- **Status bar:** hidden while you browse, so the page reaches the top edge. It shows over the tab sheet, the start screen and the bar's panels, and with a swipe down from the top. A setting can instead keep it showing over the page, or put it over a strip of the space's color that slides away with the bar.
+- **Tab sheet:** swipe up on the bar or its handle.
+
+**Panels:** each panel is the bar's surface growing upward, with the bar's row pinned at its bottom; there are no separate floating sheets. The page behind dims. Back, a swipe down on the handle, or a tap on the dimmed page closes a panel.
+
+**Quick Tabs (B2):** "Quick Tabs" with how many are open, then the current space's Quick Tabs as cards to swipe through, starting on the one on screen (or the latest).
+
+- Each card has the tab's favicon and title, its page thumbnail and "Clears in 9 hours". The focused card has a ✕.
+- Tap a card to open it, or swipe it up to close it.
+- "Keep in [current space]" under the focused card keeps it there. Holding it picks another space on the space wave.
+- Dots below show which card is focused.
+- The bar's row: the stack shows as active, "Clear Quick Tabs" (closes every Quick Tab in the current space) replaces the "+", and the chevron stays the normal up chevron. Tap the stack again, or swipe down, to close it.
+
+**Actions sheet (B3):**
+
+- Back, forward, the URL and reload (stop while loading). This is the only place the URL appears. Tapping it opens bottom search on the URL, which then loads in the current tab.
+- "Keep in [space]" with "Quick Tab · clears in 9 hours", when the tab on screen is a Quick Tab. Holding it picks another space.
+- Reader, Find, Copy URL and Share; then Extensions (where uBlock Origin will live) and Settings. Reader, Find and Extensions are grayed out until they're built. Settings opens a short list on the same surface; for now it holds Sync with Zen.
+- The bar's row: the stack, "+", and the chevron as a dark ↓ that closes the sheet.
+
+**Bottom search (B4):** the keyboard pushes the surface up, and the bar's row becomes the search field (with a small "Quick Tab" tag) and Cancel. Suggestions sit above it, the most relevant closest to the thumb: "Search the web" (or "Go to [site]") just above the field, then open tabs with "Switch to Tab", then history. Before typing, the history rows are the latest pages. The Quick Tab is made when the search is submitted, so Cancel leaves nothing behind.
 
 ## Cover screen: space menu (board 3)
 
 Spaces switch through an edge wave, in the style of Niagara Launcher. The menu shows spaces only; tabs live in the tab sheet.
 
-1. Hold for about 300 ms in the trigger zone (the right edge, from the bottom up to the top bar, or the address field when visible). A haptic tick confirms the menu is open.
+1. Hold for about 300 ms in the trigger zone: the right edge, from the bottom bar's top edge up to the status bar (down to the gesture handle while the bar is scrolled away). A haptic tick confirms the menu is open.
 2. Every space appears in a vertical list along the right edge, in Zen's order from top to bottom. Each row shows the space's Zen icon at the edge and its name to the left. The current space starts under the thumb.
 3. Moving the thumb up and down sends a wave along the list. The goal is a calm, satisfying switcher:
    - The rows stay still, about 72 dp apart. The wave follows the thumb one-to-one, one space per 72 dp of travel.
@@ -66,8 +92,8 @@ Gesture rules:
 
 - The trigger is a hold, then vertical movement, so Android's horizontal back gesture is not triggered in normal use.
 - While the menu is open, exclude the list's stretch of the edge from system gestures, then release the exclusion on lift. Android caps edge exclusion at about 200 dp of height per edge.
-- The trigger strip can still run the whole edge below the top bar. Android only checks the exclusion when a touch starts, and the resting thumb is what stops the back gesture during a hold.
-- On the Fold, Samsung's Edge panel handle sits on the right edge just below the top bar. Its touches go to the system, so the strip works above and below it but not on it.
+- The trigger strip can still run the whole edge above the bottom bar. Android only checks the exclusion when a touch starts, and the resting thumb is what stops the back gesture during a hold.
+- On the Fold, Samsung's Edge panel handle sits on the upper part of the right edge. Its touches go to the system, so the strip works above and below it but not on it.
 - If there are more spaces than fit, the list scrolls along with the wave.
 - A left-handed mode setting mirrors the wave and its trigger strip to the left edge.
 - Space icons come from Zen's sync data (icon or emoji the user set on desktop).
@@ -75,7 +101,7 @@ Gesture rules:
 
 ## Cover screen: tab sheet (board 4)
 
-The tab sheet opens anchored on the current tab, with pinned items above it and open tabs below. It uses the same layout and style as the inner sidebar.
+The tab sheet opens with a swipe up on the bottom bar, anchored on the current tab, with pinned items above it and open tabs below. It uses the same layout and style as the inner sidebar.
 
 Background: a light frosted blur of the page underneath, tinted with the space color, so it feels like a layer just above the tab you were on. Implementation tip: capture the page with GeckoView's pixel capture when the sheet opens, then blur and tint that bitmap rather than blurring live.
 
@@ -86,7 +112,7 @@ Order, top to bottom:
 3. Pinned tabs and folders. Folders are collapsed by default; tap to expand in place with indented tabs.
 4. A thin divider line, shown only when pinned items exist. No "Pinned" or "Open" labels.
 5. The current tab as a white card with title and URL.
-6. Other open tabs, including Quick Tabs (gold outline).
+6. Other open tabs. Quick Tabs live in the bottom bar's stack instead; a setting lists them here too (gold outline).
 7. A search field fixed at the bottom for thumb reach.
 
 Interactions:
@@ -107,7 +133,7 @@ Every new search or typed URL opens as a Quick Tab: a temporary tab that clears 
 | Look | 2 px gold outline (#F2C94C on dark surfaces, #E0A800 on light ones); a gold ring on its favicon in search results |
 | Sync | Never synced to Zen desktop while it is a Quick Tab |
 | Expiry | Clears automatically after a set time (default to decide, 12 or 24 hours) |
-| Keep it | Hold the row, then Add to \[current space\] or Add to another space |
+| Keep it | "Keep in \[space\]" in the Quick Tabs view or the actions sheet (hold it for another space), or hold its row in the tab sheet or sidebar for Add to \[current space\] or Add to another space |
 
 Hold menu (board 4b): holding a Quick Tab lifts the row and dims everything else. A white menu shows a header ("Quick Tab · clears in 9 hours"), then:
 
@@ -121,7 +147,7 @@ Once added to a space, the tab loses its outline, becomes a normal tab and syncs
 
 When no tab is open, or after the app has been away long enough (threshold to decide), Ensō shows a blank page with a faint space tint, like Zen's empty state. Spaces stay one gesture away.
 
-Tapping the blank page, or tapping New Tab, opens a command palette modeled on Zen's:
+On the cover, tapping the blank page opens bottom search (board B4). On the inner screen, tapping it or New Tab opens a command palette modeled on Zen's:
 
 - A search field ("Search or type a URL").
 - "Search the web" with the default engine.
@@ -129,7 +155,7 @@ Tapping the blank page, or tapping New Tab, opens a command palette modeled on Z
 - History matches with a clock icon.
 - A footer line: "New searches open as Quick Tabs."
 
-On the cover screen the palette sits in the upper half so the keyboard fits below it. On the inner screen it is centered over the blank page card, with the sidebar showing Essentials, folders and a highlighted New Tab row.
+The palette is centered over the blank page card, with the sidebar showing Essentials, folders and a highlighted New Tab row. (Board 9b shows the cover's earlier palette, which bottom search replaced.)
 
 ## Inner screen (boards 5–8)
 
@@ -184,7 +210,7 @@ One light, frosted style runs across both screens, tinted by the current space. 
 
 | Token | Value | Used for |
 | --- | --- | --- |
-| Surface base | #ECE7EA | Sidebar, tab sheet, top bar |
+| Surface base | #ECE7EA | Sidebar, tab sheet, bottom bar |
 | Space tint | Space accent at 16% over the base; from step 7, the space's Zen theme gradient when it has one | Same surfaces, so each space reads as its own color |
 | Page | #FAF9F7 | Page area and page cards |
 | Text primary | #26232B | Names, titles |
@@ -209,7 +235,7 @@ Ensō supports WebExtensions through GeckoView, starting with uBlock Origin.
 - **Bundled:** ship uBlock Origin with the app and install it on first launch through GeckoView's built-in extension install path.
 - **From the add-on store:** allow installing other Mozilla-signed extensions by URL from addons.mozilla.org.
 - **UI:** use the Android Components add-ons module for the extension list, popups and settings pages.
-- **Placement:** extensions live under the overflow menu, and an extension's popup opens as a sheet. No extension icons in the top bar.
+- **Placement:** extensions live behind Extensions in the bottom bar's actions sheet (and the inner sidebar's ⋮ menu), and an extension's popup opens as a sheet. No extension icons in the bar.
 
 ## Build order
 

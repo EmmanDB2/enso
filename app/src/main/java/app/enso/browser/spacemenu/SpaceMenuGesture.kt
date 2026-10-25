@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import kotlin.math.hypot
@@ -122,8 +121,8 @@ fun BlockSpaceMenu() {
 }
 
 /**
- * The trigger zones (spec: board 3): a strip up the wave's edge from the bottom to the top bar (the right edge,
- * or the left in left-handed mode), and the address field while it shows.
+ * The trigger zone (spec: board 3): a strip up the wave's edge, the right one or the left in left-handed mode,
+ * from the bottom bar up.
  *
  * The strip can be taller than the 200 dp per edge that Android exempts from its gestures, because the hold
  * itself is what keeps the back gesture from firing. Where Samsung's Edge panel handle sits on the edge, its
@@ -142,13 +141,9 @@ object SpaceMenuZones {
         width: Float,
         stripTop: Float,
         bottom: Float,
-        addressField: Rect?,
         leftHanded: Boolean,
         density: Density,
-    ): Boolean {
-        val inStrip = with(density) {
-            y in stripTop..bottom && if (leftHanded) x <= EdgeWidth.toPx() else x >= width - EdgeWidth.toPx()
-        }
-        return inStrip || addressField?.contains(Offset(x, y)) == true
+    ): Boolean = with(density) {
+        y in stripTop..bottom && if (leftHanded) x <= EdgeWidth.toPx() else x >= width - EdgeWidth.toPx()
     }
 }

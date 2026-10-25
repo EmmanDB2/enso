@@ -256,7 +256,7 @@ private fun SearchPalette(
 }
 
 /** Open tabs for the palette: matches for the query, or a few of the space's open tabs before typing. */
-private fun matchingTabs(spaces: SpacesState, query: String): List<Tab> {
+internal fun matchingTabs(spaces: SpacesState, query: String): List<Tab> {
     val space = spaces.currentSpace
     if (query.isBlank()) return space.tabs.take(3)
     return (spaces.essentials + space.allTabs)
@@ -296,7 +296,7 @@ private fun PaletteField(
 }
 
 @Composable
-private fun PaletteRow(
+internal fun PaletteRow(
     leading: @Composable () -> Unit,
     title: String,
     onClick: () -> Unit,
@@ -321,14 +321,14 @@ private fun PaletteRow(
 }
 
 @Composable
-private fun CircleIcon(@DrawableRes icon: Int) {
+internal fun CircleIcon(@DrawableRes icon: Int) {
     Box(Modifier.size(26.dp).background(EnsoColors.FieldFill, CircleShape), contentAlignment = Alignment.Center) {
         Icon(painterResource(icon), contentDescription = null, Modifier.size(16.dp), tint = EnsoColors.TextSecondary)
     }
 }
 
 @Composable
-private fun SwitchToTabChip() {
+internal fun SwitchToTabChip() {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(stringResource(R.string.palette_switch_to_tab), style = EnsoType.Secondary)
         Spacer(Modifier.width(12.dp))

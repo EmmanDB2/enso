@@ -4,13 +4,19 @@ import android.content.Context
 import androidx.core.content.edit
 import java.util.concurrent.TimeUnit
 
-/** Which tabs a sideways swipe on the address field moves through. */
-enum class TabSwipeScope {
-    /** Open tabs only. */
-    OpenTabs,
+/** What the cover does with the status bar while you browse. */
+enum class CoverStatusBar {
+    /**
+     * Hidden, so the page reaches the top edge. It shows over the tab sheet, the start screen and the bottom bar's
+     * panels, and with a swipe down from the top.
+     */
+    Hidden,
 
-    /** Loaded Essentials and pinned tabs, then open tabs, in tab-sheet order. */
-    AllTabs,
+    /** Always showing, drawn over the page. */
+    OverPage,
+
+    /** Over a strip in the space's color, which slides away with the bottom bar and takes the status bar along. */
+    TintedStrip,
 }
 
 /** Which layout the unfolded screen uses while it's held in portrait. */
@@ -27,16 +33,25 @@ class Settings(context: Context) {
 
     // User preferences. None are in a settings UI yet; they're meant to become settings later.
 
-    /** Hide the Android status bar together with the top bar, and on the inner screen. */
-    var hideStatusBarWithTopBar: Boolean
+    /** What the cover does with the status bar while you browse. */
+    var coverStatusBar: CoverStatusBar
+        get() = prefs.getString(KEY_COVER_STATUS_BAR, null)
+            ?.let { name -> CoverStatusBar.entries.firstOrNull { it.name == name } }
+            ?: CoverStatusBar.Hidden
+        set(value) = prefs.edit { putString(KEY_COVER_STATUS_BAR, value.name) }
+
+    /** Hide the Android status bar on the inner screen, so the page card's border runs to the top. */
+    var hideStatusBarUnfolded: Boolean
         get() = prefs.getBoolean(KEY_HIDE_STATUS_BAR, true)
         set(value) = prefs.edit { putBoolean(KEY_HIDE_STATUS_BAR, value) }
 
-    var tabSwipeScope: TabSwipeScope
-        get() = prefs.getString(KEY_TAB_SWIPE_SCOPE, null)
-            ?.let { name -> TabSwipeScope.entries.firstOrNull { it.name == name } }
-            ?: TabSwipeScope.OpenTabs
-        set(value) = prefs.edit { putString(KEY_TAB_SWIPE_SCOPE, value.name) }
+    /**
+     * The cover's tab sheet lists Quick Tabs among the open tabs too. Off by default: Quick Tabs have their own
+     * stack in the bottom bar.
+     */
+    var quickTabsInTabSheet: Boolean
+        get() = prefs.getBoolean(KEY_QUICK_TABS_IN_TAB_SHEET, false)
+        set(value) = prefs.edit { putBoolean(KEY_QUICK_TABS_IN_TAB_SHEET, value) }
 
     /** Swipe the tab sheet's header sideways to switch spaces, as well as the space menu. */
     var switchSpacesFromSheetHeader: Boolean
@@ -151,8 +166,10 @@ class Settings(context: Context) {
         set(value) = prefs.edit { putLong(KEY_LAST_STOPPED_AT, value ?: 0L) }
 
     private companion object {
+        // The key predates the bottom bar, when it also covered the cover; it stays so the saved choice carries over.
         const val KEY_HIDE_STATUS_BAR = "hide_status_bar_with_top_bar"
-        const val KEY_TAB_SWIPE_SCOPE = "tab_swipe_scope"
+        const val KEY_COVER_STATUS_BAR = "cover_status_bar"
+        const val KEY_QUICK_TABS_IN_TAB_SHEET = "quick_tabs_in_tab_sheet"
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
         const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"
         const val KEY_SPACE_MENU_LEFT_HANDED = "space_menu_left_handed"

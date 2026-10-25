@@ -12,7 +12,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Don't build UI or features from later steps early, even as stubs.
 - If the spec is unclear or silent, ask instead of guessing. The spec lists its own open questions at the end.
 - Current step: **8, split view and Glance**, in three passes. Step 7 (the inner screen and space colors) is done.
-  - **8a (now): split view on the inner screen, phone only.** Splits aren't synced yet.
+  - **8a (done): split view on the inner screen, phone only.** Splits aren't synced yet.
+  - **Now, ahead of 8b: the cover's bottom bar** (boards B1–B4), in the style of Arc Search. It replaced the top bar.
   - **8b (next): splits sync both ways with Zen.** Dry-run first, with the snapshot copied into the backup folder.
   - **8c: Glance** (board 8), on both screens. The cover's Glance has no Split button.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
@@ -52,7 +53,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - No selected tab is a real state: the start screen shows.
   - `load` gives tabs a page without selecting them: the other pages of a split.
 - Quick Tabs: `Tab.quick` holds `lastViewedAt`, and sync must skip these tabs.
-  - New searches from the palette and the tab sheet's search field create them, and so do pages a Quick Tab opens. The top bar loads in the current tab.
+  - New searches from bottom search, the inner palette and the tab sheet's search field create them, and so do pages a Quick Tab opens. Editing the URL from the actions sheet loads in the current tab.
+  - On the cover they live in the bottom bar's stack; the tab sheet leaves them out unless `quickTabsInTabSheet` is on.
   - Expiry runs in `onStart` and every minute while the app is open. Pages on screen (both of a split's) are never cleared while you're viewing them.
 - `tabsheet/`:
   - `TabSheet.kt` is the cover tab sheet (board 4). Quick Tabs get a gold outline.
@@ -94,11 +96,11 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - `spacemenu/`: the space menu (board 3).
   - **Opening:** `SpaceMenuGesture` watches touches from `MainActivity.dispatchTouchEvent`, because GeckoView blocks parent interception.
     - A 300 ms hold (`spaceMenuHoldMs`) in a trigger zone opens it, then the views get an `ACTION_CANCEL` and the rest of the touch drives the menu. Taps and scrolls in the zones pass through as before.
-    - The zones (`SpaceMenuZones`): the right edge (the left in left-handed mode), about 28 dp wide, from the bottom up to the top bar's bottom edge (`spaceMenuStripHeight`), and the address field while the bar shows.
+    - The zone (`SpaceMenuZones`): the right edge (the left in left-handed mode), about 28 dp wide, from the bottom bar's top edge up (`spaceMenuStripHeight`). While the bar is scrolled away it reaches down to the gesture handle.
     - The strip can be taller than Android's 200 dp exclusion cap, because the hold, not the exclusion, stops the back gesture.
     - Samsung's Edge panel handle sits on the cover's right edge at about 112–251 dp. It's a system window, so holds there never reach the app.
     - The Fold's long-press delay is 500 ms, so the hold beats a row's own long press in the edge strip.
-  - **Blocking:** it doesn't open while editing, over the sync sheet, or over anything that calls `BlockSpaceMenu()` (the hold menu, the palette). Dialogs are their own windows, so touches there never reach it.
+  - **Blocking:** it doesn't open while editing, over the sync sheet, or over anything that calls `BlockSpaceMenu()` (the hold menu, the palette, the bottom bar's panels). Dialogs are their own windows, so touches there never reach it.
   - **Tap detectors:** a hand-written tap detector must treat a consumed release as a cancel, or a hold the menu took over also counts as a tap.
   - **The wave:** `SpaceWave` draws in its own `ComposeView`, added beside the root with `addContentView` so the tint covers the system bars.
     - The spaces are a list along the edge in Zen's order, top to bottom, 72 dp apart. The current space starts under the thumb.
@@ -121,16 +123,16 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Past either end, or 160 dp sideways, nothing is hovered, the bulge eases back, and letting go does nothing.
   - **Picker:** "Add to another space" opens the wave without the tab's space, resting a little below the middle of the screen. Touch or drag on the list and lift on a space: the tab becomes a normal tab there (`keepQuickTabIn`), and Ensō follows it. A touch away from the list, or Back, cancels.
   - **System gestures:** while it's open, the wave's stretch of the edges is excluded from them. Android only checks exclusions at touch-down, so during the hold it's the resting finger that cancels the back gesture.
-- `start/StartScreen.kt`: start screen (board 9) and search palette (board 9b).
+- `start/StartScreen.kt`: start screen (board 9) and the inner screen's search palette (board 9c).
   - The start screen shows when no tab is selected, when the selected tab belongs to another space, or when the app was away for `startScreenAfterMinutes`.
-  - Tap it for the palette; swipe down for the tab sheet.
+  - Tap it for bottom search on the cover, or the palette on the inner screen; swipe down for the tab sheet.
   - Back returns to the last tab.
 - `split/`: split view (board 7).
   - **Model:** `Space.splits` holds each `Split`: its tab IDs in page order, and its page `sizes`, which stay on the phone. The tabs stay where they live. `SplitRows` (in `tabsheet/`) shows each split as one row where its first tab sits, and hides its other tabs.
   - **Pages:** `PagePanes` holds one page view per page on screen, and replaces AC's `SessionFeature`.
     - Each view keeps its tab while the focus moves around a split, so pages never swap views.
     - A GeckoSession can only be in one view, so a view releases its tab before another view takes it.
-    - The first pane is the cover's page, and the one the top bar's scrolling behaviors follow.
+    - The first pane is the cover's page, and the one the bars' scrolling behaviors follow.
   - **What shows:** `MainActivity.shownFor` picks the pages: the selected tab's split on the inner screen, otherwise just the selected tab.
     - The selected tab is the focused page.
     - A touch-down on another page selects it (`focusPageAt`, from `dispatchTouchEvent`), and the touch still reaches the page.
@@ -141,10 +143,21 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **Drag to split:** `dragAfterHold` (`tabsheet/TabDrag.kt`) watches rows in the initial pass. A hold opens the row's menu as usual, and moving on turns it into a drag. A drop on `splitDropZone` (the card's right half) calls `splitWith`.
     - The rail's tiles sit in Android's left-edge back-gesture zone. A real held thumb cancels the back gesture, but scripted `input motionevent` touches don't count as held, so start scripted drags there at x ≥ 105 px.
   - **Sync:** none yet (8a). The mapper keeps the phone's `splits` through each sync.
-- `MainActivity.kt`: a `CoordinatorLayout` holding the page views, the top bar, and one overlay `ComposeView` for everything drawn over the page.
+- `bottombar/`: the cover's bottom bar (boards B1–B4), in the style of Arc Search. The inner screen doesn't get it.
+  - `BottomBar` draws the bar and its panels in the overlay, over the start screen and under the tab sheet. A panel (`BarPanel`) is the same surface growing upward: an `AnimatedContent` with a `SizeTransform` above the bar's row, anchored at the bottom.
+  - **Hide-on-scroll:** an invisible `ScrollingBarView` anchor (`barAnchor`) sits at the bottom with AC's scrolling behavior. The activity copies its `translationY` into `barOffset` before each draw, and the Compose bar offsets by it.
+    - Its height is `R.dimen.bottom_bar_height` plus the gesture handle, and `BarMetrics` must add up to the same.
+    - The surface catches every touch on it, or touches on its padding would fall through to the page.
+  - **Panels:** `QuickTabsPanel` (B2), `ActionsPanel` and `SettingsPanel` (B3; Settings only has Sync with Zen for now), and `SearchSuggestions` with `SearchRow` (B4). Reader, Find and Extensions are grayed out until they're built.
+    - Bottom search makes the Quick Tab on submit, so Cancel leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
+    - Closing the keyboard closes bottom search, as it cancels an edit.
+  - **Thumbnails:** AC's `BrowserThumbnails` captures the selected tab's page as it loads, and `ThumbnailsMiddleware` keeps it in `thumbnailStorage`; `TabThumbnail` loads it. Capture only runs on the cover, since unfolded the first page view may show another tab of a split.
+- `MainActivity.kt`: a `CoordinatorLayout` holding the page views, the bottom bar's anchor, the band under the status bar, and one overlay `ComposeView` for everything drawn over the page.
   - **Cover or inner:** a window at least 600 dp wide at its narrowest counts as the inner screen. A rotated cover doesn't count. In portrait, the unfolded screen uses the cover's layout when `unfoldedPortraitLayout` is `Mobile`.
     - The activity handles folding itself (`configChanges`), so the page, tab, space and scroll position carry over with no extra work. `onConfigurationChanged` swaps the layout and closes the tab sheet and any edit.
-  - **The inner layout** (`layoutInner`): the top bar is hidden, and the engine view becomes the page card beside the sidebar or rail.
+  - **The cover's bars** (`layoutCoverBars`): the bottom bar's anchor, and with `CoverStatusBar.TintedStrip` a strip of the space's top color under the status bar that slides away with it. `EngineViewClippingBehavior` gets both heights, and GeckoView's dynamic toolbar their sum.
+    - The cover's root has no top padding: the page runs under the status bar, which `updateStatusBar` hides or shows by `coverStatusBar`. The tab sheet and panels leave `statusBarInset` for it, since it shows over them in every mode. A tap along the bottom edge (`bottomEdge`) brings a hidden bar back.
+  - **The inner layout** (`layoutInner`): the cover's bars are hidden, and the engine view becomes the page card beside the sidebar or rail.
     - It resets the cover's hide-on-scroll leftovers: container translation, dynamic toolbar height and vertical clipping. Without that, the page sat a bar's height too low in the card.
     - It runs again whenever the root view changes size. Rotating doesn't change the layout mode, and the insets arrive before the new window size, so without this the card kept its old size and the page didn't reflow.
     - Root padding is only the keyboard; the frame and sidebar handle the system bars themselves.
@@ -155,10 +168,10 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - The tab sheet keeps its search field above the handle (`gestureHandleInset`), and the edge wave's strip stops above it, so a hold doesn't fight the home gesture.
     - A navigation bar of buttons keeps its own space.
   - Don't switch to `EngineViewScrollingGesturesBehavior`. GeckoView blocks parent touch interception for gestures that start mid-page, so that behavior can hide the bar but never bring it back.
-  - The back gesture goes back a page, or cancels an edit.
+  - The back gesture closes a panel, cancels an edit, or goes back a page.
 - `toolbar/`:
-  - `TopBarView` hosts the Compose bar as a `ScrollableToolbar`.
-  - `TopBar.kt` is the bar's UI. On the address field, a tap edits, a swipe down opens the tab sheet, and a sideways swipe switches tabs.
+  - `PageChrome.kt` holds what the bottom bar and the sidebar share: `PageState`, the URL editor, the loading line and the sidebar's ⋮ menu.
+  - `ScrollingBarView` is a `ScrollableToolbar` that AC's behaviors slide with the page: the bottom bar's anchor and the status band.
   - `AddressInput` decides between URL and search (Google) and formats the domain.
 - `sidebar/`: the inner screen (boards 5, 6 and 9c).
   - `Sidebar` (its width set by dragging) and `Rail` (52 dp) reuse the tab sheet's rows (`TabRow`, `FolderRow`, `EssentialsGrid`), so holds, swipes and folders behave the same. The current tab is highlighted in place (`RowHighlight.Current`).
@@ -168,7 +181,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - `SidebarResizeHandle` reaches 10 dp into the sidebar's edge and covers the border beside it.
   - **Border:** 4 dp on every side (`BORDER_DP`), or none with `innerPageBorder` off (square corners then).
     - Every gap in the sidebar is the same 4 dp (`EdgePadding`): the screen edge, between Essentials tiles, and the page side.
-    - With the border on, the sidebar has no end padding, because the border is that gap. Adding padding there made the right side 8 dp. On the inner screen the status bar hides with `hideStatusBarWithTopBar`. The bottom inset only counts a navigation bar of buttons (taller than 32 dp). Gesture navigation's handle sits over the page; Samsung reports it as a tappable inset, which made the bottom border thicker than the others.
+    - With the border on, the sidebar has no end padding, because the border is that gap. Adding padding there made the right side 8 dp. On the inner screen the status bar hides with `hideStatusBarUnfolded`. The bottom inset only counts a navigation bar of buttons (taller than 32 dp). Gesture navigation's handle sits over the page; Samsung reports it as a tappable inset, which made the bottom border thicker than the others.
   - A sideways swipe switches spaces wherever a row doesn't take it: rows close on a swipe and consume it first. The space change slides (`AnimatedContent`).
   - The URL field edits the current tab through the activity's `editing`. Over the start screen, typing opens a Quick Tab instead.
   - The media card reads `TabSessionState.mediaSessionState` (the engine fills it in) and drives its `MediaSession.Controller`.
@@ -180,11 +193,12 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `Favicons.kt` has the letter favicon placeholders and the space icons.
   - `SpaceColors.kt`: a space's chrome colors.
     - `Space.colors()` lays each gradient color over the base at the theme's opacity (`Space.themeOpacity`). A space without colors gets its accent at 16%.
-    - `Modifier.spaceSurface` paints one gradient down the whole window, lined up by each surface's window position. The top bar, sheet, rows and sidebar therefore read as one, and rows that swipe over it still look seamless.
+    - `Modifier.spaceSurface` paints one gradient down the whole window, lined up by each surface's window position. The bottom bar, sheet, rows and sidebar therefore read as one, and rows that swipe over it still look seamless.
     - `Space.pageColors()` is the start screen's faint 10% version.
 - `Settings.kt`: SharedPreferences values, not yet in any UI, meant to become user settings later.
-  - `hideStatusBarWithTopBar` (default on) hides the status bar along with the bar, and on the inner screen.
-  - `tabSwipeScope` (default `OpenTabs`) sets which tabs the address-field swipe moves through.
+  - `coverStatusBar` (default `Hidden`) sets the cover's status bar while you browse: `Hidden` (the page reaches the top edge; it shows over the sheet, start screen and panels, or with a swipe down), `OverPage` (always showing, over the page), or `TintedStrip` (over a strip of the space's color that slides away with the bar). The user picked Hidden after seeing the white strip the first build left under the status bar.
+  - `hideStatusBarUnfolded` (default on) hides the status bar on the inner screen. Its key still says "top bar", so the saved choice carried over.
+  - `quickTabsInTabSheet` (default off) lists Quick Tabs in the cover's tab sheet too, besides the bottom bar's stack.
   - `quickTabLifetimeHours` (default 24, counted since last viewed) sets when Quick Tabs clear.
   - `pageZoomPercent` (default 80) is pages' default zoom on both screens. It applies after a restart.
   - `desktopSitesUnfolded` (default on) asks for desktop sites while the sidebar layout shows.
@@ -193,10 +207,10 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `switchSpacesFromSheetHeader` (default off) lets a sideways swipe on the sheet header switch spaces too. It was the way to switch before the space menu.
   - `spaceMenuHoldMs` (default 300) sets how long a hold takes to open the space menu.
   - `spaceMenuLeftHanded` (default off) moves the space menu's wave and trigger strip to the left edge.
-  - `unfoldedPortraitLayout` (default `Mobile`, the cover's top bar) chooses the unfolded screen's layout in portrait. `Desktop` keeps the sidebar and page card there too.
+  - `unfoldedPortraitLayout` (default `Mobile`, the cover's bottom bar) chooses the unfolded screen's layout in portrait. `Desktop` keeps the sidebar and page card there too.
   - `innerPageBorder` (default on) draws the thin border around the inner page card. Off, the page sits flush beside the sidebar.
   - `innerSidebarWidthDp` (default 240, the width the user picked) is the sidebar's dragged width.
-  - `spaceMenuStripHeight` (default 1, the whole edge) sets how much of the screen's height the edge strip covers, from the bottom up. It never reaches into the top bar.
+  - `spaceMenuStripHeight` (default 1, the whole edge) sets how much of the screen's height the edge strip covers, from the bottom up. It never reaches into the bottom bar.
   - `essentialsPerContainer` (default on) shows each space only the Essentials of its Zen container.
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.
   - `syncTabNavigations` (default off) lets navigating a tab from Zen move it on the desktop too. It's off because phone pages often redirect, to a login page for example.
@@ -229,6 +243,7 @@ The Fold connects over wireless debugging. Wireless debugging must be on in Deve
 - **Scripted input:** `adb shell input -d <logical display> tap|swipe|text …`. Logical display 0 is whichever screen is on, and coordinates are in full-resolution pixels: 1248×1972 on the cover, 2448×1848 on the inner screen. The inner screen's SurfaceFlinger ID for screenshots is `4630947004648141459`, and the cover's is `4630947123231501204`. Unfolding needs the user. To place a tap on a popup, read its frame from `adb shell dumpsys window windows`.
   - Long press: `swipe x y x y 900`.
   - Hold a swipe partway: `motionevent DOWN|MOVE|UP x y`. The space menu tests this way: `DOWN 1235 1650` on the right edge, wait, `MOVE` up or down about 189 px (72 dp) per space, then `UP`. The user often uses the Fold while you test, so check the state between gestures rather than assuming your touches were the only ones.
+- **The cover's bottom bar:** its row sits at y ≈ 1832 on the cover: the Quick Tabs stack at x 107, "+" at 625 and the chevron at 1140. `adb shell uiautomator dump` lists every view's on-screen bounds (scroll translations included) without touching the screen.
 - **Test pages from the Mac:** serve them on `127.0.0.1:<port>` and run `adb reverse tcp:<port> tcp:<port>`. The Fold can then open `http://localhost:<port>/…`.
   - Debug builds take two test extras: `--es enso_debug_open <url>` opens a URL in a Quick Tab, and `--ez enso_debug_desktop_sites true|false` switches desktop sites whatever the screen, until the next fold or unfold.
   - While Ensō is running, add `--activity-single-top` to the `am start` command, or the extras never reach it.

@@ -1,6 +1,5 @@
 package app.enso.browser.spaces
 
-import app.enso.browser.TabSwipeScope
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -151,19 +150,6 @@ class TabManager(
     fun clearExpiredQuickTabs(lifetimeMs: Long, keep: Collection<String>): Boolean {
         val expired = spaces.state.value.expiredQuickTabs(now(), lifetimeMs) - keep.toSet()
         return expired.map { close(it) }.lastOrNull() ?: false
-    }
-
-    /** Moves to the next (+1) or previous (-1) tab in swipe order. False when there's none. */
-    fun switchBy(step: Int, scope: TabSwipeScope): Boolean {
-        val order = spaces.state.value.swipeOrder(scope, loadedTabIds)
-        val index = order.indexOf(store.state.selectedTabId)
-        val target = when {
-            index >= 0 -> order.getOrNull(index + step)
-            step > 0 -> order.firstOrNull()
-            else -> order.lastOrNull()
-        } ?: return false
-        select(target)
-        return true
     }
 
     /** If [tabId] is showing, shows its neighbor instead. True when there's none, leaving no tab selected. */

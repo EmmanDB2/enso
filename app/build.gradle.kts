@@ -54,7 +54,9 @@ configurations.configureEach {
 dependencies {
     implementation(libs.mozilla.browser.engine.gecko)
     implementation(libs.mozilla.browser.state)
+    implementation(libs.mozilla.browser.thumbnails)
     implementation(libs.mozilla.browser.storage.sync)
+    implementation(libs.mozilla.concept.base)
     implementation(libs.mozilla.concept.engine)
     implementation(libs.mozilla.concept.fetch)
     implementation(libs.mozilla.concept.storage)

@@ -265,7 +265,7 @@ internal fun TabMenu(
 
 /** "9 hours", "45 minutes" or "under a minute". */
 @Composable
-private fun clearsIn(remainingMs: Long): String {
+internal fun clearsIn(remainingMs: Long): String {
     val minutes = TimeUnit.MILLISECONDS.toMinutes(remainingMs.coerceAtLeast(0)).toInt()
     return when {
         minutes >= 60 -> ((minutes + 30) / 60).let { pluralStringResource(R.plurals.duration_hours, it, it) }

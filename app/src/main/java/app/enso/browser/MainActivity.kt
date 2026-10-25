@@ -1,7 +1,9 @@
 package app.enso.browser
 
-import android.content.Intent
 import android.animation.ValueAnimator
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
 import android.content.res.Configuration
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
@@ -70,6 +72,10 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import app.enso.browser.bottombar.BarPanel
+import app.enso.browser.bottombar.BottomBar
+import app.enso.browser.bottombar.BottomBarActions
+import app.enso.browser.bottombar.SearchMode
 import app.enso.browser.sidebar.CardCorner
 import app.enso.browser.sidebar.InnerFrame
 import app.enso.browser.sidebar.MediaCardState
@@ -97,6 +103,7 @@ import app.enso.browser.spaces.TabPlace
 import app.enso.browser.spaces.essentialsFor
 import app.enso.browser.spaces.find
 import app.enso.browser.spaces.isInCurrentSpace
+import app.enso.browser.spaces.keepQuickTab
 import app.enso.browser.spaces.keepQuickTabIn
 import app.enso.browser.spaces.resizeSplit
 import app.enso.browser.spaces.select
@@ -126,10 +133,9 @@ import app.enso.browser.tabsheet.TabMenu
 import app.enso.browser.tabsheet.TabSheet
 import app.enso.browser.tabsheet.TabSheetActions
 import app.enso.browser.toolbar.AddressInput
-import app.enso.browser.toolbar.TopBar
-import app.enso.browser.toolbar.TopBarState
-import app.enso.browser.toolbar.TopBarView
-import app.enso.browser.toolbar.toTopBarState
+import app.enso.browser.toolbar.PageState
+import app.enso.browser.toolbar.ScrollingBarView
+import app.enso.browser.toolbar.toPageState
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.colors
 import kotlin.math.roundToInt
@@ -141,6 +147,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.selector.selectedTab
+import mozilla.components.browser.thumbnails.BrowserThumbnails
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.concept.engine.mediasession.MediaSession
 import mozilla.components.feature.accounts.FxaWebChannelFeature
@@ -167,8 +174,18 @@ class MainActivity : ComponentActivity() {
     private lateinit var engineView: EngineView
     private lateinit var engineContainer: FrameLayout
     private lateinit var pagePanes: PagePanes
-    private lateinit var topBar: TopBarView
-    private lateinit var topEdge: View
+    /** The cover's bottom bar is drawn in the overlay; this invisible view is what the page's scrolling slides. */
+    private lateinit var barAnchor: ScrollingBarView
+
+    /**
+     * With [CoverStatusBar.TintedStrip], a strip of the space's color under the status bar, which slides away with
+     * the bottom bar so the page can use the whole screen.
+     */
+    private lateinit var statusBand: ScrollingBarView
+
+    /** While the bar is scrolled away, a tap along the bottom edge brings it back. */
+    private lateinit var bottomEdge: View
+    private lateinit var thumbnails: BrowserThumbnails
     private lateinit var windowFeature: WindowFeature
     private lateinit var webChannelFeature: FxaWebChannelFeature
 
@@ -256,8 +273,12 @@ class MainActivity : ComponentActivity() {
     /** Menus and the palette register here while they're up, so a hold doesn't open the space menu over them. */
     private val spaceMenuBlocks = SpaceMenuBlocks()
 
-    /** The address field inside the top bar, where a hold also opens the space menu. */
-    private var addressFieldBounds: Rect? = null
+    /** The bottom bar's open panel (boards B2–B4), if any. */
+    private var barPanel by mutableStateOf<BarPanel?>(null)
+    private var searchMode by mutableStateOf(SearchMode.NewQuickTab)
+
+    /** How far the bottom bar has slid down off the screen, in pixels, as the anchor moves with the page. */
+    private var barOffset by mutableFloatStateOf(0f)
 
     /** The sign-in page's tab, closed once the account is signed in. */
     private var signInTabId: String? = null
@@ -269,7 +290,11 @@ class MainActivity : ComponentActivity() {
      * keyboard is up). The tab sheet keeps its search field above it.
      */
     private var gestureHandleInset by mutableIntStateOf(0)
+    /** The bottom bar's height at rest, gesture handle included, in pixels; 0 until it's laid out. */
     private var barHeight = 0
+
+    /** The tinted strip under the status bar, in pixels; 0 unless [CoverStatusBar.TintedStrip]. */
+    private var bandHeight = 0
     private var barCollapsed = false
     private var canGoBack = false
     private var imeWasVisible = false
@@ -316,26 +341,22 @@ class MainActivity : ComponentActivity() {
             addContainer = { root.addView(it, root.indexOfChild(engineContainer) + 1) },
             load = { tabId -> if (tabId in shown.tabIds) components.tabs.load(listOf(tabId)) },
         )
-        topBar = TopBarView(this).apply {
-            isVisible = !inner
-            setContent { TopBarContent() }
-        }
-        topEdge = View(this).apply {
+        barAnchor = ScrollingBarView(this).apply { isVisible = false }
+        statusBand = ScrollingBarView(this).apply { isVisible = false }
+        bottomEdge = View(this).apply {
             isVisible = false
-            contentDescription = getString(R.string.action_show_top_bar)
-            setOnClickListener { topBar.expand() }
+            contentDescription = getString(R.string.action_show_bar)
+            setOnClickListener { expandBar() }
         }
         val overlay = ComposeView(this).apply {
             setContent { CompositionLocalProvider(LocalSpaceMenuBlocks provides spaceMenuBlocks) { OverlayContent() } }
         }
-        val immersive = components.settings.hideStatusBarWithTopBar
         root = CoordinatorLayout(this).apply {
-            val accent = ComposeColor(components.spaces.state.value.currentSpace.accent)
-            val chrome = if (immersive) EnsoColors.Page else EnsoColors.spaceTint(accent)
-            setBackgroundColor(chrome.toArgb())
+            setBackgroundColor(EnsoColors.Page.toArgb())
             addView(engineContainer)
-            addView(topBar)
-            addView(topEdge)
+            addView(statusBand)
+            addView(barAnchor)
+            addView(bottomEdge)
             addView(overlay, CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         setContentView(root)
@@ -382,15 +403,19 @@ class MainActivity : ComponentActivity() {
                 gestureHandleInset = (navBottom - bottom).coerceAtLeast(0).takeIf { gestureNav } ?: 0
                 view.updatePadding(
                     left = edges.left,
-                    top = if (immersive) 0 else statusTop,
+                    // The page runs up under the status bar; what's there depends on the setting.
+                    top = 0,
                     right = edges.right,
                     bottom = bottom,
                 )
-                layoutTopBar(statusBarInset = if (immersive) statusTop else 0)
+                layoutCoverBars(statusTop)
             }
             // Back with the keyboard up only closes the keyboard; treat that as cancelling the edit too.
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-            if (imeWasVisible && !imeVisible) editing = false
+            if (imeWasVisible && !imeVisible) {
+                editing = false
+                if (barPanel == BarPanel.Search) barPanel = null
+            }
             imeWasVisible = imeVisible
             WindowInsetsCompat.CONSUMED
         }
@@ -401,13 +426,16 @@ class MainActivity : ComponentActivity() {
             if (inner && resized) root.post { if (inner) layoutInner() }
         }
         root.viewTreeObserver.addOnPreDrawListener {
-            val collapsed = barHeight > 0 && topBar.translationY <= -barHeight + 1f
+            // The Compose bar follows the anchor that the page's scrolling slides.
+            barOffset = barAnchor.translationY
+            val collapsed = barHeight > 0 && barAnchor.translationY >= barHeight - 1f
             if (collapsed != barCollapsed) {
                 barCollapsed = collapsed
-                onTopBarCollapsedChanged(collapsed)
+                onBarCollapsedChanged(collapsed)
             }
             true
         }
+        thumbnails = BrowserThumbnails(this, engineView, components.store)
 
         // Links that open a new window (target=_blank, window.open) become tabs.
         windowFeature = WindowFeature(components.store, components.tabsUseCases)
@@ -436,11 +464,13 @@ class MainActivity : ComponentActivity() {
         updateDesktopSites()
         editing = false
         tabSheetOpen = false
+        barPanel = null
         sidebarMenu = null
         spaceMenuGesture.reset()
         spaceWave.close()
-        topBar.isVisible = !inner
-        // Make the bar lay itself out again when it comes back.
+        // Thumbnails capture the cover's page; unfolded, the first page view may show another tab of a split.
+        if (inner) thumbnails.stop() else if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) thumbnails.start()
+        // Make the bars lay themselves out again when they come back.
         if (!inner) barHeight = 0
         ViewCompat.requestApplyInsets(root)
         updateStatusBar()
@@ -511,6 +541,7 @@ class MainActivity : ComponentActivity() {
         if (away != null && away >= settings.startScreenAfterMs) startScreenRequested = true
         windowFeature.start()
         webChannelFeature.start()
+        if (!inner) thumbnails.start()
         components.zenSync.syncNow(minIntervalMs = ZEN_SYNC_MIN_INTERVAL_MS)
     }
 
@@ -518,6 +549,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         windowFeature.stop()
         webChannelFeature.stop()
+        thumbnails.stop()
         spaceMenuGesture.reset()
         spaceWave.close()
         if (!startScreenVisible) components.tabs.markViewed(shown.tabIds)
@@ -530,33 +562,10 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    @Composable
-    private fun TopBarContent() {
-        val state by components.store.observeAsComposableState { it.selectedTab?.toTopBarState() ?: TopBarState() }
-        val spaces by components.spaces.state.collectAsState()
-        val useCases = components.sessionUseCases
-        TopBar(
-            state = state,
-            colors = spaces.currentSpace.colors(),
-            // The sidebar edits the URL on the inner screen, so the hidden bar doesn't take the focus.
-            editing = editing && !inner,
-            statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() },
-            onEditingChange = { editing = it },
-            onSubmit = ::submit,
-            onReload = { useCases.reload() },
-            onStop = { useCases.stopLoading() },
-            onBack = { useCases.goBack() },
-            onForward = { useCases.goForward() },
-            onOpenTabSheet = { tabSheetOpen = true },
-            onSwitchTab = { step -> components.tabs.switchBy(step, components.settings.tabSwipeScope) },
-            onOpenZenSync = { zenSyncSheetOpen = true },
-            onAddressFieldPlaced = { addressFieldBounds = it },
-        )
-    }
-
     /**
-     * Everything drawn over the page: on the cover, the start screen and the tab sheet; unfolded, the frame and
-     * sidebar around the page card, with the start screen inside the card. The sync sheet goes over both.
+     * Everything drawn over the page: on the cover, the start screen, the bottom bar with its panels, and the tab
+     * sheet; unfolded, the frame and sidebar around the page card, with the start screen inside the card. The sync
+     * sheet goes over both.
      */
     @Composable
     private fun OverlayContent() {
@@ -566,15 +575,33 @@ class MainActivity : ComponentActivity() {
         if (inner) {
             // A plain container, so the rail and sidebar keep their own widths instead of the window's.
             Box(Modifier.fillMaxSize()) { InnerContent(spaces) }
-        } else if (startScreenVisible) {
-            // Back from the start screen returns to the last tab, if there is one.
-            BackHandler(enabled = selectedTabId != null) { startScreenRequested = false }
-            StartScreen(spaces, statusBarInset, paletteOpen, { paletteOpen = it }, startScreenActions)
+        } else {
+            if (startScreenVisible) {
+                // Back from the start screen returns to the last tab, if there is one.
+                BackHandler(enabled = selectedTabId != null) { startScreenRequested = false }
+                // On the cover, tapping it opens bottom search rather than the palette.
+                StartScreen(spaces, statusBarInset, paletteOpen = false, { if (it) bottomBarActions.newSearch() }, startScreenActions)
+            }
+            val page by components.store.observeAsComposableState { it.selectedTab?.toPageState() ?: PageState() }
+            BottomBar(
+                spaces = spaces,
+                page = if (startScreenVisible) PageState() else page,
+                selectedTabId = selectedTabId.takeIf { !startScreenVisible },
+                panel = barPanel,
+                searchMode = searchMode,
+                scrollOffset = { barOffset },
+                statusBarInset = statusBarInset,
+                gestureInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
+                quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
+                thumbnails = components.thumbnailStorage,
+                actions = bottomBarActions,
+            )
         }
         AnimatedVisibility(
             visible = tabSheetOpen && !inner,
-            enter = fadeIn() + slideInVertically { -it / 12 },
-            exit = fadeOut() + slideOutVertically { -it / 12 },
+            // It comes up from the bottom bar, where the swipe that opens it starts.
+            enter = fadeIn() + slideInVertically { it / 12 },
+            exit = fadeOut() + slideOutVertically { it / 12 },
         ) {
             BackHandler { tabSheetOpen = false }
             TabSheet(
@@ -585,6 +612,7 @@ class MainActivity : ComponentActivity() {
                 navigationBarInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
                 quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
                 headerSwitchesSpaces = components.settings.switchSpacesFromSheetHeader,
+                showQuickTabs = components.settings.quickTabsInTabSheet,
                 actions = tabSheetActions,
             )
         }
@@ -604,7 +632,7 @@ class MainActivity : ComponentActivity() {
     /** The inner screen (boards 5, 6 and 9c): the frame, the sidebar or rail, and the start screen inside the card. */
     @Composable
     private fun InnerContent(spaces: SpacesState) {
-        val page by components.store.observeAsComposableState { it.selectedTab?.toTopBarState() ?: TopBarState() }
+        val page by components.store.observeAsComposableState { it.selectedTab?.toPageState() ?: PageState() }
         val playing by components.store.observeAsComposableState { mediaCardFor(it.tabs) }
         val media = playing?.let { card ->
             mutedMedia[card.tabId]?.takeIf { (controller, _) -> controller === card.controller }?.let { card.copy(muted = it.second) } ?: card
@@ -785,7 +813,7 @@ class MainActivity : ComponentActivity() {
             val selected = selectedTabId ?: return
             if (!canDropToSplit(drag.tabId) || !splitDropZone(cardRect, splitGap()).contains(finger)) return
             components.spaces.update { it.splitWith(selected, drag.tabId) }
-            root.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            root.performHapticFeedback(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY)
             // Moving the dragged tab beside the page syncs; the split itself stays on the phone for now.
             components.zenSync.localEdited()
         }
@@ -851,6 +879,105 @@ class MainActivity : ComponentActivity() {
         /** When the last tab went, leave the sheet for the start screen. */
         private fun afterClosing(nothingLeft: Boolean) {
             if (nothingLeft) tabSheetOpen = false
+        }
+    }
+
+    private val bottomBarActions = object : BottomBarActions {
+        override fun showPanel(panel: BarPanel?) {
+            barPanel = panel
+        }
+
+        override fun newSearch() {
+            searchMode = SearchMode.NewQuickTab
+            barPanel = BarPanel.Search
+        }
+
+        override fun editUrl() {
+            searchMode = SearchMode.CurrentTab
+            barPanel = BarPanel.Search
+        }
+
+        override fun openTabSheet() {
+            barPanel = null
+            tabSheetOpen = true
+        }
+
+        override fun select(tabId: String) {
+            barPanel = null
+            components.tabs.select(tabId)
+            startScreenRequested = false
+        }
+
+        override fun close(tabId: String) {
+            components.tabs.close(tabId)
+        }
+
+        override fun keep(tabId: String) {
+            components.spaces.update { it.keepQuickTab(tabId) }
+            components.zenSync.localEdited()
+        }
+
+        override fun keepElsewhere(tabId: String) {
+            barPanel = null
+            tabSheetActions.addToAnotherSpace(tabId)
+        }
+
+        override fun clearQuickTabs() {
+            barPanel = null
+            components.spaces.state.value.currentSpace.tabs.filter { it.quick != null }.forEach { components.tabs.close(it.id) }
+        }
+
+        override fun back() = components.sessionUseCases.goBack()
+
+        override fun forward() = components.sessionUseCases.goForward()
+
+        override fun reload() = components.sessionUseCases.reload()
+
+        override fun stop() = components.sessionUseCases.stopLoading()
+
+        override fun copyUrl() {
+            barPanel = null
+            val url = components.store.state.selectedTab?.content?.url ?: return
+            getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(AddressInput.displayHost(url), url))
+        }
+
+        override fun share() {
+            barPanel = null
+            val content = components.store.state.selectedTab?.content ?: return
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, content.url)
+                putExtra(Intent.EXTRA_SUBJECT, content.title)
+            }
+            startActivity(Intent.createChooser(send, null))
+        }
+
+        override fun openZenSync() {
+            barPanel = null
+            zenSyncSheetOpen = true
+        }
+
+        override fun submit(input: String, mode: SearchMode) {
+            barPanel = null
+            val url = AddressInput.toUrl(input)
+            if (mode == SearchMode.CurrentTab && !startScreenVisible) {
+                components.sessionUseCases.loadUrl(url)
+            } else {
+                components.tabs.openNewTab(url, quick = true)
+                startScreenRequested = false
+            }
+        }
+
+        override suspend fun history(query: String, limit: Int) = withContext(Dispatchers.IO) {
+            if (query.isNotBlank()) {
+                components.historyStorage.getSuggestions(query, limit).map { HistoryMatch(it.url, it.title.orEmpty()) }
+            } else {
+                // Before typing, the latest pages.
+                components.historyStorage.getVisitsPaginated(0, limit * 3L)
+                    .distinctBy { it.url }
+                    .take(limit)
+                    .map { HistoryMatch(it.url, it.title.orEmpty()) }
+            }
         }
     }
 
@@ -1022,26 +1149,24 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Whether a hold here opens the space menu: a strip up the wave's edge from the bottom to the top bar (or the
-     * top of the screen while the bar is hidden), or the address field while the bar shows (spec: board 3). Not
-     * while editing, or over a menu, the palette or the sync sheet.
+     * Whether a hold here opens the space menu: a strip up the wave's edge, from the bottom bar's top edge (or the
+     * gesture handle while the bar is scrolled away) up to the status bar (spec: board 3). Not while editing, or
+     * over a panel, a menu, the palette or the sync sheet.
      */
     private fun spaceMenuOpensAt(x: Float, y: Float): Boolean {
         // Unfolded, the sidebar switches spaces instead (spec: inner-screen gestures).
-        if (inner || editing || zenSyncSheetOpen || spaceWave.mode != null || spaceMenuBlocks.count > 0) return false
+        if (inner || editing || barPanel != null || zenSyncSheetOpen || spaceWave.mode != null || spaceMenuBlocks.count > 0) return false
         if (components.spaces.state.value.spaces.size < 2) return false
-        val bar = IntArray(2).also(topBar::getLocationInWindow)
-        val barShows = !startScreenVisible && !tabSheetOpen
-        val addressField = addressFieldBounds?.takeIf { barShows && !barCollapsed }?.translate(bar[0].toFloat(), bar[1].toFloat())
         val decor = window.decorView
-        // Above the gesture handle, so a hold doesn't fight the home gesture.
-        val bottom = (decor.height - root.paddingBottom - gestureHandleInset).toFloat()
+        val screenBottom = decor.height - root.paddingBottom
+        // Above the gesture handle, so a hold doesn't fight the home gesture, and above the bar where it shows;
+        // its top edge moves down as it slides away.
+        val barTop = if (tabSheetOpen) screenBottom.toFloat() else screenBottom - barHeight + barOffset
+        val bottom = minOf((screenBottom - gestureHandleInset).toFloat(), barTop)
         val bounds = spaceMenuBounds()
-        // The strip stops at the bar's bottom edge, which moves up as the bar slides away.
-        val barBottom = if (barShows) (bar[1] + topBar.height).toFloat() else bounds.top
-        val stripTop = maxOf(bounds.bottom - bounds.height * components.settings.spaceMenuStripHeight, barBottom)
+        val stripTop = bounds.bottom - bounds.height * components.settings.spaceMenuStripHeight
         val leftHanded = components.settings.spaceMenuLeftHanded
-        return SpaceMenuZones.contains(x, y, decor.width.toFloat(), stripTop, bottom, addressField, leftHanded, Density(this))
+        return SpaceMenuZones.contains(x, y, decor.width.toFloat(), stripTop, bottom, leftHanded, Density(this))
     }
 
     private val spaceMenuListener = object : SpaceMenuGesture.Listener {
@@ -1115,7 +1240,7 @@ class MainActivity : ComponentActivity() {
             emptyList()
         } else {
             val shape = spaceWave.shape(1f)
-            val margin = resources.getDimensionPixelSize(R.dimen.top_bar_height)
+            val margin = (WAVE_EXCLUSION_MARGIN_DP * resources.displayMetrics.density).toInt()
             val top = minOf(shape.y(0f), spaceWave.finger?.y ?: Float.MAX_VALUE).toInt() - margin
             val bottom = maxOf(shape.y(shape.count - 1f), spaceWave.finger?.y ?: 0f).toInt() + margin
             listOf(android.graphics.Rect(0, top, root.width, bottom))
@@ -1153,11 +1278,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             snapshotFlow { editing }.collect { isEditing ->
                 updateBackCallback()
-                if (isEditing) {
-                    topBar.expand()
-                    topBar.disableScrolling()
-                } else {
-                    topBar.enableScrolling()
+                if (!isEditing) {
                     WindowCompat.getInsetsController(window, root).hide(WindowInsetsCompat.Type.ime())
                     if (collapseAfterEdit) {
                         collapseAfterEdit = false
@@ -1247,8 +1368,37 @@ class MainActivity : ComponentActivity() {
             components.store.flow(this@MainActivity)
                 .map { it.selectedTab?.content?.loading == true }
                 .distinctUntilChanged()
-                .collect { loading -> if (loading) topBar.expand() }
+                .collect { loading -> if (loading) expandBar() }
         }
+        lifecycleScope.launch {
+            // The tinted strip under the status bar takes the top of the space's colors, as the bar takes the bottom.
+            components.spaces.state
+                .map { it.currentSpace.colors().stops.first().toArgb() }
+                .distinctUntilChanged()
+                .collect { statusBand.setBackgroundColor(it) }
+        }
+        lifecycleScope.launch {
+            // An open panel holds the bar in place, with the status bar showing above it.
+            snapshotFlow { barPanel != null }.collect { open ->
+                if (open) {
+                    expandBar()
+                    barAnchor.disableScrolling()
+                    statusBand.disableScrolling()
+                } else {
+                    barAnchor.enableScrolling()
+                    statusBand.enableScrolling()
+                    WindowCompat.getInsetsController(window, root).hide(WindowInsetsCompat.Type.ime())
+                }
+                updateStatusBar()
+            }
+        }
+    }
+
+    /** Brings the bottom bar (and the band under the status bar) back after they've scrolled away. */
+    private fun expandBar() {
+        if (inner) return
+        barAnchor.expand()
+        statusBand.expand()
     }
 
     /** Leave back to the system (closing the app) unless we have an edit to cancel or a page to go back to. */
@@ -1257,33 +1407,45 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Sizes the bar and (re)installs the behaviors that slide it with the page.
-     * Runs again when the insets change, for example when folding or unfolding.
+     * Sizes the cover's bars and (re)installs the behaviors that slide them with the page: the bottom bar's anchor,
+     * and with [CoverStatusBar.TintedStrip] a strip of the space's color under the status bar ([statusTop] tall).
+     * Runs again when the insets change, for example when folding, unfolding or showing the keyboard.
      */
-    private fun layoutTopBar(statusBarInset: Int) {
-        val height = statusBarInset + resources.getDimensionPixelSize(R.dimen.top_bar_height)
-        if (height == barHeight) return
+    private fun layoutCoverBars(statusTop: Int) {
+        val height = resources.getDimensionPixelSize(R.dimen.bottom_bar_height) + gestureHandleInset
+        val band = if (components.settings.coverStatusBar == CoverStatusBar.TintedStrip) statusTop else 0
+        if (height == barHeight && statusTop == statusBarInset && band == bandHeight) return
         barHeight = height
-        this.statusBarInset = statusBarInset
+        bandHeight = band
+        // Whatever the setting, the status bar can show over the tab sheet and panels, which leave room for it.
+        statusBarInset = statusTop
 
-        topBar.translationY = 0f
-        topBar.isVisible = true
-        topBar.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, height).apply {
+        // Follow the page's real scroll offsets. The touch-gesture variant never sees gestures that start mid-page
+        // (GeckoView blocks parent interception), so it can hide a bar but not bring it back.
+        barAnchor.translationY = 0f
+        barAnchor.isVisible = true
+        barAnchor.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, height).apply {
+            gravity = Gravity.BOTTOM
+            behavior = EngineViewScrollingDataBehavior(engineView, barAnchor, DependencyGravity.Bottom)
+        }
+        statusBand.translationY = 0f
+        statusBand.isVisible = band > 0
+        statusBand.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, band).apply {
             gravity = Gravity.TOP
-            // Follow the page's real scroll offsets. The touch-gesture variant never sees
-            // gestures that start mid-page (GeckoView blocks parent interception), so it
-            // can hide the bar but not bring it back.
-            behavior = EngineViewScrollingDataBehavior(engineView, topBar, DependencyGravity.Top)
+            if (band > 0) behavior = EngineViewScrollingDataBehavior(engineView, statusBand, DependencyGravity.Top)
         }
         engineContainer.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
-            behavior = EngineViewClippingBehavior(this@MainActivity, null, engineContainer, height, 0)
+            behavior = EngineViewClippingBehavior(this@MainActivity, null, engineContainer, band, height)
         }
-        topEdge.layoutParams = CoordinatorLayout.LayoutParams(
+        bottomEdge.layoutParams = CoordinatorLayout.LayoutParams(
             MATCH_PARENT,
-            maxOf(statusBarInset, resources.getDimensionPixelSize(R.dimen.top_edge_min_height)),
-        ).apply { gravity = Gravity.TOP }
-        engineView.setDynamicToolbarMaxHeight(height)
-        if (!editing) topBar.enableScrolling()
+            gestureHandleInset + resources.getDimensionPixelSize(R.dimen.bottom_edge_min_height),
+        ).apply { gravity = Gravity.BOTTOM }
+        engineView.setDynamicToolbarMaxHeight(band + height)
+        if (barPanel == null) {
+            barAnchor.enableScrolling()
+            statusBand.enableScrolling()
+        }
     }
 
     /**
@@ -1307,8 +1469,9 @@ class MainActivity : ComponentActivity() {
         val right = window.width - barInsets.right - border
         val bottom = window.height - barInsets.bottom - border
         cardRect = Rect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
-        topBar.isVisible = false
-        topEdge.isVisible = false
+        barAnchor.isVisible = false
+        statusBand.isVisible = false
+        bottomEdge.isVisible = false
         val pageLeft = pinnedPageDp?.let { barInsets.left + (it * density).toInt() + border } ?: left
         // A split's pages share the card, at the sizes the divider last stopped at.
         val pageArea = Rect(pageLeft.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
@@ -1340,29 +1503,29 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
-    private fun onTopBarCollapsedChanged(collapsed: Boolean) {
-        topEdge.isVisible = collapsed
+    private fun onBarCollapsedChanged(collapsed: Boolean) {
+        bottomEdge.isVisible = collapsed && !inner
         updateStatusBar()
     }
 
-    /** The status bar hides with the top bar, but stays up over the start screen and tab sheet. */
+    /**
+     * The status bar, by the settings. On the cover it always shows over the start screen, the tab sheet and the
+     * bottom bar's panels; over the page it's hidden, always showing, or hiding with the bar ([CoverStatusBar]).
+     */
     private fun updateStatusBar() {
         val controller = WindowCompat.getInsetsController(window, root)
-        if (inner) {
-            // Hidden by the same setting, so the page card's thin border runs right to the top.
-            if (components.settings.hideStatusBarWithTopBar) {
-                controller.hide(WindowInsetsCompat.Type.statusBars())
-            } else {
-                controller.show(WindowInsetsCompat.Type.statusBars())
-            }
-            return
-        }
-        if (!components.settings.hideStatusBarWithTopBar) return
-        if (barCollapsed && !startScreenVisible && !tabSheetOpen) {
-            controller.hide(WindowInsetsCompat.Type.statusBars())
+        val show = if (inner) {
+            // Hidden, the page card's thin border runs right to the top.
+            !components.settings.hideStatusBarUnfolded
         } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
+            val overPage = !startScreenVisible && !tabSheetOpen && barPanel == null
+            when (components.settings.coverStatusBar) {
+                CoverStatusBar.Hidden -> !overPage
+                CoverStatusBar.OverPage -> true
+                CoverStatusBar.TintedStrip -> !(overPage && barCollapsed)
+            }
         }
+        if (show) controller.show(WindowInsetsCompat.Type.statusBars()) else controller.hide(WindowInsetsCompat.Type.statusBars())
     }
 
     /**
@@ -1380,6 +1543,9 @@ class MainActivity : ComponentActivity() {
 
         /** The thin border of space color around the page card, the same on all four sides. */
         const val BORDER_DP = 4
+
+        /** How far past the wave's ends its stretch of the edge ignores the back gesture. */
+        const val WAVE_EXCLUSION_MARGIN_DP = 64
 
         /** The narrowest a split's page gets when its divider is dragged. */
         const val SPLIT_PAGE_MIN_DP = 240

@@ -88,7 +88,7 @@ import app.enso.browser.tabsheet.swipeAction
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.toolbar.FieldButton
 import app.enso.browser.toolbar.OverflowMenu
-import app.enso.browser.toolbar.TopBarState
+import app.enso.browser.toolbar.PageState
 import app.enso.browser.toolbar.UrlEditor
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
@@ -181,7 +181,7 @@ fun Sidebar(
     spaces: SpacesState,
     essentialsFor: (Space) -> List<Tab>,
     selectedTabId: String?,
-    page: TopBarState,
+    page: PageState,
     editing: Boolean,
     /** The start screen is showing, so New Tab is the highlighted row (board 9c). */
     newTabShowing: Boolean,
@@ -254,7 +254,7 @@ private fun Modifier.switchesSpaces(actions: SidebarActions): Modifier = this.th
 )
 
 @Composable
-private fun SidebarHeader(page: TopBarState, actions: SidebarActions) {
+private fun SidebarHeader(page: PageState, actions: SidebarActions) {
     Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
         BarButton(R.drawable.ic_sidebar, R.string.sidebar_toggle) { actions.setExpanded(false) }
         Spacer(Modifier.weight(1f))
@@ -285,7 +285,7 @@ private fun BarButton(@DrawableRes icon: Int, @StringRes label: Int, enabled: Bo
  * Zen has its copy link and site settings buttons.
  */
 @Composable
-private fun UrlField(page: TopBarState, editing: Boolean, accent: androidx.compose.ui.graphics.Color, actions: SidebarActions) {
+private fun UrlField(page: PageState, editing: Boolean, accent: androidx.compose.ui.graphics.Color, actions: SidebarActions) {
     val context = LocalContext.current
     val host = AddressInput.displayHost(page.url)
     var input by remember(editing) {
@@ -329,14 +329,7 @@ private fun UrlField(page: TopBarState, editing: Boolean, accent: androidx.compo
                             ?.setPrimaryClip(ClipData.newPlainText(host, page.url))
                     }
                 }
-                OverflowMenu(
-                    page,
-                    onBack = actions::back,
-                    onForward = actions::forward,
-                    onOpenZenSync = actions::openZenSync,
-                    withNavigation = false,
-                    buttonSize = ButtonSize,
-                )
+                OverflowMenu(onOpenZenSync = actions::openZenSync, buttonSize = ButtonSize)
             }
         }
     }

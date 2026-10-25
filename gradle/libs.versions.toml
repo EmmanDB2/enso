@@ -14,6 +14,8 @@ kotlinx-serialization = "1.12.0"
 [libraries]
 mozilla-browser-engine-gecko = { module = "org.mozilla.components:browser-engine-gecko", version.ref = "mozilla-components" }
 mozilla-browser-state = { module = "org.mozilla.components:browser-state", version.ref = "mozilla-components" }
+mozilla-browser-thumbnails = { module = "org.mozilla.components:browser-thumbnails", version.ref = "mozilla-components" }
+mozilla-concept-base = { module = "org.mozilla.components:concept-base", version.ref = "mozilla-components" }
 mozilla-browser-storage-sync = { module = "org.mozilla.components:browser-storage-sync", version.ref = "mozilla-components" }
 mozilla-concept-engine = { module = "org.mozilla.components:concept-engine", version.ref = "mozilla-components" }
 mozilla-concept-fetch = { module = "org.mozilla.components:concept-fetch", version.ref = "mozilla-components" }

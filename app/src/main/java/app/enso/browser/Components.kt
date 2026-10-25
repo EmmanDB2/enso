@@ -11,6 +11,8 @@ import mozilla.components.browser.engine.gecko.fetch.GeckoViewFetchClient
 import mozilla.components.browser.state.engine.EngineMiddleware
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.storage.sync.PlacesHistoryStorage
+import mozilla.components.browser.thumbnails.ThumbnailsMiddleware
+import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import mozilla.components.concept.engine.DefaultSettings
 import mozilla.components.feature.session.HistoryDelegate
 import mozilla.components.feature.session.SessionUseCases
@@ -41,7 +43,14 @@ class Components(private val context: Context) {
     /** Desktop sites with the inner screen's sidebar layout; its middleware runs ahead of the engine's. */
     val desktopSites by lazy { DesktopSites() }
 
-    val store by lazy { BrowserStore(middleware = listOf(desktopSites.middleware) + EngineMiddleware.create(engine)) }
+    /** Page thumbnails for the bottom bar's Quick Tabs stack and cards, kept on disk by tab id. */
+    val thumbnailStorage by lazy { ThumbnailStorage(context) }
+
+    val store by lazy {
+        BrowserStore(
+            middleware = listOf(desktopSites.middleware, ThumbnailsMiddleware(thumbnailStorage)) + EngineMiddleware.create(engine),
+        )
+    }
     val sessionUseCases by lazy { SessionUseCases(store) }
     val tabsUseCases by lazy { TabsUseCases(store) }
     val settings by lazy { Settings(context) }

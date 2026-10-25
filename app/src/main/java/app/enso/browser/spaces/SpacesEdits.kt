@@ -1,7 +1,5 @@
 package app.enso.browser.spaces
 
-import app.enso.browser.TabSwipeScope
-
 // Pure edits on SpacesState. Each returns the state unchanged when the tab or folder isn't found.
 
 fun SpacesState.updateSpace(spaceId: String, transform: (Space) -> Space) =
@@ -208,14 +206,4 @@ fun SpacesState.nextAfterClosing(tabId: String): String? {
     val open = currentSpace.tabs.filterNot { it.id == tabId }
     val index = currentSpace.tabs.indexOfFirst { it.id == tabId }
     return if (index >= 0) open.getOrNull(index)?.id ?: open.lastOrNull()?.id else open.firstOrNull()?.id
-}
-
-/** Tab IDs the address-field swipe moves through, in tab-sheet order. */
-fun SpacesState.swipeOrder(scope: TabSwipeScope, loadedTabIds: Set<String>): List<String> {
-    val open = currentSpace.tabs.map { it.id }
-    return when (scope) {
-        TabSwipeScope.OpenTabs -> open
-        TabSwipeScope.AllTabs ->
-            (essentials + currentSpace.pinned.flatMap { it.tabs }).map { it.id }.filter { it in loadedTabIds } + open
-    }
 }

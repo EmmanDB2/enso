@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Thin-line icon, 1.8 stroke on a 24 grid (spec: Visual style). Paper plane: Share. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M21,3l-18,7.5l7,3l3,7.5z"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FF26232B"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M21,3l-11,10.5"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FF26232B"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

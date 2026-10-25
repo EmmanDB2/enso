@@ -125,6 +125,8 @@ fun TabSheet(
     quickTabLifetimeMs: Long,
     /** Whether swiping the header sideways switches spaces. */
     headerSwitchesSpaces: Boolean,
+    /** Whether Quick Tabs list among the open tabs, or only in the bottom bar's stack. */
+    showQuickTabs: Boolean,
     actions: TabSheetActions,
 ) {
     val colors = spaces.currentSpace.colors()
@@ -132,7 +134,7 @@ fun TabSheet(
     var query by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf<MenuTarget?>(null) }
     val current = selectedTabId?.let { spaces.find(it) }
-    val rows = remember(spaces, essentials, current, query) { sheetRows(spaces, essentials, current, query) }
+    val rows = remember(spaces, essentials, current, query, showQuickTabs) { sheetRows(spaces, essentials, current, query, showQuickTabs) }
     val listState = rememberLazyListState()
 
     BackHandler(enabled = menu != null) { menu = null }
@@ -292,7 +294,7 @@ private sealed interface SheetRow {
     }
 }
 
-private fun sheetRows(spaces: SpacesState, essentials: List<Tab>, current: TabEntry?, query: String): List<SheetRow> {
+private fun sheetRows(spaces: SpacesState, essentials: List<Tab>, current: TabEntry?, query: String, showQuickTabs: Boolean): List<SheetRow> {
     val space = spaces.currentSpace
     if (query.isNotBlank()) {
         return (essentials + space.allTabs)
@@ -331,7 +333,8 @@ private fun sheetRows(spaces: SpacesState, essentials: List<Tab>, current: TabEn
             shown != null -> add(SheetRow.Current(shown))
         }
         val inCard = currentSplit?.map { it.id }?.toSet() ?: setOfNotNull(current?.tab?.id)
-        space.tabs.filterNot { it.id in inCard || splits.isHidden(it.id) }.forEach { tab ->
+        // Quick Tabs other than the one on screen live in the bottom bar's stack, unless the setting lists them here.
+        space.tabs.filterNot { it.id in inCard || splits.isHidden(it.id) || (!showQuickTabs && it.quick != null) }.forEach { tab ->
             add(splits.at(tab.id)?.let { SheetRow.SplitTabsRow(it, depth = 0) } ?: SheetRow.OpenTabRow(tab))
         }
     }

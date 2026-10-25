@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.enso.browser.toolbar.LoadProgress
-import app.enso.browser.toolbar.TopBarState
+import app.enso.browser.toolbar.PageState
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.SpaceColors
 import kotlin.math.roundToInt
@@ -43,7 +43,7 @@ data class PageCard(val card: Rect, val page: Rect = card)
  * frame painted over the pages' square ones. The frame has no touch handling, so touches on a card reach it.
  */
 @Composable
-fun InnerFrame(colors: SpaceColors, cards: List<PageCard>, focused: Int, page: TopBarState, corner: Dp) {
+fun InnerFrame(colors: SpaceColors, cards: List<PageCard>, focused: Int, page: PageState, corner: Dp) {
     Canvas(Modifier.fillMaxSize()) {
         val radius = CornerRadius(corner.toPx())
         val frame = Path().apply {
