@@ -41,14 +41,15 @@ class SpacesStore(context: Context) {
         scope.launch { _state.drop(1).debounce(SAVE_DELAY_MS).collect(::save) }
     }
 
-    fun update(transform: (SpacesState) -> SpacesState) = _state.update(transform)
+    /** Every change also drops splits it broke (see [withValidSplits]), so no edit has to tidy them up itself. */
+    fun update(transform: (SpacesState) -> SpacesState) = _state.update { transform(it).withValidSplits() }
 
     /** Saves right away, for when the app may be about to be killed. */
     fun flush() = save(_state.value)
 
     private fun load(): SpacesState =
         try {
-            json.decodeFromJsonElement<SpacesState>(migrate(json.parseToJsonElement(file.readText())))
+            json.decodeFromJsonElement<SpacesState>(migrate(json.parseToJsonElement(file.readText()))).withValidSplits()
         } catch (_: FileNotFoundException) {
             SpacesState.initial()
         } catch (e: Exception) {

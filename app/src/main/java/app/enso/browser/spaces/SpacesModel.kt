@@ -45,13 +45,33 @@ data class Space(
     /** Open tabs, in order. */
     val tabs: List<Tab> = emptyList(),
     val selectedTabId: String? = null,
+    /** Split views among this space's tabs (board 7). */
+    val splits: List<Split> = emptyList(),
 ) {
     /** Pinned tabs (including those in folders) and open tabs. Essentials aren't counted. */
     val allTabs: List<Tab> get() = pinned.flatMap { it.tabs } + tabs
 
     /** Every folder in the space, nested ones included, top to bottom. */
     val folders: List<Folder> get() = pinned.flatMap { it.folders }
+
+    fun splitOf(tabId: String): Split? = splits.firstOrNull { tabId in it.tabIds }
 }
+
+/**
+ * A split view: tabs of one space shown side by side on the inner screen, like Zen's. The tabs stay where they
+ * live (pinned, in a folder or open), and rows show the split where its first tab sits.
+ */
+@Serializable
+data class Split(
+    val id: String,
+    /** Its tabs in page order, left to right. */
+    val tabIds: List<String>,
+    /**
+     * Each page's share of the width, left to right, set by dragging the divider. Empty means equal. It stays on
+     * the phone: Zen doesn't sync sizes.
+     */
+    val sizes: List<Float> = emptyList(),
+)
 
 @Serializable
 sealed interface PinnedItem {
@@ -165,6 +185,12 @@ internal fun newTabId() = "${System.currentTimeMillis()}-${UUID.randomUUID()}"
 
 /** A folder id in Zen's (Firefox tab group) format, `<time>-<0..99>`. */
 internal fun newFolderId() = "${System.currentTimeMillis()}-${Random.nextInt(100)}"
+
+/** Zen's split views are tab groups too, so their ids have the folder format. */
+internal fun newSplitId() = newFolderId()
+
+/** The split [tabId] is in, in whichever space. */
+fun SpacesState.splitOf(tabId: String): Split? = spaces.firstNotNullOfOrNull { it.splitOf(tabId) }
 
 /** Zen's default theme opacity, for spaces synced before it was stored. */
 const val DEFAULT_THEME_OPACITY = 0.5f

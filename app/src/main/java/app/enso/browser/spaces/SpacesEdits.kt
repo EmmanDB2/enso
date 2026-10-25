@@ -145,6 +145,64 @@ fun SpacesState.renameFolder(folderId: String, name: String) = updateFolder(fold
 fun SpacesState.deleteFolder(folderId: String) =
     mapPinned { if (it is Folder && it.id == folderId) it.items else listOf(it) }
 
+/**
+ * Splits [tabId], the page on screen, with [withTabId], which goes on its right (board 7). When both are open
+ * tabs, or both pinned, [withTabId] moves to just after [tabId] (into its folder too), since Zen keeps a split's
+ * tabs together. A pinned tab and an open one each stay where they are. A tab already in a split leaves it.
+ */
+fun SpacesState.splitWith(tabId: String, withTabId: String): SpacesState {
+    val left = find(tabId) ?: return this
+    val right = find(withTabId) ?: return this
+    val space = left.place.space ?: return this
+    if (tabId == withTabId || right.place.space?.id != space.id) return this
+    val moved = when {
+        left.place is TabPlace.Open && right.place is TabPlace.Open -> removeTab(withTabId).updateSpace(space.id) {
+            val at = it.tabs.indexOfFirst { tab -> tab.id == tabId } + 1
+            it.copy(tabs = it.tabs.toMutableList().apply { add(at, right.tab) })
+        }
+        left.place is TabPlace.Pinned && right.place is TabPlace.Pinned ->
+            removeTab(withTabId).mapPinned { if (it.id == tabId) listOf(it, PinnedTab(right.tab)) else listOf(it) }
+        else -> this
+    }
+    return moved.updateSpace(space.id) {
+        val others = it.splits.map { split -> split.copy(tabIds = split.tabIds - tabId - withTabId) }
+        it.copy(splits = others + Split(newSplitId(), listOf(tabId, withTabId)))
+    }.withValidSplits()
+}
+
+fun SpacesState.unsplit(splitId: String) =
+    copy(spaces = spaces.map { space -> space.copy(splits = space.splits.filterNot { it.id == splitId }) })
+
+/** Sets each page's share of the split's width, left to right; empty makes them equal. */
+fun SpacesState.resizeSplit(splitId: String, sizes: List<Float>) = copy(
+    spaces = spaces.map { space ->
+        space.copy(splits = space.splits.map { if (it.id == splitId) it.copy(sizes = sizes) else it })
+    },
+)
+
+/**
+ * Drops splits left with fewer than two of their space's tabs: after a close, or a move to another space or into
+ * the Essentials. A tab is in one split at most. When a split loses a tab, its pages go back to equal sizes.
+ */
+fun SpacesState.withValidSplits(): SpacesState {
+    if (spaces.all { it.splits.isEmpty() }) return this
+    return copy(
+        spaces = spaces.map { space ->
+            if (space.splits.isEmpty()) return@map space
+            val ids = space.allTabs.mapTo(HashSet()) { it.id }
+            val taken = HashSet<String>()
+            val kept = space.splits.mapNotNull { split ->
+                val tabIds = split.tabIds.filter { it in ids && it !in taken }.distinct()
+                if (tabIds.size < 2) return@mapNotNull null
+                taken += tabIds
+                val sizesFit = split.sizes.isEmpty() || split.sizes.size == tabIds.size
+                if (tabIds == split.tabIds && sizesFit) split else split.copy(tabIds = tabIds, sizes = emptyList())
+            }
+            if (kept == space.splits) space else space.copy(splits = kept)
+        },
+    )
+}
+
 /** The tab to show after [tabId] closes or unloads: its neighbor among the open tabs, else the first open tab. */
 fun SpacesState.nextAfterClosing(tabId: String): String? {
     val open = currentSpace.tabs.filterNot { it.id == tabId }

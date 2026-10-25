@@ -11,8 +11,10 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Build **one step of the spec's build order at a time**. Each step must build, install and run on the Fold before the next one starts.
 - Don't build UI or features from later steps early, even as stubs.
 - If the spec is unclear or silent, ask instead of guessing. The spec lists its own open questions at the end.
-- Current step: **7, the inner screen**: the rail, the full sidebar, the sidebar's space swipe, fold continuity and space colors. Step 6 (the edge wave) is done.
-  - Space colors are part of step 7 because the sidebar needs them. Every tinted surface on both screens uses the space's Zen theme gradient at Zen's own opacity, and the accent stays for small marks.
+- Current step: **8, split view and Glance**, in three passes. Step 7 (the inner screen and space colors) is done.
+  - **8a (now): split view on the inner screen, phone only.** Splits aren't synced yet.
+  - **8b (next): splits sync both ways with Zen.** Dry-run first, with the snapshot copied into the backup folder.
+  - **8c: Glance** (board 8), on both screens. The cover's Glance has no Split button.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -37,24 +39,29 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - `DesktopSites.kt`: desktop sites while the sidebar layout shows.
   - AC's Gecko engine has no desktop default for new sessions, so a store middleware switches each session as it's linked (`LinkEngineSessionAction`), before the engine middleware loads its first page. That's why it comes first in the store's middleware list.
   - Folding or unfolding switches open sessions with `toggleDesktopMode(reload = false)`: by the user's choice, pages keep their version until they next load.
+  - Tabs in a split keep mobile sites (`setActive`'s `mobileTabs`) unless `desktopSitesInSplit` is on.
 - `spaces/`: the local spaces model, shaped after Zen so step 5 can sync it.
-  - Structure: `SpacesState` holds the spaces and the shared Essentials. A `Space` holds its pinned items (tabs and folders, in order) and its open tabs.
+  - Structure: `SpacesState` holds the spaces and the shared Essentials. A `Space` holds its pinned items (tabs and folders, in order), its open tabs and its splits.
   - Edits are pure functions in `SpacesEdits.kt`.
   - `SpacesStore` saves the model to `files/spaces.json` 500 ms after a change, and right away in `onStop`.
+  - Every `SpacesStore.update` runs `withValidSplits`, which drops splits left with fewer than two of their space's tabs. Edits that close or move tabs therefore don't tidy splits themselves.
 - `TabManager`: the only place tabs are opened, selected, closed or unloaded. Don't add or remove tabs in the `BrowserStore` directly.
   - The model and the `BrowserStore` share tab IDs. A tab exists in the BrowserStore only while it's loaded, so pinned tabs and Essentials can sit unloaded.
   - It copies URL and title changes, page-opened tabs (`WindowFeature`) and selection back into the model.
   - Any open tab that leaves the BrowserStore is removed from the model. A bug that drops BrowserStore tabs therefore deletes them from the user's saved tabs.
   - No selected tab is a real state: the start screen shows.
+  - `load` gives tabs a page without selecting them: the other pages of a split.
 - Quick Tabs: `Tab.quick` holds `lastViewedAt`, and sync must skip these tabs.
   - New searches from the palette and the tab sheet's search field create them, and so do pages a Quick Tab opens. The top bar loads in the current tab.
-  - Expiry runs in `onStart` and every minute while the app is open. The tab on screen is never cleared while you're viewing it.
+  - Expiry runs in `onStart` and every minute while the app is open. Pages on screen (both of a split's) are never cleared while you're viewing them.
 - `tabsheet/`:
   - `TabSheet.kt` is the cover tab sheet (board 4). Quick Tabs get a gold outline.
   - Rows that can swap which tab they show (like the current-tab card) must key their swipe state by tab ID, or a dismissed state carries over and closes the next tab.
   - `TabMenu.kt` is the hold menu (board 4b).
     - On a Quick Tab it shows the spec's menu: Add to [space], Add to another space (the wave as a picker; hidden with one space) and Close tab.
     - On other tabs and folders it shows pin, unpin, folder and Essentials actions. While signed in, these sync to Zen.
+    - On a tab in a split it also shows Unsplit tabs.
+  - `SplitRow` shows a split's tabs as one row, each in its own part, and each part swipes on its own. On the cover sheet, the current-tab card shows the whole split.
     - Folder names confirm with the keyboard's Done key too, since a floating overlay can cover the dialog's button.
 - `sync/`: Zen sync over the user's Mozilla account.
   - **Format:** Zen's `spaces` collection (version 3). Records decrypt to `{id, kind, data}`; the kinds are space, folder, tab, split, container and layout.
@@ -118,7 +125,23 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - The start screen shows when no tab is selected, when the selected tab belongs to another space, or when the app was away for `startScreenAfterMinutes`.
   - Tap it for the palette; swipe down for the tab sheet.
   - Back returns to the last tab.
-- `MainActivity.kt`: a `CoordinatorLayout` holding the engine view, the top bar, and one overlay `ComposeView` for everything drawn over the page.
+- `split/`: split view (board 7).
+  - **Model:** `Space.splits` holds each `Split`: its tab IDs in page order, and its page `sizes`, which stay on the phone. The tabs stay where they live. `SplitRows` (in `tabsheet/`) shows each split as one row where its first tab sits, and hides its other tabs.
+  - **Pages:** `PagePanes` holds one page view per page on screen, and replaces AC's `SessionFeature`.
+    - Each view keeps its tab while the focus moves around a split, so pages never swap views.
+    - A GeckoSession can only be in one view, so a view releases its tab before another view takes it.
+    - The first pane is the cover's page, and the one the top bar's scrolling behaviors follow.
+  - **What shows:** `MainActivity.shownFor` picks the pages: the selected tab's split on the inner screen, otherwise just the selected tab.
+    - The selected tab is the focused page.
+    - A touch-down on another page selects it (`focusPageAt`, from `dispatchTouchEvent`), and the touch still reaches the page.
+  - **Layout:** `paneRects` shares the card out with a 4 dp gap, the border's width, kept even with the border off.
+    - `InnerFrame` takes a `PageCard` per page: where it's drawn, and where its view is.
+    - While the divider drags, only the drawn cards move. The frame paints blank page where a card has no view under it, and the views resize once, at the end.
+  - **Divider:** `SplitDivider` reaches 10 dp into each page. A drag resizes the pages, each to at least 240 dp (`SPLIT_PAGE_MIN_DP`), and a long press makes them equal.
+  - **Drag to split:** `dragAfterHold` (`tabsheet/TabDrag.kt`) watches rows in the initial pass. A hold opens the row's menu as usual, and moving on turns it into a drag. A drop on `splitDropZone` (the card's right half) calls `splitWith`.
+    - The rail's tiles sit in Android's left-edge back-gesture zone. A real held thumb cancels the back gesture, but scripted `input motionevent` touches don't count as held, so start scripted drags there at x ≥ 105 px.
+  - **Sync:** none yet (8a). The mapper keeps the phone's `splits` through each sync.
+- `MainActivity.kt`: a `CoordinatorLayout` holding the page views, the top bar, and one overlay `ComposeView` for everything drawn over the page.
   - **Cover or inner:** a window at least 600 dp wide at its narrowest counts as the inner screen. A rotated cover doesn't count. In portrait, the unfolded screen uses the cover's layout when `unfoldedPortraitLayout` is `Mobile`.
     - The activity handles folding itself (`configChanges`), so the page, tab, space and scroll position carry over with no extra work. `onConfigurationChanged` swaps the layout and closes the tab sheet and any edit.
   - **The inner layout** (`layoutInner`): the top bar is hidden, and the engine view becomes the page card beside the sidebar or rail.
@@ -151,7 +174,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - The media card reads `TabSessionState.mediaSessionState` (the engine fills it in) and drives its `MediaSession.Controller`.
     - Previous and next follow the session's `features`: they skip tracks (`NEXT_TRACK`, `PREVIOUS_TRACK`), seek (`SEEK_FORWARD`, `SEEK_BACKWARD`), or are grayed out.
     - Mute state: AC's Gecko engine never calls `onMediaMuteChanged`, so `MediaSessionState.muted` stays false. The activity keeps its own record (`mutedMedia`), keyed to the session's controller, so a new session starts unmuted.
-  - `InnerFrame` paints the space colors with a rounded hole for the page card. GeckoView's surface ignores view clipping, so the card's rounded corners are this paint. It has no touch handling, so the page gets the card's touches.
+  - `InnerFrame` paints the space colors with a rounded hole for each page card. GeckoView's surface ignores view clipping, so the cards' rounded corners are this paint. It has no touch handling, so the pages get the cards' touches.
 - `ui/`:
   - `Theme.kt` holds color tokens from the spec's Visual style table and the Inter font (bundled in `res/font`; its license is in `assets/licenses`).
   - `Favicons.kt` has the letter favicon placeholders and the space icons.
@@ -165,6 +188,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `quickTabLifetimeHours` (default 24, counted since last viewed) sets when Quick Tabs clear.
   - `pageZoomPercent` (default 80) is pages' default zoom on both screens. It applies after a restart.
   - `desktopSitesUnfolded` (default on) asks for desktop sites while the sidebar layout shows.
+  - `desktopSitesInSplit` (default off) asks for desktop sites in a split's pages too. Each of those pages is about as narrow as the cover.
   - `startScreenAfterMinutes` (default 30) sets how long the app must be away before it reopens on the start screen.
   - `switchSpacesFromSheetHeader` (default off) lets a sideways swipe on the sheet header switch spaces too. It was the way to switch before the space menu.
   - `spaceMenuHoldMs` (default 300) sets how long a hold takes to open the space menu.

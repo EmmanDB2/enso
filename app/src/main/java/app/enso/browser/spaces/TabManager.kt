@@ -70,6 +70,16 @@ class TabManager(
         tabsUseCases.selectTab(tabId)
     }
 
+    /** Gives each of [tabIds] a page, without selecting it: the other pages of a split on screen. */
+    fun load(tabIds: List<String>) {
+        val state = spaces.state.value
+        val tabs = tabIds
+            .filter { store.state.findTab(it) == null }
+            .mapNotNull { state.find(it)?.tab }
+            .map { createTab(it.url, id = it.id, title = it.title) }
+        if (tabs.isNotEmpty()) store.dispatch(TabListAction.AddMultipleTabsAction(tabs))
+    }
+
     /** Opens [url] in a new tab just below the current one. New searches pass [quick] to make a Quick Tab. */
     fun openNewTab(url: String, quick: Boolean = false) {
         val tab = Tab(id = newTabId(), url = url, quick = if (quick) QuickTab(lastViewedAt = now()) else null)
@@ -131,15 +141,15 @@ class TabManager(
         target.selectedTabId?.takeIf { state.find(it) != null }?.let(::select)
     }
 
-    /** Restarts the expiry clock of the Quick Tab on screen, if it is one. */
-    fun markSelectedViewed() {
-        val selected = store.state.selectedTabId ?: return
-        spaces.update { it.markViewed(selected, now()) }
+    /** Restarts the expiry clock of the Quick Tabs among [tabIds], the pages on screen. */
+    fun markViewed(tabIds: List<String>) {
+        val now = now()
+        spaces.update { state -> tabIds.fold(state) { it, id -> it.markViewed(id, now) } }
     }
 
     /** Closes Quick Tabs unviewed for longer than [lifetimeMs], except [keep]. True when no tab is left to show. */
-    fun clearExpiredQuickTabs(lifetimeMs: Long, keep: String?): Boolean {
-        val expired = spaces.state.value.expiredQuickTabs(now(), lifetimeMs) - setOfNotNull(keep)
+    fun clearExpiredQuickTabs(lifetimeMs: Long, keep: Collection<String>): Boolean {
+        val expired = spaces.state.value.expiredQuickTabs(now(), lifetimeMs) - keep.toSet()
         return expired.map { close(it) }.lastOrNull() ?: false
     }
 

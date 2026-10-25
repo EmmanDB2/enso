@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -138,7 +139,7 @@ fun TabSheet(
 
     // Open anchored on the current tab: scroll it a third of the way down when the list is long.
     LaunchedEffect(Unit) {
-        val index = rows.indexOfFirst { it is SheetRow.Current }
+        val index = rows.indexOfFirst { it is SheetRow.Current || it is SheetRow.CurrentSplit }
         if (index > 0) {
             val viewport = snapshotFlow { listState.layoutInfo.viewportSize.height }.first { it > 0 }
             listState.scrollToItem(index, scrollOffset = -viewport / 3)
@@ -183,8 +184,28 @@ fun TabSheet(
                             actions = actions,
                             onLongClick = openMenu,
                         )
+                        is SheetRow.SplitTabsRow -> SplitRow(
+                            tabs = row.tabs,
+                            colors = colors,
+                            selectedTabId = selectedTabId,
+                            actions = actions,
+                            onLongClick = openMenu,
+                            depth = row.depth,
+                            highlight = if (row.tabs.any { it.id == selectedTabId }) RowHighlight.Soft else RowHighlight.None,
+                        )
                         SheetRow.Divider -> SheetDivider()
                         is SheetRow.Current -> CurrentTabCard(row.entry, actions, openMenu)
+                        // The cover shows one page at a time; tapping a half shows that one.
+                        is SheetRow.CurrentSplit -> SplitRow(
+                            tabs = row.tabs,
+                            colors = colors,
+                            selectedTabId = selectedTabId,
+                            actions = actions,
+                            onLongClick = openMenu,
+                            highlight = RowHighlight.Current,
+                            height = 56.dp,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
                         is SheetRow.OpenTabRow -> TabRow(
                             tab = row.tab,
                             colors = colors,
@@ -248,7 +269,17 @@ private sealed interface SheetRow {
         override val key get() = "divider"
     }
 
+    /** A split's tabs as one row. */
+    data class SplitTabsRow(val tabs: List<Tab>, val depth: Int) : SheetRow {
+        override val key get() = "split:" + tabs.first().id
+    }
+
     data class Current(val entry: TabEntry) : SheetRow {
+        override val key get() = "current"
+    }
+
+    /** The current tab is in a split: the card shows the whole split. */
+    data class CurrentSplit(val tabs: List<Tab>) : SheetRow {
         override val key get() = "current"
     }
 
@@ -268,13 +299,17 @@ private fun sheetRows(spaces: SpacesState, essentials: List<Tab>, current: TabEn
             .filter { it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true) }
             .map(SheetRow::Match)
     }
+    val splits = SplitRows(space)
     return buildList {
         add(SheetRow.Header(space))
         if (essentials.isNotEmpty()) add(SheetRow.Essentials(essentials))
         fun addPinned(items: List<PinnedItem>, depth: Int) {
             for (item in items) {
                 when (item) {
-                    is PinnedTab -> add(SheetRow.PinnedTabRow(item.tab, depth))
+                    is PinnedTab -> when {
+                        splits.isHidden(item.id) -> Unit
+                        else -> add(splits.at(item.id)?.let { SheetRow.SplitTabsRow(it, depth) } ?: SheetRow.PinnedTabRow(item.tab, depth))
+                    }
                     is Folder -> {
                         add(SheetRow.FolderRow(item, depth))
                         if (item.expanded) addPinned(item.items, depth + 1)
@@ -284,10 +319,21 @@ private fun sheetRows(spaces: SpacesState, essentials: List<Tab>, current: TabEn
         }
         addPinned(space.pinned, depth = 0)
         if (space.pinned.isNotEmpty()) add(SheetRow.Divider)
-        // The current tab only gets the card when it belongs to this space (not after switching spaces).
-        current?.takeIf { entry -> entry.place.space?.id == space.id || essentials.any { it.id == entry.tab.id } }
-            ?.let { add(SheetRow.Current(it)) }
-        space.tabs.filterNot { it.id == current?.tab?.id }.forEach { add(SheetRow.OpenTabRow(it)) }
+        // The current tab only gets the card when it belongs to this space (not after switching spaces). In a
+        // split, the card shows the split, and its open tabs leave the list below.
+        val shown = current?.takeIf { entry -> entry.place.space?.id == space.id || essentials.any { it.id == entry.tab.id } }
+        val currentSplit = shown?.let { space.splitOf(it.tab.id) }?.let { split ->
+            val tabs = space.allTabs.associateBy { it.id }
+            split.tabIds.mapNotNull(tabs::get)
+        }
+        when {
+            currentSplit != null -> add(SheetRow.CurrentSplit(currentSplit))
+            shown != null -> add(SheetRow.Current(shown))
+        }
+        val inCard = currentSplit?.map { it.id }?.toSet() ?: setOfNotNull(current?.tab?.id)
+        space.tabs.filterNot { it.id in inCard || splits.isHidden(it.id) }.forEach { tab ->
+            add(splits.at(tab.id)?.let { SheetRow.SplitTabsRow(it, depth = 0) } ?: SheetRow.OpenTabRow(tab))
+        }
     }
 }
 
@@ -385,6 +431,8 @@ internal fun TabRow(
     depth: Int = 0,
     highlight: RowHighlight = RowHighlight.None,
     height: Dp = 48.dp,
+    /** On the inner screen: holding the row and then moving drags the tab out, to split it with the page. */
+    drag: TabDragActions? = null,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     val shape = RoundedCornerShape(12.dp)
@@ -397,14 +445,9 @@ internal fun TabRow(
                 .then(if (highlight == RowHighlight.Current) Modifier.shadow(4.dp, shape) else Modifier)
                 .clip(shape)
                 // Rows paint the surface under them, so the red close area doesn't show through while swiping.
-                .then(
-                    when (highlight) {
-                        RowHighlight.Current -> Modifier.background(EnsoColors.CurrentTab)
-                        RowHighlight.Soft -> Modifier.spaceSurface(colors).background(SoftHighlight)
-                        RowHighlight.None -> Modifier.spaceSurface(colors)
-                    },
-                )
+                .rowSurface(highlight, colors)
                 .quickTabOutline(tab, shape)
+                .dragAfterHold(tab.id, drag)
                 .combinedClickable(
                     onClick = { actions.select(tab.id) },
                     onLongClick = onLongClick?.let { { it(MenuTarget.ForTab(tab.id, bounds)) } },
@@ -423,6 +466,128 @@ internal fun TabRow(
 internal fun TabSheetActions.swipe(tabId: String, action: SwipeAction) = when (action) {
     SwipeAction.Close -> close(tabId)
     SwipeAction.Unload -> unload(tabId)
+}
+
+private fun Modifier.rowSurface(highlight: RowHighlight, colors: SpaceColors) = when (highlight) {
+    RowHighlight.Current -> background(EnsoColors.CurrentTab)
+    RowHighlight.Soft -> spaceSurface(colors).background(SoftHighlight)
+    RowHighlight.None -> spaceSurface(colors)
+}
+
+/**
+ * Where a space's splits show among its rows: each split as one row where its first tab sits, in row order
+ * (pinned tabs and folders, then open tabs), and its other tabs nowhere else.
+ */
+internal class SplitRows(space: Space) {
+    private val byFirst = HashMap<String, List<Tab>>()
+    private val hidden = HashSet<String>()
+
+    init {
+        if (space.splits.isNotEmpty()) {
+            val order = space.allTabs
+            val byId = order.associateBy { it.id }
+            val position = order.withIndex().associate { it.value.id to it.index }
+            for (split in space.splits) {
+                val tabs = split.tabIds.mapNotNull { byId[it] }
+                if (tabs.size < 2) continue
+                val first = split.tabIds.minBy { position[it] ?: Int.MAX_VALUE }
+                byFirst[first] = tabs
+                hidden += split.tabIds - first
+            }
+        }
+    }
+
+    /** The split's tabs, in page order, when the row at [tabId] stands for a split. */
+    fun at(tabId: String): List<Tab>? = byFirst[tabId]
+
+    /** Whether [tabId] shows in its split's row instead of its own. */
+    fun isHidden(tabId: String) = tabId in hidden
+}
+
+/** Pinned tabs unload on a swipe, other tabs close. */
+internal val Tab.swipeAction get() = if (pinnedUrl != null) SwipeAction.Unload else SwipeAction.Close
+
+/**
+ * A split's tabs as one row, each in a part of its own, as Zen's sidebar shows them (board 7). Each part selects,
+ * holds and swipes like a row of its own. While the split is on screen the row is the current-tab pill
+ * ([RowHighlight.Current]), and the focused page's title is the dark one.
+ */
+@Composable
+internal fun SplitRow(
+    tabs: List<Tab>,
+    colors: SpaceColors,
+    selectedTabId: String?,
+    actions: TabSheetActions,
+    onLongClick: ((MenuTarget) -> Unit)?,
+    depth: Int = 0,
+    highlight: RowHighlight = RowHighlight.None,
+    height: Dp = 48.dp,
+    drag: TabDragActions? = null,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(height)
+            .padding(start = FolderIndent * depth)
+            .then(if (highlight == RowHighlight.Current) Modifier.shadow(4.dp, shape) else Modifier)
+            .clip(shape)
+            .rowSurface(highlight, colors),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tabs.forEachIndexed { index, tab ->
+            if (index > 0) {
+                Box(Modifier.width(1.dp).fillMaxHeight(0.5f).background(EnsoColors.TextSecondary.copy(alpha = 0.25f)))
+            }
+            val dimmed = highlight == RowHighlight.Current && tab.id != selectedTabId
+            // Keyed to the tab, so a dismissed half can't carry its state over to the next tab in its place.
+            key(tab.id) {
+                SwipeToClose(tab.swipeAction, onSwiped = { actions.swipe(tab.id, tab.swipeAction) }, Modifier.weight(1f)) {
+                    SplitPart(tab, colors, highlight, dimmed, actions, onLongClick, drag)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SplitPart(
+    tab: Tab,
+    colors: SpaceColors,
+    highlight: RowHighlight,
+    dimmed: Boolean,
+    actions: TabSheetActions,
+    onLongClick: ((MenuTarget) -> Unit)?,
+    drag: TabDragActions?,
+) {
+    var bounds by remember { mutableStateOf(Rect.Zero) }
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .clip(shape)
+            .rowSurface(highlight, colors)
+            .quickTabOutline(tab, shape)
+            .dragAfterHold(tab.id, drag)
+            .combinedClickable(
+                onClick = { actions.select(tab.id) },
+                onLongClick = onLongClick?.let { { it(MenuTarget.ForTab(tab.id, bounds)) } },
+            )
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LetterFavicon(tab.title, tab.url)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            tab.displayTitle(),
+            style = if (dimmed) EnsoType.RowTitle.copy(color = EnsoColors.TextSecondary) else EnsoType.RowTitle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /** Swipe a row sideways to close it: a red close area shows behind it. Unloaded rows spring back. */

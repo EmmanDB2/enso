@@ -67,7 +67,9 @@ import app.enso.browser.spaces.moveToNewFolder
 import app.enso.browser.spaces.pin
 import app.enso.browser.spaces.removeFromFolder
 import app.enso.browser.spaces.renameFolder
+import app.enso.browser.spaces.splitOf
 import app.enso.browser.spaces.unpin
+import app.enso.browser.spaces.unsplit
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
@@ -146,6 +148,9 @@ internal fun TabMenu(
                 AddressInput.displayHost(entry.tab.url).ifEmpty { entry.tab.displayTitle() }
             }
             val space = spaces.currentSpace
+            val unsplit = spaces.splitOf(id)?.let { split ->
+                MenuItem(R.drawable.ic_split, R.string.menu_unsplit_tabs) { edit { it.unsplit(split.id) } }
+            }
             items = if (quick != null) {
                 buildList {
                     add(
@@ -162,6 +167,7 @@ internal fun TabMenu(
                             actions.addToAnotherSpace(id)
                         })
                     }
+                    unsplit?.let(::add)
                     add(null)
                     add(
                         MenuItem(R.drawable.ic_close, R.string.action_close_tab, destructive = true) {
@@ -192,6 +198,7 @@ internal fun TabMenu(
                         MenuItem(R.drawable.ic_essentials, R.string.menu_remove_from_essentials) { edit { it.unpin(id) } },
                     )
                     is TabPlace.Pinned -> listOfNotNull(
+                        unsplit,
                         place.folder?.let {
                             MenuItem(R.drawable.ic_folder, R.string.menu_remove_from_folder) { edit { it.removeFromFolder(id) } }
                         },
@@ -199,7 +206,7 @@ internal fun TabMenu(
                         MenuItem(R.drawable.ic_essentials, R.string.menu_add_to_essentials) { edit { it.addToEssentials(id) } },
                         moveToFolder,
                     ) + listOf(null, unload)
-                    is TabPlace.Open -> listOf(
+                    is TabPlace.Open -> listOfNotNull(unsplit) + listOf(
                         MenuItem(R.drawable.ic_pin, R.string.menu_pin_tab) { edit { it.pin(id) } },
                         MenuItem(R.drawable.ic_essentials, R.string.menu_add_to_essentials) { edit { it.addToEssentials(id) } },
                         moveToFolder,

@@ -81,6 +81,14 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_DESKTOP_SITES_UNFOLDED, true)
         set(value) = prefs.edit { putBoolean(KEY_DESKTOP_SITES_UNFOLDED, value) }
 
+    /**
+     * Desktop sites for tabs in a split too. Off by default: each page of a split is about as narrow as the
+     * cover, so desktop sites come out tiny there.
+     */
+    var desktopSitesInSplit: Boolean
+        get() = prefs.getBoolean(KEY_DESKTOP_SITES_IN_SPLIT, false)
+        set(value) = prefs.edit { putBoolean(KEY_DESKTOP_SITES_IN_SPLIT, value) }
+
     /** Left-handed mode: the space menu's wave and its trigger strip move to the left edge. */
     var spaceMenuLeftHanded: Boolean
         get() = prefs.getBoolean(KEY_SPACE_MENU_LEFT_HANDED, false)
@@ -151,6 +159,7 @@ class Settings(context: Context) {
         const val KEY_UNFOLDED_PORTRAIT_LAYOUT = "unfolded_portrait_layout"
         const val KEY_INNER_PAGE_BORDER = "inner_page_border"
         const val KEY_DESKTOP_SITES_UNFOLDED = "desktop_sites_unfolded"
+        const val KEY_DESKTOP_SITES_IN_SPLIT = "desktop_sites_in_split"
         const val KEY_INNER_SIDEBAR_WIDTH = "inner_sidebar_width_dp"
 
         /** The width the user settled on by dragging. */

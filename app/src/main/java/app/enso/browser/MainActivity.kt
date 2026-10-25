@@ -73,6 +73,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import app.enso.browser.sidebar.CardCorner
 import app.enso.browser.sidebar.InnerFrame
 import app.enso.browser.sidebar.MediaCardState
+import app.enso.browser.sidebar.PageCard
 import app.enso.browser.sidebar.Rail
 import app.enso.browser.sidebar.RailWidth
 import app.enso.browser.sidebar.Sidebar
@@ -91,13 +92,28 @@ import app.enso.browser.spacemenu.SpaceWaveState
 import app.enso.browser.spacemenu.WaveSpace
 import app.enso.browser.spaces.Space
 import app.enso.browser.spaces.SpacesState
+import app.enso.browser.spaces.Split
+import app.enso.browser.spaces.TabPlace
 import app.enso.browser.spaces.essentialsFor
 import app.enso.browser.spaces.find
 import app.enso.browser.spaces.isInCurrentSpace
 import app.enso.browser.spaces.keepQuickTabIn
+import app.enso.browser.spaces.resizeSplit
 import app.enso.browser.spaces.select
 import app.enso.browser.spaces.space
+import app.enso.browser.spaces.splitOf
+import app.enso.browser.spaces.splitWith
 import app.enso.browser.spaces.toggleFolder
+import app.enso.browser.split.DraggedTab
+import app.enso.browser.split.PagePanes
+import app.enso.browser.split.SplitDivider
+import app.enso.browser.split.SplitDividerReach
+import app.enso.browser.split.SplitDropZone
+import app.enso.browser.split.TabDrag
+import app.enso.browser.split.dragDivider
+import app.enso.browser.split.paneRects
+import app.enso.browser.split.splitDropZone
+import app.enso.browser.split.splitShares
 import app.enso.browser.start.HistoryMatch
 import app.enso.browser.start.StartScreen
 import app.enso.browser.start.StartScreenActions
@@ -105,6 +121,7 @@ import app.enso.browser.sync.MozillaAccount
 import app.enso.browser.sync.ZenSyncSheet
 import app.enso.browser.sync.ZenSyncStatus
 import app.enso.browser.tabsheet.MenuTarget
+import app.enso.browser.tabsheet.TabDragActions
 import app.enso.browser.tabsheet.TabMenu
 import app.enso.browser.tabsheet.TabSheet
 import app.enso.browser.tabsheet.TabSheetActions
@@ -118,6 +135,7 @@ import app.enso.browser.ui.colors
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -126,7 +144,6 @@ import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.concept.engine.mediasession.MediaSession
 import mozilla.components.feature.accounts.FxaWebChannelFeature
-import mozilla.components.feature.session.SessionFeature
 import mozilla.components.feature.tabs.WindowFeature
 import mozilla.components.lib.state.ext.flow
 import mozilla.components.lib.state.ext.observeAsComposableState
@@ -145,11 +162,13 @@ class MainActivity : ComponentActivity() {
     private val components get() = (application as EnsoApplication).components
 
     private lateinit var root: CoordinatorLayout
+
+    /** The first page view: the cover's page, and a split's first page. */
     private lateinit var engineView: EngineView
     private lateinit var engineContainer: FrameLayout
+    private lateinit var pagePanes: PagePanes
     private lateinit var topBar: TopBarView
     private lateinit var topEdge: View
-    private lateinit var sessionFeature: SessionFeature
     private lateinit var windowFeature: WindowFeature
     private lateinit var webChannelFeature: FxaWebChannelFeature
 
@@ -193,8 +212,23 @@ class MainActivity : ComponentActivity() {
     /** The rail's search button opened the sidebar, so it closes again when the edit ends. */
     private var collapseAfterEdit = false
 
-    /** The page card on the inner screen, in window pixels. */
+    /** The page card on the inner screen, in window pixels. A split shares it out between its pages. */
     private var cardRect by mutableStateOf(Rect.Zero)
+
+    /** The pages on screen, left to right, and their split while one shows (board 7). */
+    private var shown by mutableStateOf(Shown(emptyList(), split = null))
+
+    /** Where each page view sits on the inner screen, in window pixels. */
+    private var paneViewRects by mutableStateOf(emptyList<Rect>())
+
+    /** While a split's divider is dragged, the pages' shares of the width as drawn; they resize when it stops. */
+    private var dividerSizes by mutableStateOf<List<Float>?>(null)
+
+    /** A tab dragged out of the sidebar or rail, to split it with the page. */
+    private var tabDrag by mutableStateOf<TabDrag?>(null)
+
+    /** Every tab in a split, which keeps mobile sites unless [Settings.desktopSitesInSplit] is on. */
+    private var splitTabIds = emptySet<String>()
 
     /**
      * The system bars around the inner screen: the cutout on the sides, the status bar on top while it shows,
@@ -242,7 +276,7 @@ class MainActivity : ComponentActivity() {
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
-            if (editing) editing = false else sessionFeature.onBackPressed()
+            if (editing) editing = false else components.sessionUseCases.goBack()
         }
     }
 
@@ -272,6 +306,16 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(EnsoColors.Page.toArgb())
             addView(engineView.asView(), MATCH_PARENT, MATCH_PARENT)
         }
+        pagePanes = PagePanes(
+            activity = this,
+            store = components.store,
+            main = engineView,
+            mainContainer = engineContainer,
+            createView = { components.engine.createView(this).also { it.setActivityContext(this) } },
+            // Under the top bar and the overlay, like the first page.
+            addContainer = { root.addView(it, root.indexOfChild(engineContainer) + 1) },
+            load = { tabId -> if (tabId in shown.tabIds) components.tabs.load(listOf(tabId)) },
+        )
         topBar = TopBarView(this).apply {
             isVisible = !inner
             setContent { TopBarContent() }
@@ -365,12 +409,6 @@ class MainActivity : ComponentActivity() {
             true
         }
 
-        sessionFeature = SessionFeature(
-            components.store,
-            components.sessionUseCases.goBack,
-            components.sessionUseCases.goForward,
-            engineView,
-        )
         // Links that open a new window (target=_blank, window.open) become tabs.
         windowFeature = WindowFeature(components.store, components.tabsUseCases)
         // Mozilla's sign-in page talks to the account manager over a web channel.
@@ -408,8 +446,28 @@ class MainActivity : ComponentActivity() {
         updateStatusBar()
     }
 
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean =
-        spaceMenuGesture.onTouchEvent(event) || super.dispatchTouchEvent(event)
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) focusPageAt(event.x, event.y)
+        return spaceMenuGesture.onTouchEvent(event) || super.dispatchTouchEvent(event)
+    }
+
+    /**
+     * In a split, touching a page that isn't focused focuses it, and the touch goes on to the page as usual.
+     * GeckoView keeps touches from its parents, so this watches them on their way in. The divider's touch area
+     * reaches into the pages, and touches there are the divider's.
+     */
+    private fun focusPageAt(x: Float, y: Float) {
+        shown.split ?: return
+        if (startScreenVisible || sidebarMenu != null || zenSyncSheetOpen || tabDrag != null || dividerSizes != null) return
+        val cards = pageCards().map { it.card }
+        val reach = SplitDividerReach.value * resources.displayMetrics.density
+        if (cards.zipWithNext().any { (left, right) -> x >= left.right - reach && x <= right.left + reach }) return
+        val index = cards.indexOfFirst { it.contains(Offset(x, y)) }
+        val tabId = shown.tabIds.getOrNull(index) ?: return
+        if (tabId == selectedTabId) return
+        editing = false
+        components.tabs.select(tabId)
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -448,10 +506,9 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         val settings = components.settings
         // Anything that expired while we were away goes, even the tab that was on screen.
-        components.tabs.clearExpiredQuickTabs(settings.quickTabLifetimeMs, keep = null)
+        components.tabs.clearExpiredQuickTabs(settings.quickTabLifetimeMs, keep = emptyList())
         val away = settings.lastStoppedAt?.let { System.currentTimeMillis() - it }
         if (away != null && away >= settings.startScreenAfterMs) startScreenRequested = true
-        sessionFeature.start()
         windowFeature.start()
         webChannelFeature.start()
         components.zenSync.syncNow(minIntervalMs = ZEN_SYNC_MIN_INTERVAL_MS)
@@ -459,20 +516,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        sessionFeature.stop()
         windowFeature.stop()
         webChannelFeature.stop()
         spaceMenuGesture.reset()
         spaceWave.close()
-        if (!startScreenVisible) components.tabs.markSelectedViewed()
+        if (!startScreenVisible) components.tabs.markViewed(shown.tabIds)
         components.settings.lastStoppedAt = System.currentTimeMillis()
         components.spaces.flush()
     }
 
     override fun onDestroy() {
-        sessionFeature.release()
-        engineView.setActivityContext(null)
-        engineView.release()
+        pagePanes.release()
         super.onDestroy()
     }
 
@@ -558,7 +612,9 @@ class MainActivity : ComponentActivity() {
         val density = LocalDensity.current
         val perContainer = components.settings.essentialsPerContainer
         val border = components.settings.innerPageBorder
-        InnerFrame(spaces.currentSpace.colors(), cardRect, page, corner = if (border) CardCorner else 0.dp)
+        val corner = if (border) CardCorner else 0.dp
+        val cards = pageCards()
+        InnerFrame(spaces.currentSpace.colors(), cards, focused = shown.tabIds.indexOf(selectedTabId).coerceAtLeast(0), page, corner)
         // Opening or closing, the sidebar is drawn at its full width and revealed as its edge moves, cross-fading
         // with the rail, so its rows don't lay out again on every frame.
         val rail = RailWidth.value
@@ -581,6 +637,7 @@ class MainActivity : ComponentActivity() {
                     tabActions = tabSheetActions,
                     actions = sidebarActions,
                     onMenu = { sidebarMenu = it },
+                    drag = tabDragActions,
                     width = maxOf(sidebarFullDp, sidebarShownDp).dp,
                     endPadding = if (border) 0.dp else EdgePadding,
                     modifier = Modifier.wrapContentWidth(Alignment.Start, unbounded = true).graphicsLayer { alpha = reveal },
@@ -595,7 +652,22 @@ class MainActivity : ComponentActivity() {
                     tabActions = tabSheetActions,
                     actions = sidebarActions,
                     onMenu = { sidebarMenu = it },
+                    drag = tabDragActions,
                     modifier = Modifier.graphicsLayer { alpha = 1f - reveal },
+                )
+            }
+        }
+        if (shown.split != null) {
+            cards.zipWithNext().forEachIndexed { index, (left, right) ->
+                SplitDivider(
+                    gapLeft = left.card.right,
+                    gapRight = right.card.left,
+                    top = left.card.top,
+                    bottom = left.card.bottom,
+                    onDragStart = ::startDividerDrag,
+                    onDrag = { moveDivider(index, it) },
+                    onDragEnd = ::endDividerDrag,
+                    onReset = ::resetSplitSizes,
                 )
             }
         }
@@ -629,6 +701,97 @@ class MainActivity : ComponentActivity() {
                 actions = tabSheetActions,
                 onDismiss = { sidebarMenu = null },
             )
+        }
+        tabDrag?.let { drag ->
+            if (canDropToSplit(drag.tabId)) {
+                val zone = splitDropZone(cardRect, splitGap())
+                SplitDropZone(zone, hovered = zone.contains(drag.finger), accent = spaces.currentSpace.colors().accent, corner = corner)
+            }
+            spaces.find(drag.tabId)?.tab?.let { DraggedTab(it, drag.finger) }
+        }
+    }
+
+    /** The page cards as drawn, with where their pages are: one card, or a split's pages side by side. */
+    private fun pageCards(): List<PageCard> {
+        val count = shown.tabIds.size.coerceAtLeast(1)
+        val drawn = paneRects(cardRect, count, dividerSizes ?: shown.split?.sizes.orEmpty(), splitGap())
+        return drawn.mapIndexed { index, card -> PageCard(card, paneViewRects.getOrNull(index) ?: card) }
+    }
+
+    /** The gap between a split's pages, the same as the page card's border (even with the border off). */
+    private fun splitGap() = BORDER_DP * resources.displayMetrics.density
+
+    private fun startDividerDrag() {
+        val split = shown.split ?: return
+        dividerSizes = splitShares(split.sizes, split.tabIds.size)
+    }
+
+    /** Moves the divider after page [index] by [delta] pixels, as drawn; the pages resize when the drag ends. */
+    private fun moveDivider(index: Int, delta: Float) {
+        val split = shown.split ?: return
+        val count = split.tabIds.size
+        val sizes = dividerSizes ?: return
+        val width = cardRect.width - splitGap() * (count - 1)
+        val min = SPLIT_PAGE_MIN_DP * resources.displayMetrics.density
+        dividerSizes = dragDivider(sizes, count, index, delta, width, min)
+    }
+
+    private fun endDividerDrag() {
+        val sizes = dividerSizes ?: return
+        setSplitSizes(sizes)
+        dividerSizes = null
+    }
+
+    /** Holding the divider: the pages go back to equal widths. */
+    private fun resetSplitSizes() {
+        dividerSizes = null
+        setSplitSizes(emptyList())
+    }
+
+    /** Keeps the split's sizes (on the phone only) and resizes its pages right away, ahead of the model's update. */
+    private fun setSplitSizes(sizes: List<Float>) {
+        val split = shown.split ?: return
+        components.spaces.update { it.resizeSplit(split.id, sizes) }
+        showPanes(shown.copy(split = split.copy(sizes = sizes)))
+    }
+
+    /**
+     * Whether dropping [tabId] on the page splits them: a single page of the current space shows, and neither
+     * tab is an Essential.
+     */
+    private fun canDropToSplit(tabId: String): Boolean {
+        val selected = selectedTabId ?: return false
+        if (startScreenVisible || shown.split != null || tabId == selected) return false
+        val state = components.spaces.state.value
+        val current = state.find(selected)?.place ?: return false
+        val dragged = state.find(tabId)?.place ?: return false
+        return current !is TabPlace.Essential && dragged !is TabPlace.Essential && current.space?.id == dragged.space?.id
+    }
+
+    private val tabDragActions = object : TabDragActions {
+        override fun start(tabId: String, finger: Offset) {
+            // The hold opened the tab's menu; dragging on puts it away.
+            sidebarMenu = null
+            tabDrag = TabDrag(tabId, finger)
+        }
+
+        override fun move(finger: Offset) {
+            tabDrag = tabDrag?.copy(finger = finger)
+        }
+
+        override fun drop(finger: Offset) {
+            val drag = tabDrag ?: return
+            tabDrag = null
+            val selected = selectedTabId ?: return
+            if (!canDropToSplit(drag.tabId) || !splitDropZone(cardRect, splitGap()).contains(finger)) return
+            components.spaces.update { it.splitWith(selected, drag.tabId) }
+            root.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            // Moving the dragged tab beside the page syncs; the split itself stays on the phone for now.
+            components.zenSync.localEdited()
+        }
+
+        override fun cancel() {
+            tabDrag = null
         }
     }
 
@@ -749,9 +912,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Desktop sites with the sidebar layout (and the setting on); pages switch the next time they load. */
+    /**
+     * Desktop sites with the sidebar layout (and the setting on), except in splits unless that's on too; pages
+     * switch the next time they load.
+     */
     private fun updateDesktopSites() {
-        components.desktopSites.setActive(inner && components.settings.desktopSitesUnfolded, components.store)
+        val settings = components.settings
+        val mobile = if (settings.desktopSitesInSplit) emptySet() else splitTabIds
+        components.desktopSites.setActive(inner && settings.desktopSitesUnfolded, components.store, mobile)
+    }
+
+    /** The pages on screen, left to right, and the split they make, if any. */
+    private data class Shown(val tabIds: List<String>, val split: Split?)
+
+    /** The selected tab's split while it shows on the inner screen; otherwise the selected tab alone. */
+    private fun shownFor(state: SpacesState, selected: String?, inner: Boolean, startScreenRequested: Boolean): Shown {
+        selected ?: return Shown(emptyList(), split = null)
+        val onScreen = !startScreenRequested && state.isInCurrentSpace(selected, components.settings.essentialsPerContainer)
+        val split = state.splitOf(selected)?.takeIf { inner && onScreen }
+        return Shown(split?.tabIds ?: listOf(selected), split)
+    }
+
+    private fun showPanes(shown: Shown) {
+        this.shown = shown
+        shown.split?.let { components.tabs.load(it.tabIds) }
+        pagePanes.show(shown.tabIds)
+        if (inner) layoutInner()
     }
 
     /** Opens or closes the inner sidebar, which resizes the page card beside it. */
@@ -991,6 +1177,25 @@ class MainActivity : ComponentActivity() {
                 .collect { selectedTabId = it }
         }
         lifecycleScope.launch {
+            // Which pages show: the selected tab, or its whole split on the inner screen.
+            combine(
+                components.spaces.state,
+                components.store.flow(this@MainActivity).map { it.selectedTabId }.distinctUntilChanged(),
+                snapshotFlow { inner to startScreenRequested },
+            ) { spaces, selected, (isInner, startRequested) -> shownFor(spaces, selected, isInner, startRequested) }
+                .distinctUntilChanged()
+                .collect(::showPanes)
+        }
+        lifecycleScope.launch {
+            components.spaces.state
+                .map { state -> state.spaces.flatMapTo(HashSet()) { space -> space.splits.flatMap { it.tabIds } } }
+                .distinctUntilChanged()
+                .collect {
+                    splitTabIds = it
+                    updateDesktopSites()
+                }
+        }
+        lifecycleScope.launch {
             snapshotFlow { spaceWave.mode != null }.collect { spaceWaveView.isVisible = it }
         }
         lifecycleScope.launch {
@@ -1023,8 +1228,8 @@ class MainActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (true) {
                     delay(QUICK_TAB_CHECK_INTERVAL_MS)
-                    if (!startScreenVisible) components.tabs.markSelectedViewed()
-                    components.tabs.clearExpiredQuickTabs(components.settings.quickTabLifetimeMs, keep = selectedTabId)
+                    if (!startScreenVisible) components.tabs.markViewed(shown.tabIds)
+                    components.tabs.clearExpiredQuickTabs(components.settings.quickTabLifetimeMs, keep = shown.tabIds)
                 }
             }
         }
@@ -1105,19 +1310,34 @@ class MainActivity : ComponentActivity() {
         topBar.isVisible = false
         topEdge.isVisible = false
         val pageLeft = pinnedPageDp?.let { barInsets.left + (it * density).toInt() + border } ?: left
-        val params = engineContainer.layoutParams as? CoordinatorLayout.LayoutParams
-        val unchanged = params != null && params.behavior == null && params.leftMargin == pageLeft && params.topMargin == top &&
-            params.width == right - pageLeft && params.height == bottom - top
-        if (unchanged) return
-        engineContainer.layoutParams = CoordinatorLayout.LayoutParams(right - pageLeft, bottom - top).apply {
-            leftMargin = pageLeft
-            topMargin = top
-        }
+        // A split's pages share the card, at the sizes the divider last stopped at.
+        val pageArea = Rect(pageLeft.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
+        val rects = paneRects(pageArea, shown.tabIds.size.coerceAtLeast(1), shown.split?.sizes.orEmpty(), splitGap())
+        paneViewRects = rects
+        pagePanes.panes.drop(1).forEachIndexed { index, pane -> rects.getOrNull(index + 1)?.let { place(pane.container, it) } }
+        if (!place(engineContainer, rects.first())) return
         // No bar to slide away on the inner screen, and nothing left over from the cover's one sliding the page.
         engineContainer.translationY = 0f
         engineView.asView().translationY = 0f
         engineView.setDynamicToolbarMaxHeight(0)
         engineView.setVerticalClipping(0)
+    }
+
+    /** Puts a page's container at [rect] (window pixels) on the inner screen. False when it was there already. */
+    private fun place(container: View, rect: Rect): Boolean {
+        val left = rect.left.roundToInt()
+        val top = rect.top.roundToInt()
+        val width = rect.right.roundToInt() - left
+        val height = rect.bottom.roundToInt() - top
+        val params = container.layoutParams as? CoordinatorLayout.LayoutParams
+        val unchanged = params != null && params.behavior == null && params.leftMargin == left && params.topMargin == top &&
+            params.width == width && params.height == height
+        if (unchanged) return false
+        container.layoutParams = CoordinatorLayout.LayoutParams(width, height).apply {
+            leftMargin = left
+            topMargin = top
+        }
+        return true
     }
 
     private fun onTopBarCollapsedChanged(collapsed: Boolean) {
@@ -1160,6 +1380,9 @@ class MainActivity : ComponentActivity() {
 
         /** The thin border of space color around the page card, the same on all four sides. */
         const val BORDER_DP = 4
+
+        /** The narrowest a split's page gets when its divider is dragged. */
+        const val SPLIT_PAGE_MIN_DP = 240
 
         /** A navigation bar this short or shorter is gesture navigation's handle, not a bar of buttons. */
         const val GESTURE_NAV_MAX_DP = 32

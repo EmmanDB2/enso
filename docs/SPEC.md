@@ -160,6 +160,18 @@ Inner-screen gestures:
 
 Fold continuity: the current tab, space and scroll position carry over when folding or unfolding. The cover tab sheet and the inner sidebar read the same data, so nothing reorders. Flex mode is out of scope.
 
+Split view (board 7), as in Zen:
+
+- A split is a group of a space's tabs. Its tabs stay where they live (pinned, in a folder or open).
+- Selecting a tab in a split shows the whole split, with that page focused. Tapping another page focuses it. Selecting a tab outside the split shows that tab alone, and the split comes back the next time one of its tabs is selected.
+- To split, hold a tab in the sidebar or rail, then drag it onto the right half of the page. The menu the hold opened gives way to the drag. Two open tabs, or two pinned tabs, end up side by side in the list; a pinned tab and an open one each stay where they are. Essentials can't be split.
+- In the sidebar a split is one row with each tab in its own part, and in the rail its tabs are stacked on one tile. Each part selects, holds and swipes like a row of its own.
+- The hold menu's Unsplit tabs ends a split, and so does closing either tab of a two-tab split.
+- Drag the gap between the pages to resize them (each at least 240 dp); hold it to make them equal again. The pages resize when the drag stops. Each split remembers its sizes on the phone; they don't sync.
+- Pages in a split ask for mobile sites, since each is about as narrow as the cover. A setting turns that off.
+- Folding shows the focused page on the cover, where the tab sheet's current-tab card shows the whole split. Unfolding brings the split back.
+- Splits sync with Zen both ways. A split with a Quick Tab in it, or with a pinned tab and an open one, stays on the phone.
+
 Desktop sites: while the sidebar layout shows, tabs ask for desktop sites. A setting turns this off. Folding or unfolding doesn't reload anything; each page switches the next time it loads, and new tabs start in the right mode.
 
 Page zoom: pages open at 80% by default on both screens, so more fits. It's a setting. GeckoView only offers it engine-wide and reads it at startup, so it can't differ between the screens, and a change applies after a restart.

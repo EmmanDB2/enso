@@ -77,10 +77,14 @@ import app.enso.browser.tabsheet.FolderRow
 import app.enso.browser.tabsheet.MenuTarget
 import app.enso.browser.tabsheet.RowHighlight
 import app.enso.browser.tabsheet.SheetDivider
-import app.enso.browser.tabsheet.SwipeAction
+import app.enso.browser.tabsheet.SplitRow
+import app.enso.browser.tabsheet.SplitRows
+import app.enso.browser.tabsheet.TabDragActions
 import app.enso.browser.tabsheet.TabRow
 import app.enso.browser.tabsheet.TabSheetActions
+import app.enso.browser.tabsheet.dragAfterHold
 import app.enso.browser.tabsheet.quickTabOutline
+import app.enso.browser.tabsheet.swipeAction
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.toolbar.FieldButton
 import app.enso.browser.toolbar.OverflowMenu
@@ -185,6 +189,8 @@ fun Sidebar(
     tabActions: TabSheetActions,
     actions: SidebarActions,
     onMenu: (MenuTarget) -> Unit,
+    /** Dragging a held tab onto the page, to split them. */
+    drag: TabDragActions?,
     /** The sidebar's width, which the user sets by dragging its edge. */
     width: Dp,
     /**
@@ -217,7 +223,7 @@ fun Sidebar(
             label = "space",
         ) { spaceId ->
             val space = spaces.spaces.firstOrNull { it.id == spaceId } ?: return@AnimatedContent
-            SpaceTabs(space, essentialsFor(space), selectedTabId, newTabShowing, tabActions, actions, onMenu)
+            SpaceTabs(space, essentialsFor(space), selectedTabId, newTabShowing, tabActions, actions, onMenu, drag)
         }
         media?.let {
             Spacer(Modifier.height(8.dp))
@@ -346,9 +352,9 @@ private fun SpaceTabs(
     tabActions: TabSheetActions,
     actions: SidebarActions,
     onMenu: (MenuTarget) -> Unit,
+    drag: TabDragActions?,
 ) {
-    val colors = space.colors()
-    val current = selectedTabId.takeIf { !newTabShowing }
+    val rows = SidebarRows(space.colors(), selectedTabId.takeIf { !newTabShowing }, SplitRows(space), tabActions, onMenu, drag)
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(bottom = 8.dp),
@@ -356,55 +362,71 @@ private fun SpaceTabs(
     ) {
         if (essentials.isNotEmpty()) {
             item(key = "essentials") {
-                EssentialsGrid(essentials, current, tabActions, onMenu, tileHeight = RowHeight, gap = EdgePadding, bottomPadding = 4.dp)
+                EssentialsGrid(essentials, rows.current, tabActions, onMenu, tileHeight = RowHeight, gap = EdgePadding, bottomPadding = 4.dp)
             }
         }
         item(key = "name") { SpaceName(space) }
-        pinnedRows(space.pinned, depth = 0, colors, current, tabActions, onMenu)
+        pinnedRows(space.pinned, depth = 0, rows)
         if (space.pinned.isNotEmpty()) item(key = "divider") { SheetDivider() }
         item(key = "new-tab") { NewTabRow(highlighted = newTabShowing, onClick = actions::newTab) }
-        space.tabs.forEach { tab ->
-            item(key = tab.id) {
-                TabRow(
-                    tab = tab,
-                    colors = colors,
-                    swipe = SwipeAction.Close,
-                    actions = tabActions,
-                    onLongClick = onMenu,
-                    highlight = if (tab.id == current) RowHighlight.Current else RowHighlight.None,
-                    height = RowHeight,
-                )
+        space.tabs.forEach { tab -> tabRow(tab, depth = 0, rows) }
+    }
+}
+
+/** What every row of one space's list in the sidebar shares. */
+private class SidebarRows(
+    val colors: SpaceColors,
+    /** The tab on screen, unless New Tab is. */
+    val current: String?,
+    val splits: SplitRows,
+    val tabActions: TabSheetActions,
+    val onMenu: (MenuTarget) -> Unit,
+    val drag: TabDragActions?,
+)
+
+private fun androidx.compose.foundation.lazy.LazyListScope.pinnedRows(items: List<PinnedItem>, depth: Int, rows: SidebarRows) {
+    for (item in items) {
+        when (item) {
+            is PinnedTab -> tabRow(item.tab, depth, rows)
+            is Folder -> {
+                item(key = item.id) { FolderRow(item, depth, rows.colors, rows.tabActions, rows.onMenu, height = RowHeight) }
+                if (item.expanded) pinnedRows(item.items, depth + 1, rows)
             }
         }
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.pinnedRows(
-    items: List<PinnedItem>,
-    depth: Int,
-    colors: SpaceColors,
-    current: String?,
-    tabActions: TabSheetActions,
-    onMenu: (MenuTarget) -> Unit,
-) {
-    for (item in items) {
-        when (item) {
-            is PinnedTab -> item(key = item.id) {
-                TabRow(
-                    tab = item.tab,
-                    colors = colors,
-                    swipe = SwipeAction.Unload,
-                    actions = tabActions,
-                    onLongClick = onMenu,
-                    depth = depth,
-                    highlight = if (item.id == current) RowHighlight.Current else RowHighlight.None,
-                    height = RowHeight,
-                )
-            }
-            is Folder -> {
-                item(key = item.id) { FolderRow(item, depth, colors, tabActions, onMenu, height = RowHeight) }
-                if (item.expanded) pinnedRows(item.items, depth + 1, colors, current, tabActions, onMenu)
-            }
+/** A tab's row, or its split's row when the split shows here (see [SplitRows]). */
+private fun androidx.compose.foundation.lazy.LazyListScope.tabRow(tab: Tab, depth: Int, rows: SidebarRows) {
+    if (rows.splits.isHidden(tab.id)) return
+    val split = rows.splits.at(tab.id)
+    if (split != null) {
+        item(key = "split:" + tab.id) {
+            SplitRow(
+                tabs = split,
+                colors = rows.colors,
+                selectedTabId = rows.current,
+                actions = rows.tabActions,
+                onLongClick = rows.onMenu,
+                depth = depth,
+                highlight = if (split.any { it.id == rows.current }) RowHighlight.Current else RowHighlight.None,
+                height = RowHeight,
+                drag = rows.drag,
+            )
+        }
+    } else {
+        item(key = tab.id) {
+            TabRow(
+                tab = tab,
+                colors = rows.colors,
+                swipe = tab.swipeAction,
+                actions = rows.tabActions,
+                onLongClick = rows.onMenu,
+                depth = depth,
+                highlight = if (tab.id == rows.current) RowHighlight.Current else RowHighlight.None,
+                height = RowHeight,
+                drag = rows.drag,
+            )
         }
     }
 }
@@ -542,11 +564,22 @@ fun Rail(
     tabActions: TabSheetActions,
     actions: SidebarActions,
     onMenu: (MenuTarget) -> Unit,
+    drag: TabDragActions?,
     modifier: Modifier = Modifier,
 ) {
     val space = spaces.currentSpace
     val colors = space.colors()
     val current = selectedTabId.takeIf { !newTabShowing }
+    val splits = SplitRows(space)
+    // A tab's tile, or its split's stacked tile (board 7) where the split shows.
+    val tabTile = @Composable { tab: Tab ->
+        val split = splits.at(tab.id)
+        when {
+            splits.isHidden(tab.id) -> Unit
+            split != null -> RailSplit(split, current, tabActions, onMenu, drag)
+            else -> RailTab(tab, selected = tab.id == current, onFill = false, tabActions, onMenu, drag)
+        }
+    }
     Column(
         modifier
             .fillMaxHeight()
@@ -566,16 +599,17 @@ fun Rail(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            essentials.forEach { RailTab(it, selected = it.id == current, onFill = true, tabActions, onMenu) }
+            // Essentials can't be split, so they don't drag.
+            essentials.forEach { RailTab(it, selected = it.id == current, onFill = true, tabActions, onMenu, drag = null) }
             if (essentials.isNotEmpty()) RailDivider()
             space.pinned.forEach { item ->
                 when (item) {
-                    is PinnedTab -> RailTab(item.tab, selected = item.id == current, onFill = false, tabActions, onMenu)
+                    is PinnedTab -> tabTile(item.tab)
                     is Folder -> RailFolder(item, colors.accent, onClick = { actions.openFolder(item.id) }, onMenu)
                 }
             }
             if (space.pinned.isNotEmpty()) RailDivider()
-            space.tabs.forEach { RailTab(it, selected = it.id == current, onFill = false, tabActions, onMenu) }
+            space.tabs.forEach { tabTile(it) }
         }
         Spacer(Modifier.height(8.dp))
         RailTile(onClick = { actions.setExpanded(true) }, background = EnsoColors.FieldFill) {
@@ -600,10 +634,54 @@ private fun RailTile(
     ) { content() }
 }
 
+/**
+ * A split in the rail: its tabs' favicons stacked on one tile (board 7), white while the split is on screen.
+ * Each favicon selects, holds and drags its own tab.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RailSplit(tabs: List<Tab>, current: String?, tabActions: TabSheetActions, onMenu: (MenuTarget) -> Unit, drag: TabDragActions?) {
+    val shape = RoundedCornerShape(12.dp)
+    val shown = tabs.any { it.id == current }
+    Column(
+        Modifier
+            .width(RailTileSize)
+            .then(if (shown) Modifier.shadow(4.dp, shape) else Modifier)
+            .clip(shape)
+            .then(if (shown) Modifier.background(EnsoColors.CurrentTab) else Modifier.background(EnsoColors.FieldFill.copy(alpha = 0.5f)))
+            .padding(vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        tabs.forEach { tab ->
+            var bounds by remember { mutableStateOf(Rect.Zero) }
+            val select by rememberUpdatedState { tabActions.select(tab.id) }
+            Box(
+                Modifier
+                    .size(RailTileSize, RailSplitCell)
+                    .onGloballyPositioned { bounds = it.boundsInRoot() }
+                    .clip(RoundedCornerShape(10.dp))
+                    .quickTabOutline(tab, RoundedCornerShape(10.dp))
+                    .dragAfterHold(tab.id, drag)
+                    .combinedClickable(onClick = { select() }, onLongClick = { onMenu(MenuTarget.ForTab(tab.id, bounds)) }),
+                contentAlignment = Alignment.Center,
+            ) {
+                LetterFavicon(tab.title, tab.url)
+            }
+        }
+    }
+}
+
 /** A tab in the rail: on a gray tile for Essentials ([onFill]), a white one when it's the current tab. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RailTab(tab: Tab, selected: Boolean, onFill: Boolean, tabActions: TabSheetActions, onMenu: (MenuTarget) -> Unit) {
+private fun RailTab(
+    tab: Tab,
+    selected: Boolean,
+    onFill: Boolean,
+    tabActions: TabSheetActions,
+    onMenu: (MenuTarget) -> Unit,
+    drag: TabDragActions?,
+) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     val shape = RoundedCornerShape(12.dp)
     val select by rememberUpdatedState { tabActions.select(tab.id) }
@@ -621,6 +699,7 @@ private fun RailTab(tab: Tab, selected: Boolean, onFill: Boolean, tabActions: Ta
                 },
             )
             .quickTabOutline(tab, shape)
+            .dragAfterHold(tab.id, drag)
             .combinedClickable(onClick = { select() }, onLongClick = { onMenu(MenuTarget.ForTab(tab.id, bounds)) }),
         contentAlignment = Alignment.Center,
     ) {
@@ -722,4 +801,7 @@ private val HandleReach = 10.dp
 private val Grabber = 3.dp
 private val ButtonSize = 36.dp
 private val RailTileSize = 40.dp
+
+/** Each favicon's height in a split's stacked rail tile. */
+private val RailSplitCell = 36.dp
 private val SwipeThreshold = 48.dp

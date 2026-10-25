@@ -95,6 +95,8 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             pinned = pinned,
             tabs = withPhoneOnlyTabs(syncedOpen, local?.tabs.orEmpty()),
             selectedTabId = local?.selectedTabId,
+            // The phone's own splits; any whose tabs Zen removed are dropped as the model updates.
+            splits = local?.splits.orEmpty(),
         )
     }
 
