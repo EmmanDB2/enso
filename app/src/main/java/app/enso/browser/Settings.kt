@@ -76,6 +76,11 @@ class Settings(context: Context) {
         get() = prefs.getFloat(KEY_INNER_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH_DP)
         set(value) = prefs.edit { putFloat(KEY_INNER_SIDEBAR_WIDTH, value) }
 
+    /** Desktop sites while the inner screen shows the sidebar layout. Pages switch the next time they load. */
+    var desktopSitesUnfolded: Boolean
+        get() = prefs.getBoolean(KEY_DESKTOP_SITES_UNFOLDED, true)
+        set(value) = prefs.edit { putBoolean(KEY_DESKTOP_SITES_UNFOLDED, value) }
+
     /** Left-handed mode: the space menu's wave and its trigger strip move to the left edge. */
     var spaceMenuLeftHanded: Boolean
         get() = prefs.getBoolean(KEY_SPACE_MENU_LEFT_HANDED, false)
@@ -103,6 +108,14 @@ class Settings(context: Context) {
     var zenSyncDryRun: Boolean
         get() = prefs.getBoolean(KEY_ZEN_SYNC_DRY_RUN, false)
         set(value) = prefs.edit { putBoolean(KEY_ZEN_SYNC_DRY_RUN, value) }
+
+    /**
+     * Pages' default zoom, in percent, on both screens. Gecko reads it when Ensō starts, so a change applies
+     * after a restart.
+     */
+    var pageZoomPercent: Int
+        get() = prefs.getInt(KEY_PAGE_ZOOM_PERCENT, 80)
+        set(value) = prefs.edit { putInt(KEY_PAGE_ZOOM_PERCENT, value) }
 
     /** How long a Quick Tab lasts after it was last viewed. */
     var quickTabLifetimeHours: Int
@@ -137,6 +150,7 @@ class Settings(context: Context) {
         const val KEY_SPACE_MENU_LEFT_HANDED = "space_menu_left_handed"
         const val KEY_UNFOLDED_PORTRAIT_LAYOUT = "unfolded_portrait_layout"
         const val KEY_INNER_PAGE_BORDER = "inner_page_border"
+        const val KEY_DESKTOP_SITES_UNFOLDED = "desktop_sites_unfolded"
         const val KEY_INNER_SIDEBAR_WIDTH = "inner_sidebar_width_dp"
 
         /** The width the user settled on by dragging. */
@@ -147,6 +161,7 @@ class Settings(context: Context) {
         const val KEY_SYNC_TAB_NAVIGATIONS = "sync_tab_navigations"
         const val KEY_ZEN_SYNC_DRY_RUN = "zen_sync_dry_run"
         const val KEY_QUICK_TAB_LIFETIME_HOURS = "quick_tab_lifetime_hours"
+        const val KEY_PAGE_ZOOM_PERCENT = "page_zoom_percent"
         const val KEY_START_SCREEN_AFTER_MINUTES = "start_screen_after_minutes"
         const val KEY_LAST_STOPPED_AT = "last_stopped_at"
         const val KEY_INNER_SIDEBAR_EXPANDED = "inner_sidebar_expanded"

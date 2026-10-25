@@ -16,11 +16,17 @@ import mozilla.components.feature.session.HistoryDelegate
 import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.tabs.TabsUseCases
 import org.mozilla.geckoview.GeckoRuntime
+import org.mozilla.geckoview.GeckoRuntimeSettings
 
 /** App-wide singletons: the engine, the browser state and the actions on it. */
 class Components(private val context: Context) {
     // Gecko allows one runtime per process.
-    private val runtime by lazy { GeckoRuntime.create(context) }
+    private val runtime by lazy {
+        // Pages' default zoom: a lower display density lays pages out with more CSS pixels, so text, images and
+        // layout all shrink together. Gecko reads it once, at startup, for both screens (they share a density).
+        val density = context.resources.displayMetrics.density * settings.pageZoomPercent / 100f
+        GeckoRuntime.create(context, GeckoRuntimeSettings.Builder().displayDensityOverride(density).build())
+    }
 
     /** HTTP through Gecko, for application-services and Zen sync. */
     val fetchClient by lazy { GeckoViewFetchClient(context, runtime) }
@@ -32,7 +38,10 @@ class Components(private val context: Context) {
         val settings = DefaultSettings(historyTrackingDelegate = HistoryDelegate(lazy { historyStorage }))
         GeckoEngine(context, settings, runtime)
     }
-    val store by lazy { BrowserStore(middleware = EngineMiddleware.create(engine)) }
+    /** Desktop sites with the inner screen's sidebar layout; its middleware runs ahead of the engine's. */
+    val desktopSites by lazy { DesktopSites() }
+
+    val store by lazy { BrowserStore(middleware = listOf(desktopSites.middleware) + EngineMiddleware.create(engine)) }
     val sessionUseCases by lazy { SessionUseCases(store) }
     val tabsUseCases by lazy { TabsUseCases(store) }
     val settings by lazy { Settings(context) }

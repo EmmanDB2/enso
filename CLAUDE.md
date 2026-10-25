@@ -30,7 +30,13 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 ## Code map
 
 - `Components.kt`: app-wide singletons, created lazily by `EnsoApplication`: `GeckoEngine`, `BrowserStore`, the use cases, `SpacesStore`, `TabManager` and `PlacesHistoryStorage`. Only one `GeckoRuntime` may exist per process, and it lives here.
+  - **Page zoom:** the runtime gets a `displayDensityOverride` of the screen density × `pageZoomPercent`, a true zoom of text, images and layout.
+    - Gecko reads it only at startup and for the whole engine, so it can't change live or differ per screen. Both screens are 420 dpi anyway.
+    - The only live option is text size (`fontSizeFactor`). A per-screen zoom would need a built-in extension (step 9).
   - History goes into Firefox's Places database through `HistoryDelegate`; the palette reads it, and step 5 syncs it.
+- `DesktopSites.kt`: desktop sites while the sidebar layout shows.
+  - AC's Gecko engine has no desktop default for new sessions, so a store middleware switches each session as it's linked (`LinkEngineSessionAction`), before the engine middleware loads its first page. That's why it comes first in the store's middleware list.
+  - Folding or unfolding switches open sessions with `toggleDesktopMode(reload = false)`: by the user's choice, pages keep their version until they next load.
 - `spaces/`: the local spaces model, shaped after Zen so step 5 can sync it.
   - Structure: `SpacesState` holds the spaces and the shared Essentials. A `Space` holds its pinned items (tabs and folders, in order) and its open tabs.
   - Edits are pure functions in `SpacesEdits.kt`.
@@ -157,6 +163,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `hideStatusBarWithTopBar` (default on) hides the status bar along with the bar, and on the inner screen.
   - `tabSwipeScope` (default `OpenTabs`) sets which tabs the address-field swipe moves through.
   - `quickTabLifetimeHours` (default 24, counted since last viewed) sets when Quick Tabs clear.
+  - `pageZoomPercent` (default 80) is pages' default zoom on both screens. It applies after a restart.
+  - `desktopSitesUnfolded` (default on) asks for desktop sites while the sidebar layout shows.
   - `startScreenAfterMinutes` (default 30) sets how long the app must be away before it reopens on the start screen.
   - `switchSpacesFromSheetHeader` (default off) lets a sideways swipe on the sheet header switch spaces too. It was the way to switch before the space menu.
   - `spaceMenuHoldMs` (default 300) sets how long a hold takes to open the space menu.
@@ -198,6 +206,8 @@ The Fold connects over wireless debugging. Wireless debugging must be on in Deve
   - Long press: `swipe x y x y 900`.
   - Hold a swipe partway: `motionevent DOWN|MOVE|UP x y`. The space menu tests this way: `DOWN 1235 1650` on the right edge, wait, `MOVE` up or down about 189 px (72 dp) per space, then `UP`. The user often uses the Fold while you test, so check the state between gestures rather than assuming your touches were the only ones.
 - **Test pages from the Mac:** serve them on `127.0.0.1:<port>` and run `adb reverse tcp:<port> tcp:<port>`. The Fold can then open `http://localhost:<port>/…`.
+  - Debug builds take two test extras: `--es enso_debug_open <url>` opens a URL in a Quick Tab, and `--ez enso_debug_desktop_sites true|false` switches desktop sites whatever the screen, until the next fold or unfold.
+  - While Ensō is running, add `--activity-single-top` to the `am start` command, or the extras never reach it.
 
 ## Testing on the Fold
 

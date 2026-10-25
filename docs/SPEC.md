@@ -160,6 +160,10 @@ Inner-screen gestures:
 
 Fold continuity: the current tab, space and scroll position carry over when folding or unfolding. The cover tab sheet and the inner sidebar read the same data, so nothing reorders. Flex mode is out of scope.
 
+Desktop sites: while the sidebar layout shows, tabs ask for desktop sites. A setting turns this off. Folding or unfolding doesn't reload anything; each page switches the next time it loads, and new tabs start in the right mode.
+
+Page zoom: pages open at 80% by default on both screens, so more fits. It's a setting. GeckoView only offers it engine-wide and reads it at startup, so it can't differ between the screens, and a change applies after a restart.
+
 Unfolded portrait: a setting chooses the layout while the unfolded screen is held in portrait. The default is the cover's top-bar layout; the other choice is the sidebar and page card, as in landscape. Rotating keeps the page, which resizes to fit.
 
 ## Visual style

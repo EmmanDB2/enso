@@ -255,10 +255,12 @@ class MainActivity : ComponentActivity() {
         WindowCompat.getInsetsController(window, window.decorView).systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
+        inner = isInnerScreen(resources.configuration)
+        // Before any tab gets an engine session, so the restored ones start in the right mode.
+        updateDesktopSites()
         // With nothing to restore, the start screen shows.
         if (components.store.state.selectedTab == null) components.tabs.restore()
         selectedTabId = components.store.state.selectedTabId
-        inner = isInnerScreen(resources.configuration)
         sidebarExpanded = components.settings.innerSidebarExpanded
         sidebarWidthDp = components.settings.innerSidebarWidthDp
         sidebarFullDp = sidebarWidthDp
@@ -393,6 +395,7 @@ class MainActivity : ComponentActivity() {
         val nowInner = isInnerScreen(newConfig)
         if (nowInner == inner) return
         inner = nowInner
+        updateDesktopSites()
         editing = false
         tabSheetOpen = false
         sidebarMenu = null
@@ -414,14 +417,30 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Debug builds only: `adb shell am start -n app.enso.browser/.MainActivity --ez enso_restore_zen_snapshot true`
-     * puts Zen's spaces collection back as it was before the phone's first write.
+     * Debug builds only, through `adb shell am start -n app.enso.browser/.MainActivity` (plus
+     * `--activity-single-top` while the app runs, so the intent reaches `onNewIntent`) with:
+     * - `--ez enso_restore_zen_snapshot true`: puts Zen's spaces collection back as it was before the phone's
+     *   first write.
+     * - `--es enso_debug_open <url>`: opens the URL in a Quick Tab, for test pages.
+     * - `--ez enso_debug_desktop_sites true|false`: switches desktop sites on or off whatever the screen, until
+     *   the next fold or unfold.
      */
     private fun handleDebugIntent(intent: Intent?) {
         val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
-        if (debuggable && intent?.getBooleanExtra(EXTRA_RESTORE_ZEN_SNAPSHOT, false) == true) {
+        if (!debuggable || intent == null) return
+        if (intent.getBooleanExtra(EXTRA_RESTORE_ZEN_SNAPSHOT, false)) {
             intent.removeExtra(EXTRA_RESTORE_ZEN_SNAPSHOT)
             components.zenSync.restoreSnapshot()
+        }
+        intent.getStringExtra(EXTRA_DEBUG_OPEN)?.let { url ->
+            intent.removeExtra(EXTRA_DEBUG_OPEN)
+            components.tabs.openNewTab(url, quick = true)
+            startScreenRequested = false
+        }
+        if (intent.hasExtra(EXTRA_DEBUG_DESKTOP_SITES)) {
+            val desktop = intent.getBooleanExtra(EXTRA_DEBUG_DESKTOP_SITES, false)
+            intent.removeExtra(EXTRA_DEBUG_DESKTOP_SITES)
+            components.desktopSites.setActive(desktop, components.store)
         }
     }
 
@@ -728,6 +747,11 @@ class MainActivity : ComponentActivity() {
             }
             showSidebar(true)
         }
+    }
+
+    /** Desktop sites with the sidebar layout (and the setting on); pages switch the next time they load. */
+    private fun updateDesktopSites() {
+        components.desktopSites.setActive(inner && components.settings.desktopSitesUnfolded, components.store)
     }
 
     /** Opens or closes the inner sidebar, which resizes the page card beside it. */
@@ -1145,6 +1169,8 @@ class MainActivity : ComponentActivity() {
         const val ZEN_SYNC_INTERVAL_MS = 5 * 60_000L
         const val ZEN_SYNC_MIN_INTERVAL_MS = 60_000L
         const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
+        const val EXTRA_DEBUG_OPEN = "enso_debug_open"
+        const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
 
         /** The tick for each space the space menu's selection moves through. */
         val SPACE_TICK = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
