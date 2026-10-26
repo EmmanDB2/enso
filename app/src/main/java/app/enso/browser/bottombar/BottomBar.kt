@@ -40,10 +40,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -57,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.enso.browser.R
 import app.enso.browser.spacemenu.BlockSpaceMenu
+import app.enso.browser.spacemenu.BlurredPage
 import app.enso.browser.spaces.SpacesState
 import app.enso.browser.spaces.Tab
 import app.enso.browser.start.HistoryMatch
@@ -70,8 +77,8 @@ import app.enso.browser.ui.spaceSurface
 import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import kotlin.math.roundToInt
 
-/** The cover's panels, each the bottom bar grown upward (boards B2–B4). */
-enum class BarPanel { QuickTabs, Actions, Settings, Search }
+/** The cover's panels, each the bottom bar grown upward (boards B2–B4), and the extensions' (step 9). */
+enum class BarPanel { QuickTabs, Actions, Settings, Search, Extensions, ExtensionPage }
 
 /** What bottom search does with what's typed: open it as a new Quick Tab, or load it in the current tab. */
 enum class SearchMode { NewQuickTab, CurrentTab }
@@ -152,6 +159,7 @@ fun BottomBar(
     gestureInset: Dp,
     quickTabLifetimeMs: Long,
     thumbnails: ThumbnailStorage,
+    extensions: BarExtensions,
     actions: BottomBarActions,
 ) {
     val space = spaces.currentSpace
@@ -168,11 +176,39 @@ fun BottomBar(
         mutableStateOf(TextFieldValue(text, TextRange(0, text.length)))
     }
 
-    BackHandler(enabled = open) { actions.showPanel(if (panel == BarPanel.Settings) BarPanel.Actions else null) }
+    BackHandler(enabled = open) {
+        actions.showPanel(
+            when (panel) {
+                BarPanel.Settings, BarPanel.Extensions -> BarPanel.Actions
+                BarPanel.ExtensionPage -> BarPanel.Extensions
+                else -> null
+            },
+        )
+    }
     if (open) BlockSpaceMenu()
+    // An extension's page shows through a hole in the bar, as Glance's does: the page is a GeckoView under it.
+    var pageHole by remember { mutableStateOf<Rect?>(null) }
+    val hole = pageHole.takeIf { panel == BarPanel.ExtensionPage }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (hole == null) {
+                    Modifier
+                } else {
+                    Modifier
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        .drawWithContent {
+                            drawContent()
+                            drawRoundRect(Color.Black, hole.topLeft, hole.size, CornerRadius(16.dp.toPx()), blendMode = BlendMode.Clear)
+                        }
+                },
+            ),
+    ) {
         val maxHeight = maxHeight
+        // The pages behind an extension's page are hidden; their blurred captures stand in under the dim.
+        if (panel == BarPanel.ExtensionPage) extensions.backdrop.forEach { (image, bounds) -> BlurredPage(image, bounds) }
         AnimatedVisibility(open, enter = fadeIn(), exit = fadeOut()) {
             Box(
                 Modifier
@@ -236,6 +272,16 @@ fun BottomBar(
                     BarPanel.Actions -> ActionsPanel(page, space, quickTabs.firstOrNull { it.id == selectedTabId }, quickTabLifetimeMs, actions)
                     BarPanel.Settings -> SettingsPanel(actions)
                     BarPanel.Search -> SearchSuggestions(spaces, query.text, searchMode, actions)
+                    BarPanel.Extensions -> ExtensionsPanel(extensions, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
+                    BarPanel.ExtensionPage -> ExtensionPagePanel(
+                        title = extensions.pageTitle.orEmpty(),
+                        height = maxHeight * 0.58f,
+                        onBack = { actions.showPanel(BarPanel.Extensions) },
+                        onPageArea = { area ->
+                            pageHole = area
+                            extensions.onPageArea(area)
+                        },
+                    )
                 }
             }
             if (searching) {
@@ -252,7 +298,7 @@ fun BottomBar(
 @Composable
 private fun BarRow(panel: BarPanel?, stack: List<Tab>, thumbnails: ThumbnailStorage, actions: BottomBarActions, modifier: Modifier) {
     val quickTabsOpen = panel == BarPanel.QuickTabs
-    val actionsOpen = panel == BarPanel.Actions || panel == BarPanel.Settings
+    val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.Settings, BarPanel.Extensions, BarPanel.ExtensionPage)
     Row(
         modifier.fillMaxWidth().height(BarMetrics.Row).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,

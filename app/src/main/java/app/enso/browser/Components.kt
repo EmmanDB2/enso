@@ -1,6 +1,7 @@
 package app.enso.browser
 
 import android.content.Context
+import app.enso.browser.extensions.Extensions
 import app.enso.browser.spaces.SpacesStore
 import app.enso.browser.spaces.TabManager
 import app.enso.browser.sync.FetchSyncHttp
@@ -56,6 +57,8 @@ class Components(private val context: Context) {
     val settings by lazy { Settings(context) }
     val spaces by lazy { SpacesStore(context) }
     val tabs by lazy { TabManager(spaces, store, tabsUseCases).also { it.start() } }
+
+    val extensions by lazy { Extensions(context, engine, store, settings) }
 
     val accountManager by lazy { MozillaAccount.accountManager(context) }
     val zenSync by lazy {

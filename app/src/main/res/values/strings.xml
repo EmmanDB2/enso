@@ -112,6 +112,11 @@
     <string name="search_quick_tab_tag">Quick Tab</string>
     <string name="search_cancel">Cancel</string>
 
+    <!-- Extensions (step 9) -->
+    <string name="extensions_title">Extensions</string>
+    <string name="extensions_none">No extensions yet</string>
+    <string name="extension_remove">Remove</string>
+
     <!-- Glance (board 8) -->
     <string name="glance_close">Close preview</string>
     <string name="glance_open_as_tab">Open as tab</string>

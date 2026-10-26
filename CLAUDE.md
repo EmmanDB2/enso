@@ -11,11 +11,14 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Build **one step of the spec's build order at a time**. Each step must build, install and run on the Fold before the next one starts.
 - Don't build UI or features from later steps early, even as stubs.
 - If the spec is unclear or silent, ask instead of guessing. The spec lists its own open questions at the end.
-- Current step: **8, split view and Glance**, in three passes. Step 7 (the inner screen and space colors) is done.
+- Step 8, **split view and Glance**, is done, in three passes:
   - **8a (done): split view on the inner screen.**
   - **The cover's bottom bar (done)** (boards B1–B4), in the style of Arc Search, came in before 8b. It replaced the top bar.
   - **8b (done): splits sync both ways with Zen.**
-  - **8c (now): Glance** (board 8), on both screens. The cover's Glance has no Split button.
+  - **8c (done): Glance** (board 8), on both screens.
+- Current step: **9, Extensions**, in two passes.
+  - **9a (now): bundled uBlock Origin**, the Extensions list (the bar's panel, and a card from the sidebar's ⋮ menu), and popups and settings pages in a sheet.
+  - **9b (next): the store and updates.** Mozilla's recommended Android extensions in the list, installing from addons.mozilla.org with an Ensō-style permission prompt, and daily updates (AC's `AddonManager`, `AMOAddonsProvider` and `DefaultAddonUpdater`).
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -158,7 +161,17 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Bottom search makes the Quick Tab on submit, so Cancel leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
     - Closing the keyboard closes bottom search, as it cancels an edit.
   - **Thumbnails:** AC's `BrowserThumbnails` captures the selected tab's page as it loads, and `ThumbnailsMiddleware` keeps it in `thumbnailStorage`; `TabThumbnail` loads it. Capture only runs on the cover, since unfolded the first page view may show another tab of a split.
-- `glance/`: Glance (board 8), the floating preview of a held link.
+- `extensions/`: WebExtensions (step 9), on AC's `WebExtensionSupport`, which keeps installed extensions in the store (`state.extensions`) with their toolbar actions, popup sessions and options pages.
+  - `Extensions` (in `Components`, started by `EnsoApplication`): installs the bundled uBlock Origin once (`bundledExtensionsInstalled`) and answers its own permission prompt (`webExtensionPromptRequest`), and routes the tabs extensions open, close or select through `TabManager`. Extension tabs are Quick Tabs (`openExtensionTab`).
+    - The signed package is in `assets/extensions/`. AC refuses `resource:` URLs to install from (GeckoView would take them), so it's copied to the cache dir and installed from a `file:` URL.
+    - uBlock Origin is GPL-3.0: its license and a notice with its source are in `assets/licenses/`.
+  - `ExtensionsList` shows `extensionRows(state)`: built-in extensions left out, and the toolbar button merged with the tab on screen's override (uBlock Origin's count is per tab).
+  - **Popups and settings:** the activity's `popupObserver` and `optionsPageObserver` (AC's) show them as an `ExtensionPage`, in the floating page view Glance uses. A popup is an engine session (`PageView.showSession`); a settings page is a custom tab.
+    - On the cover it's the bar's `BarPanel.ExtensionPage`: the bar clears a hole for the page and reports where it is (`BarExtensions.onPageArea`) once its surface has grown. Unfolded it's a Glance card.
+    - Closing a popup dispatches `UpdatePopupSessionAction` with no session and closes it; a popup that closes itself takes its sheet along.
+    - Settings an extension wants in a tab (`openOptionsPageInTab`, as uBlock Origin's dashboard) open as a Quick Tab instead.
+    - `PageView` tracks a session it shows directly, so `show(null)` releases it too.
+- `glance/`: Glance (board 8), the floating preview of a held link. `GlanceOverlay` takes a title and buttons, so extension pages use it unfolded too.
   - **Opening:** Gecko reports a long press as the tab's `hitResult`; the activity consumes every one, and a link (`HitResult.UNKNOWN`, or `IMAGE_SRC`'s link) opens Glance. It captures the pages on screen first, for the blurred backdrop.
   - **The preview** is an AC custom tab, so `TabManager` (which follows `state.tabs`) and sync never see it. Open as tab and Split hand it to `TabManager.adopt`, which adds it to the model below its parent (a Quick Tab when the parent is) and turns it into a normal tab.
   - **Drawing:** its page view (`PageView`, which renders custom tabs too) sits under the overlay. `GlanceOverlay` draws the backdrop, the card's header and the buttons on an offscreen layer, and clears a hole with the card's rounded corners for the page.
@@ -229,7 +242,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.
   - `syncTabNavigations` (default off) lets navigating a tab from Zen move it on the desktop too. It's off because phone pages often redirect, to a login page for example.
   - `zenSyncDryRun` (default off) logs what sync would upload without uploading. It's for testing.
-  - `lastStoppedAt` and `innerSidebarExpanded` (whether the inner screen shows the full sidebar) are app state, not preferences.
+  - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) and `bundledExtensionsInstalled` are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
 
 ## Toolchain (macOS)

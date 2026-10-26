@@ -136,7 +136,7 @@ internal fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, size: Dp
 
 /** The inner sidebar's ⋮ menu, where Zen has its site settings button. */
 @Composable
-internal fun OverflowMenu(onOpenZenSync: () -> Unit, buttonSize: Dp = 48.dp) {
+internal fun OverflowMenu(onOpenExtensions: () -> Unit, onOpenZenSync: () -> Unit, buttonSize: Dp = 48.dp) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }, modifier = Modifier.size(buttonSize)) {
@@ -153,6 +153,10 @@ internal fun OverflowMenu(onOpenZenSync: () -> Unit, buttonSize: Dp = 48.dp) {
             containerColor = Color.White,
             shadowElevation = 8.dp,
         ) {
+            MenuRow(R.drawable.ic_extensions, R.string.action_extensions) {
+                expanded = false
+                onOpenExtensions()
+            }
             MenuRow(R.drawable.ic_sync, R.string.menu_zen_sync) {
                 expanded = false
                 onOpenZenSync()

@@ -46,7 +46,7 @@ import app.enso.browser.ui.SpaceIcon
 /**
  * The actions sheet (board B3): back, forward, the URL and reload, which is the only place the URL shows on the
  * cover; "Keep in [space]" when the tab on screen is a Quick Tab; then Reader, Find, Copy URL and Share, and
- * Extensions and Settings. Reader, Find and Extensions are grayed out until they're built.
+ * Extensions and Settings. Reader and Find are grayed out until they're built.
  */
 @Composable
 internal fun ActionsPanel(page: PageState, space: Space, quickTab: Tab?, quickTabLifetimeMs: Long, actions: BottomBarActions) {
@@ -66,7 +66,9 @@ internal fun ActionsPanel(page: PageState, space: Space, quickTab: Tab?, quickTa
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            WideButton(R.drawable.ic_extensions, R.string.action_extensions, enabled = false, Modifier.weight(1f)) {}
+            WideButton(R.drawable.ic_extensions, R.string.action_extensions, enabled = true, Modifier.weight(1f)) {
+                actions.showPanel(BarPanel.Extensions)
+            }
             WideButton(R.drawable.ic_settings, R.string.action_settings, enabled = true, Modifier.weight(1f)) {
                 actions.showPanel(BarPanel.Settings)
             }

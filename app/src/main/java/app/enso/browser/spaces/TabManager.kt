@@ -5,10 +5,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import mozilla.components.browser.state.action.CustomTabListAction
+import mozilla.components.browser.state.action.EngineAction
 import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.concept.engine.EngineSession
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.lib.state.ext.flow
 
@@ -90,6 +92,18 @@ class TabManager(
         spaces.update { it.addOpenTab(Tab(tabId, url, title, quick = quick), afterId = parentId) }
         store.dispatch(CustomTabListAction.TurnCustomTabIntoNormalTabAction(tabId))
         if (select) tabsUseCases.selectTab(tabId)
+    }
+
+    /**
+     * A tab an extension opened (uBlock Origin's dashboard, say), on the engine session it made: a Quick Tab below
+     * the current one, since extension pages mean nothing on Zen's desktop. Returns its id.
+     */
+    fun openExtensionTab(url: String, engineSession: EngineSession, select: Boolean): String {
+        val tab = Tab(id = newTabId(), url = url, quick = QuickTab(lastViewedAt = now()))
+        spaces.update { it.addOpenTab(tab, afterId = store.state.selectedTabId) }
+        store.dispatch(TabListAction.AddTabAction(createTab(url, id = tab.id), select = select))
+        store.dispatch(EngineAction.LinkEngineSessionAction(tab.id, engineSession))
+        return tab.id
     }
 
     /** Opens [url] in a new tab just below the current one. New searches pass [quick] to make a Quick Tab. */

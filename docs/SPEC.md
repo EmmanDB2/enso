@@ -242,9 +242,11 @@ Shapes and type:
 
 Ensō supports WebExtensions through GeckoView, starting with uBlock Origin.
 
-- **Bundled:** ship uBlock Origin with the app and install it on first launch through GeckoView's built-in extension install path.
-- **From the add-on store:** allow installing other Mozilla-signed extensions by URL from addons.mozilla.org.
-- **UI:** use the Android Components add-ons module for the extension list, popups and settings pages.
+- **Bundled:** uBlock Origin ships in the app as Mozilla's signed package from addons.mozilla.org (with its GPL-3.0 license in the app's licenses) and installs on first launch, so it works offline. After that it's an ordinary extension: it updates from addons.mozilla.org, and if the user turns it off or removes it, it stays that way.
+- **From the add-on store:** allow installing other Mozilla-signed extensions by URL from addons.mozilla.org. The Extensions list also offers Mozilla's recommended Android extensions, with a link to browse the site.
+- **UI:** Ensō-style screens on Android Components' extension support and add-ons module. Each extension shows its icon, name, toolbar badge (such as uBlock Origin's count) and an on/off switch. Tapping one opens its popup; holding it offers Settings and Remove.
+- **Popups and settings pages** open in a sheet: on the cover, the bottom bar's surface grows with the page in it; unfolded, a card over the page, like Glance's. Back or a tap outside closes it. An extension whose manifest asks for its settings in a tab (uBlock Origin's dashboard does) gets a Quick Tab instead.
+- **Tabs an extension opens** (uBlock Origin's dashboard, say) are Quick Tabs: extension pages mean nothing on Zen's desktop.
 - **Placement:** extensions live behind Extensions in the bottom bar's actions sheet (and the inner sidebar's ⋮ menu), and an extension's popup opens as a sheet. No extension icons in the bar.
 
 ## Build order

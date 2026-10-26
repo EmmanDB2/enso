@@ -1,0 +1,4 @@
+uBlock Origin 1.75.0, by Raymond Hill and contributors, ships with Ensō unchanged, as the signed
+package from addons.mozilla.org (assets/extensions/ublock_origin.xpi). It is licensed under the
+GNU General Public License v3.0 (uBlockOrigin-GPL-3.0.txt). Its source code is at
+https://github.com/gorhill/uBlock.

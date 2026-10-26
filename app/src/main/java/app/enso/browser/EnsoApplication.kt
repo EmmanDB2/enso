@@ -19,6 +19,8 @@ class EnsoApplication : Application() {
         // and makes its network requests through the browser's fetch client.
         AppServicesInitializer.init(AppServicesInitializer.Config(crashReporting = null))
         RustHttpConfig.setClient(lazy { components.fetchClient })
+        // Extensions load with the engine, before any page: uBlock Origin has to be there for the first one.
+        components.extensions.start(components.tabs)
     }
 
     private fun isMainProcess(): Boolean {

@@ -29,6 +29,7 @@ mozilla-lib-state = { module = "org.mozilla.components:lib-state", version.ref =
 mozilla-service-firefox-accounts = { module = "org.mozilla.components:service-firefox-accounts", version.ref = "mozilla-components" }
 mozilla-support-appservices = { module = "org.mozilla.components:support-appservices", version.ref = "mozilla-components" }
 mozilla-support-utils = { module = "org.mozilla.components:support-utils", version.ref = "mozilla-components" }
+mozilla-support-webextensions = { module = "org.mozilla.components:support-webextensions", version.ref = "mozilla-components" }
 mozilla-ui-widgets = { module = "org.mozilla.components:ui-widgets", version.ref = "mozilla-components" }
 androidx-activity = { module = "androidx.activity:activity", version.ref = "androidx-activity" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }

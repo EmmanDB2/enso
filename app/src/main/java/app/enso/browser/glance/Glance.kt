@@ -50,7 +50,6 @@ import androidx.compose.ui.unit.sp
 import app.enso.browser.R
 import app.enso.browser.spacemenu.BlockSpaceMenu
 import app.enso.browser.spacemenu.BlurredPage
-import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 import kotlin.math.roundToInt
@@ -72,7 +71,7 @@ data class GlanceLayout(val area: Rect, val card: Rect, val page: Rect, val butt
  */
 fun glanceLayout(area: Rect, room: Rect, inner: Boolean, density: Float): GlanceLayout {
     fun px(dp: Dp) = dp.value * density
-    val button = px(GlanceButton)
+    val button = px(ButtonSize)
     val gap = px(ButtonGap)
     return if (inner) {
         val margin = px(40.dp)
@@ -87,19 +86,13 @@ fun glanceLayout(area: Rect, room: Rect, inner: Boolean, density: Float): Glance
     }
 }
 
-interface GlanceActions {
-    fun close()
-
-    /** The preview becomes a tab below the one it was opened from, and shows. */
-    fun openAsTab()
-
-    /** The preview becomes a tab, split to the right of the page (unfolded only). */
-    fun split()
-}
+/** A round button beside the card. */
+class GlanceButton(@DrawableRes val icon: Int, @StringRes val label: Int, val onClick: () -> Unit)
 
 /**
- * Glance (board 8): the held link's page in a floating card over the blurred, dimmed page, with Close, Open as tab
- * and (unfolded) Split beside it. A tap around the card, or Back, closes it.
+ * A page in a floating card over the blurred, dimmed page, titled [title], with [buttons] beside it: Glance (board 8),
+ * with Close, Open as tab and (unfolded) Split, and unfolded, an extension's popup or settings. A tap around the
+ * card, or Back, closes it ([onClose]).
  *
  * The card's page is a GeckoView under this overlay, which ignores view clipping; this draws everything around it
  * and clears a hole with the card's rounded corners for it to show through. The pages behind are hidden meanwhile
@@ -107,14 +100,14 @@ interface GlanceActions {
  */
 @Composable
 fun GlanceOverlay(
-    glance: GlanceState,
+    title: String,
     layout: GlanceLayout,
     backdrop: List<Pair<ImageBitmap, Rect>>,
     areaCorner: Dp,
-    canSplit: Boolean,
-    actions: GlanceActions,
+    buttons: List<GlanceButton>,
+    onClose: () -> Unit,
 ) {
-    BackHandler(onBack = actions::close)
+    BackHandler(onBack = onClose)
     BlockSpaceMenu()
     val density = LocalDensity.current
     Box(
@@ -146,7 +139,7 @@ fun GlanceOverlay(
         ) {
             Row(Modifier.fillMaxWidth().height(Header).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    AddressInput.displayHost(glance.url),
+                    title,
                     style = EnsoType.Row.copy(fontSize = 18.sp, color = EnsoColors.TextSecondary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -157,9 +150,9 @@ fun GlanceOverlay(
     }
     // Taps around the card close it. The card's page takes its own touches: nothing here covers it, so they pass
     // through the overlay to the preview.
-    TapsAround(layout.card, density, onTap = actions::close)
+    TapsAround(layout.card, density, onTap = onClose)
     Box(Modifier.placed(Rect(layout.card.topLeft, layout.page.topRight), density).pointerInput(Unit) { detectTapGestures { } })
-    GlanceButtons(layout, canSplit, actions)
+    GlanceButtons(layout, buttons)
 }
 
 /** Boxes over everything but [card], closing Glance on a tap. */
@@ -178,13 +171,8 @@ private fun TapsAround(card: Rect, density: Density, onTap: () -> Unit) {
 }
 
 @Composable
-private fun GlanceButtons(layout: GlanceLayout, canSplit: Boolean, actions: GlanceActions) {
-    val density = LocalDensity.current
-    val buttons = @Composable {
-        RoundButton(R.drawable.ic_close, R.string.glance_close, actions::close)
-        RoundButton(R.drawable.ic_open_tab, R.string.glance_open_as_tab, actions::openAsTab)
-        if (canSplit) RoundButton(R.drawable.ic_split, R.string.glance_split, actions::split)
-    }
+private fun GlanceButtons(layout: GlanceLayout, list: List<GlanceButton>) {
+    val buttons = @Composable { list.forEach { RoundButton(it.icon, it.label, it.onClick) } }
     val spacing = Arrangement.spacedBy(18.dp)
     if (layout.buttonsInRow) {
         // Centered under the card.
@@ -205,7 +193,7 @@ private fun GlanceButtons(layout: GlanceLayout, canSplit: Boolean, actions: Glan
 private fun RoundButton(@DrawableRes icon: Int, @StringRes label: Int, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(GlanceButton)
+            .size(ButtonSize)
             .shadow(8.dp, CircleShape)
             .background(EnsoColors.CurrentTab, CircleShape)
             .clip(CircleShape)
@@ -223,7 +211,7 @@ private fun Modifier.placed(rect: Rect, density: Density): Modifier = this
 
 private val Corner = 24.dp
 private val Header = 48.dp
-private val GlanceButton = 56.dp
+private val ButtonSize = 56.dp
 private val ButtonGap = 24.dp
 
 /** Over the blurred page: dimmed, as on board 8. */

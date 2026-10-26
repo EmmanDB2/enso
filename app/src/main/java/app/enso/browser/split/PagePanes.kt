@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import mozilla.components.browser.state.action.EngineAction
 import mozilla.components.browser.state.selector.findTabOrCustomTab
 import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.lib.state.ext.flow
 
@@ -40,11 +41,15 @@ class PageView(
         private set
     private var job: Job? = null
 
+    /** An engine session shown directly rather than a tab's ([showSession]). */
+    private var session: EngineSession? = null
+
     fun show(id: String?) {
-        if (id == tabId) return
+        if (id == tabId && session == null) return
         job?.cancel()
         job = null
         tabId = id
+        session = null
         if (id == null) {
             view.release()
             if (!keepVisible) container.isVisible = false
@@ -67,6 +72,16 @@ class PageView(
                     }
                 }
         }
+    }
+
+    /** Shows an engine session that isn't a tab's: an extension's popup. */
+    fun showSession(session: EngineSession) {
+        job?.cancel()
+        job = null
+        tabId = null
+        this.session = session
+        container.isVisible = true
+        view.render(session)
     }
 
     fun release() {

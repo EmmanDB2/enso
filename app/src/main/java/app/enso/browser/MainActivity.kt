@@ -116,7 +116,11 @@ import app.enso.browser.spaces.splitWith
 import app.enso.browser.spaces.toggleFolder
 import app.enso.browser.spaces.unsplit
 import app.enso.browser.split.DraggedTab
-import app.enso.browser.glance.GlanceActions
+import app.enso.browser.bottombar.BarExtensions
+import app.enso.browser.extensions.ExtensionListActions
+import app.enso.browser.extensions.ExtensionsCard
+import app.enso.browser.extensions.extensionRows
+import app.enso.browser.glance.GlanceButton
 import app.enso.browser.glance.GlanceLayout
 import app.enso.browser.glance.GlanceOverlay
 import app.enso.browser.glance.GlanceState
@@ -159,9 +163,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.action.ContentAction
 import mozilla.components.browser.state.action.CustomTabListAction
+import mozilla.components.browser.state.action.WebExtensionAction
 import mozilla.components.browser.state.selector.findCustomTab
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.createCustomTab
+import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.HitResult
 import mozilla.components.browser.thumbnails.BrowserThumbnails
 import mozilla.components.concept.engine.EngineView
@@ -170,6 +176,8 @@ import mozilla.components.feature.accounts.FxaWebChannelFeature
 import mozilla.components.feature.tabs.WindowFeature
 import mozilla.components.lib.state.ext.flow
 import mozilla.components.lib.state.ext.observeAsComposableState
+import mozilla.components.support.webextensions.WebExtensionOptionsPageObserver
+import mozilla.components.support.webextensions.WebExtensionPopupObserver
 import mozilla.components.ui.widgets.behavior.DependencyGravity
 import mozilla.components.ui.widgets.behavior.EngineViewClippingBehavior
 import mozilla.components.ui.widgets.behavior.EngineViewScrollingDataBehavior
@@ -196,19 +204,28 @@ class MainActivity : ComponentActivity() {
 
     /** The link being previewed (board 8), if any, and where it goes. */
     private var glance by mutableStateOf<GlanceState?>(null)
-    private var glanceLayout by mutableStateOf<GlanceLayout?>(null)
+    private var floatingLayout by mutableStateOf<GlanceLayout?>(null)
 
-    /** The pages captured as Glance opened, blurred behind it, with where they were. */
-    private var glanceBackdrop by mutableStateOf(emptyList<Pair<ImageBitmap, Rect>>())
+    /** An extension's popup or settings page on screen (step 9): in the bottom bar's surface, or a card unfolded. */
+    private var extensionPage by mutableStateOf<ExtensionPage?>(null)
 
-    /** Glance's own page view, under the overlay; made the first time a link is held. */
-    private var glancePageView: PageView? = null
+    /** The inner screen's Extensions card, from the sidebar's ⋮ menu. */
+    private var extensionsCardOpen by mutableStateOf(false)
 
-    private fun glancePage(): PageView = glancePageView
+    /** Glance or an extension's page covers the pages, which hide behind their blurred captures. */
+    private val pagesCovered get() = glance != null || extensionPage != null
+
+    /** The pages captured as Glance or an extension's page opened, blurred behind it, with where they were. */
+    private var floatingBackdrop by mutableStateOf(emptyList<Pair<ImageBitmap, Rect>>())
+
+    /** The page view for Glance and extensions' pages, under the overlay; made the first time one opens. */
+    private var floatingPageView: PageView? = null
+
+    private fun floatingPage(): PageView = floatingPageView
         ?: PageView(this, components.store, components.engine.createView(this).also { it.setActivityContext(this) }, keepVisible = false)
             .also {
                 root.addView(it.container, root.indexOfChild(overlay))
-                glancePageView = it
+                floatingPageView = it
             }
     /** The cover's bottom bar is drawn in the overlay; this invisible view is what the page's scrolling slides. */
     private lateinit var barAnchor: ScrollingBarView
@@ -449,7 +466,7 @@ class MainActivity : ComponentActivity() {
                 if (barPanel == BarPanel.Search) barPanel = null
             }
             imeWasVisible = imeVisible
-            layoutGlance()
+            layoutFloating()
             WindowInsetsCompat.CONSUMED
         }
         root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
@@ -457,7 +474,7 @@ class MainActivity : ComponentActivity() {
             // arrive before the new size does, so the page card is laid out again once the size is in.
             val resized = right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop
             if (inner && resized) root.post { if (inner) layoutInner() }
-            if (resized) root.post { layoutGlance() }
+            if (resized) root.post { layoutFloating() }
         }
         root.viewTreeObserver.addOnPreDrawListener {
             // The Compose bar follows the anchor that the page's scrolling slides.
@@ -500,8 +517,11 @@ class MainActivity : ComponentActivity() {
         tabSheetOpen = false
         barPanel = null
         sidebarMenu = null
-        // An open Glance stays and fits itself to the new screen; its backdrop was captured on the old one.
-        glanceBackdrop = emptyList()
+        // An open Glance stays and fits itself to the new screen; its backdrop was captured on the old one. An
+        // extension's page lives in the bar's panel or the inner card, so it closes with them.
+        floatingBackdrop = emptyList()
+        closeExtensionPage()
+        extensionsCardOpen = false
         spaceMenuGesture.reset()
         spaceWave.close()
         // Thumbnails capture the cover's page; unfolded, the first page view may show another tab of a split.
@@ -523,7 +543,7 @@ class MainActivity : ComponentActivity() {
      * reaches into the pages, and touches there are the divider's.
      */
     private fun focusPageAt(x: Float, y: Float) {
-        if (shown.split == null || glance != null) return
+        if (shown.split == null || pagesCovered) return
         if (startScreenVisible || sidebarMenu != null || zenSyncSheetOpen || tabDrag != null || dividerSizes != null) return
         val split = shown.split ?: return
         val cards = pageCards().map { it.card }
@@ -599,6 +619,8 @@ class MainActivity : ComponentActivity() {
         windowFeature.start()
         webChannelFeature.start()
         if (!inner) thumbnails.start()
+        popupObserver.start()
+        optionsPageObserver.start()
         components.zenSync.syncNow(minIntervalMs = ZEN_SYNC_MIN_INTERVAL_MS)
     }
 
@@ -607,6 +629,8 @@ class MainActivity : ComponentActivity() {
         windowFeature.stop()
         webChannelFeature.stop()
         thumbnails.stop()
+        popupObserver.stop()
+        optionsPageObserver.stop()
         spaceMenuGesture.reset()
         spaceWave.close()
         if (!startScreenVisible) components.tabs.markViewed(shown.tabIds)
@@ -616,7 +640,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         closeGlance()
-        glancePageView?.release()
+        closeExtensionPage()
+        floatingPageView?.release()
         pagePanes.release()
         super.onDestroy()
     }
@@ -629,6 +654,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun OverlayContent() {
         val spaces by components.spaces.state.collectAsState()
+        val installedExtensions by components.store.observeAsComposableState { extensionRows(it) }
         val zenStatus by components.zenSync.status.collectAsState()
         val statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() }
         if (inner) {
@@ -654,6 +680,13 @@ class MainActivity : ComponentActivity() {
                 gestureInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
                 quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
                 thumbnails = components.thumbnailStorage,
+                extensions = BarExtensions(
+                    rows = installedExtensions,
+                    actions = extensionListActions,
+                    pageTitle = extensionPage?.title,
+                    backdrop = floatingBackdrop,
+                    onPageArea = ::placeExtensionPage,
+                ),
                 actions = bottomBarActions,
             )
         }
@@ -677,18 +710,42 @@ class MainActivity : ComponentActivity() {
             )
         }
         val glanceNow = glance
-        val layout = glanceLayout
+        val layout = floatingLayout
+        val areaCorner = if (inner && components.settings.innerPageBorder) CardCorner else 0.dp
         if (glanceNow != null && layout != null) {
             // A plain container, so the overlay's exact window constraints don't stretch Glance's pieces.
             Box(Modifier.fillMaxSize()) {
                 GlanceOverlay(
-                    glance = glanceNow,
+                    title = AddressInput.displayHost(glanceNow.url),
                     layout = layout,
-                    backdrop = glanceBackdrop,
-                    areaCorner = if (inner && components.settings.innerPageBorder) CardCorner else 0.dp,
-                    canSplit = canSplitGlance(),
-                    actions = glanceActions,
+                    backdrop = floatingBackdrop,
+                    areaCorner = areaCorner,
+                    buttons = listOfNotNull(
+                        GlanceButton(R.drawable.ic_close, R.string.glance_close) { closeGlance() },
+                        GlanceButton(R.drawable.ic_open_tab, R.string.glance_open_as_tab, ::openGlanceAsTab),
+                        GlanceButton(R.drawable.ic_split, R.string.glance_split, ::splitGlance).takeIf { canSplitGlance() },
+                    ),
+                    onClose = { closeGlance() },
                 )
+            }
+        }
+        // Unfolded, an extension's popup or settings page is a card like Glance's, and the list a card of its own.
+        val pageNow = extensionPage
+        if (inner && pageNow != null && layout != null) {
+            Box(Modifier.fillMaxSize()) {
+                GlanceOverlay(
+                    title = pageNow.title,
+                    layout = layout,
+                    backdrop = floatingBackdrop,
+                    areaCorner = areaCorner,
+                    buttons = listOf(GlanceButton(R.drawable.ic_close, R.string.glance_close) { closeExtensionPage() }),
+                    onClose = { closeExtensionPage() },
+                )
+            }
+        }
+        if (inner && extensionsCardOpen && pageNow == null) {
+            Box(Modifier.fillMaxSize()) {
+                ExtensionsCard(cardRect, areaCorner, installedExtensions, extensionListActions, onClose = { extensionsCardOpen = false })
             }
         }
         if (zenSyncSheetOpen) {
@@ -718,7 +775,7 @@ class MainActivity : ComponentActivity() {
         val corner = if (border) CardCorner else 0.dp
         // Under Glance the pages are hidden, and Glance's see-through hole would show a split's gaps and outline,
         // so the frame draws the page area as one card.
-        val cards = if (glance != null) listOf(PageCard(cardRect)) else pageCards()
+        val cards = if (pagesCovered) listOf(PageCard(cardRect)) else pageCards()
         InnerFrame(spaces.currentSpace.colors(), cards, focused = shown.tabIds.indexOf(selectedTabId).coerceAtLeast(0), page, corner)
         // Opening or closing, the sidebar is drawn at its full width and revealed as its edge moves, cross-fading
         // with the rail, so its rows don't lay out again on every frame.
@@ -763,7 +820,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         // No dividers under Glance either: nothing in Glance covers its page, so a divider there would take its touches.
-        shown.split?.takeIf { glance == null }?.let { split ->
+        shown.split?.takeIf { !pagesCovered }?.let { split ->
             splitGaps(cards.map { it.card }, split.layout).forEach { (index, gap, across) ->
                 SplitDivider(
                     gap = gap,
@@ -961,6 +1018,8 @@ class MainActivity : ComponentActivity() {
 
     private val bottomBarActions = object : BottomBarActions {
         override fun showPanel(panel: BarPanel?) {
+            // Leaving an extension's page closes it.
+            if (barPanel == BarPanel.ExtensionPage && panel != BarPanel.ExtensionPage) closeExtensionPage()
             barPanel = panel
         }
 
@@ -1067,16 +1126,24 @@ class MainActivity : ComponentActivity() {
 
     /** Holding a link: Glance captures the pages on screen for its backdrop, then opens over them (board 8). */
     private fun openGlance(url: String, parentTabId: String) {
-        if (glance != null || tabSheetOpen || barPanel != null || zenSyncSheetOpen || spaceWave.mode != null) return
+        if (pagesCovered || tabSheetOpen || barPanel != null || zenSyncSheetOpen || spaceWave.mode != null) return
         root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        captureBackdrop { backdrop -> showGlance(url, parentTabId, backdrop) }
+    }
+
+    /**
+     * Captures the pages on screen, with where they are, for a blurred backdrop, then calls [then]. A capture that
+     * never answers mustn't hold things up, so it gives up waiting after a moment.
+     */
+    private fun captureBackdrop(then: (List<Pair<ImageBitmap, Rect>>) -> Unit) {
         val visible = pagePanes.panes.filter { it.tabId != null && it.container.isVisible }
         val captures = mutableListOf<Pair<ImageBitmap, Rect>>()
         var waiting = visible.size
-        var opened = false
-        val open = {
-            if (!opened) {
-                opened = true
-                showGlance(url, parentTabId, captures.toList())
+        var done = false
+        val finish = {
+            if (!done) {
+                done = true
+                then(captures.toList())
             }
         }
         visible.forEach { pane ->
@@ -1086,11 +1153,10 @@ class MainActivity : ComponentActivity() {
                     val bounds = Rect(at[0].toFloat(), at[1].toFloat(), (at[0] + bitmap.width).toFloat(), (at[1] + bitmap.height).toFloat())
                     captures += bitmap.asImageBitmap() to bounds
                 }
-                if (--waiting == 0) open()
+                if (--waiting == 0) finish()
             }
         }
-        // A capture that never answers mustn't hold Glance up.
-        if (visible.isEmpty()) open() else root.postDelayed({ open() }, GLANCE_CAPTURE_TIMEOUT_MS)
+        if (visible.isEmpty()) finish() else root.postDelayed({ finish() }, BACKDROP_CAPTURE_TIMEOUT_MS)
     }
 
     /**
@@ -1101,32 +1167,39 @@ class MainActivity : ComponentActivity() {
     private fun showGlance(url: String, parentTabId: String, backdrop: List<Pair<ImageBitmap, Rect>>) {
         val tab = createCustomTab(url)
         glance = GlanceState(tab.id, url, parentTabId)
-        glanceBackdrop = backdrop
+        floatingBackdrop = backdrop
         updateDesktopSites()
         components.store.dispatch(CustomTabListAction.AddCustomTabAction(tab))
-        layoutGlance()
-        glancePage().show(tab.id)
-        hidePagesForGlance()
+        layoutFloating()
+        floatingPage().show(tab.id)
+        hidePages()
     }
 
     /** Closes Glance; its custom tab goes too unless it's becoming a tab ([remove] false). */
     private fun closeGlance(remove: Boolean = true): GlanceState? {
         val closing = glance ?: return null
         glance = null
-        glanceLayout = null
-        glanceBackdrop = emptyList()
-        glancePage().show(null)
+        floatingLayout = null
+        floatingBackdrop = emptyList()
+        floatingPage().show(null)
         if (remove) components.store.dispatch(CustomTabListAction.RemoveCustomTabAction(closing.tabId))
-        pagePanes.panes.forEachIndexed { index, pane -> pane.container.isVisible = index == 0 || pane.tabId != null }
+        restorePages()
         updateDesktopSites()
         return closing
     }
 
-    private fun hidePagesForGlance() = pagePanes.panes.forEach { it.container.isInvisible = true }
+    private fun hidePages() = pagePanes.panes.forEach { it.container.isInvisible = true }
 
-    /** Places Glance for the screen it's on: over the page card unfolded, over the whole cover folded. */
-    private fun layoutGlance() {
-        glance ?: return
+    private fun restorePages() =
+        pagePanes.panes.forEachIndexed { index, pane -> pane.container.isVisible = index == 0 || pane.tabId != null }
+
+    /**
+     * Places Glance, or an extension's page unfolded, for the screen it's on: over the page card unfolded, over the
+     * whole cover folded. On the cover an extension's page sits in the bar's panel, which places it
+     * ([placeExtensionPage]).
+     */
+    private fun layoutFloating() {
+        if (glance == null && !(inner && extensionPage != null)) return
         val decor = window.decorView
         if (decor.width == 0) return
         val layout = if (inner) {
@@ -1137,8 +1210,8 @@ class MainActivity : ComponentActivity() {
             val room = screen.copy(top = statusBarInset.toFloat(), bottom = screen.bottom - gestureHandleInset)
             glanceLayout(screen, room, inner = false, resources.displayMetrics.density)
         }
-        glanceLayout = layout
-        place(glancePage().container, layout.page)
+        floatingLayout = layout
+        place(floatingPage().container, layout.page)
     }
 
     /** Glance's Split: unfolded, beside a single page of the current space that isn't an Essential. */
@@ -1149,30 +1222,129 @@ class MainActivity : ComponentActivity() {
         return place !is TabPlace.Essential
     }
 
-    private val glanceActions = object : GlanceActions {
-        override fun close() {
-            closeGlance()
+    /** Glance's Open as tab: the preview becomes a tab below the one it was opened from, and shows. */
+    private fun openGlanceAsTab() {
+        val previewed = glance ?: return
+        val content = components.store.state.findCustomTab(previewed.tabId)?.content
+        closeGlance(remove = false)
+        components.tabs.adopt(previewed.tabId, content?.url ?: previewed.url, content?.title.orEmpty(), previewed.parentTabId, select = true)
+        startScreenRequested = false
+        updateDesktopSites()
+        components.zenSync.localEdited()
+    }
+
+    /** Glance's Split: the preview becomes a tab, split to the right of the page (unfolded only). */
+    private fun splitGlance() {
+        val previewed = glance ?: return
+        val selected = selectedTabId ?: return
+        val content = components.store.state.findCustomTab(previewed.tabId)?.content
+        closeGlance(remove = false)
+        components.tabs.adopt(previewed.tabId, content?.url ?: previewed.url, content?.title.orEmpty(), selected, select = false)
+        components.spaces.update { it.splitWith(selected, previewed.tabId) }
+        components.zenSync.localEdited()
+    }
+
+    /** An extension's popup (its engine session) or settings page (a custom tab), with the extension's name. */
+    private data class ExtensionPage(val extensionId: String, val title: String, val popup: EngineSession?, val optionsTabId: String?)
+
+    private val extensionListActions = object : ExtensionListActions {
+        override fun open(id: String) {
+            val state = components.store.state
+            val extension = state.extensions[id] ?: return
+            val override = state.selectedTab?.extensionState?.get(id)?.browserAction
+            val action = extension.browserAction?.let { global -> override?.let(global::copyWithOverride) ?: global }
+            // Its popup arrives through the popup observer, which shows it.
+            if (action != null) action.onClick() else settings(id)
         }
 
-        override fun openAsTab() {
-            val previewed = glance ?: return
-            val content = components.store.state.findCustomTab(previewed.tabId)?.content
-            closeGlance(remove = false)
-            components.tabs.adopt(previewed.tabId, content?.url ?: previewed.url, content?.title.orEmpty(), previewed.parentTabId, select = true)
+        override fun setEnabled(id: String, enabled: Boolean) = components.extensions.setEnabled(id, enabled)
+
+        override fun settings(id: String) = openExtensionSettings(id)
+
+        override fun remove(id: String) = components.extensions.uninstall(id)
+    }
+
+    /** AC's popup observer: an extension's toolbar button opened its popup. */
+    private val popupObserver by lazy {
+        WebExtensionPopupObserver(components.store, onOpenPopup = { extension ->
+            extension.popupSession?.let { showExtensionPage(ExtensionPage(extension.id, extension.name.orEmpty(), it, null)) }
+        })
+    }
+
+    /** AC's options page observer: an extension asked to show its settings. */
+    private val optionsPageObserver by lazy {
+        WebExtensionOptionsPageObserver(components.store, onOpenOptionsPage = { page ->
+            components.store.dispatch(WebExtensionAction.ClearOptionsPageSession(page.instanceId))
+            openOptionsUrl(page.url, page.name)
+        })
+    }
+
+    /** An extension's settings page, from the list. Extensions that want it in a tab get a Quick Tab. */
+    private fun openExtensionSettings(id: String) {
+        val metadata = components.extensions.installed(id)?.getMetadata() ?: return
+        val url = metadata.optionsPageUrl ?: return
+        if (metadata.openOptionsPageInTab) {
+            barPanel = null
+            extensionsCardOpen = false
+            components.tabs.openNewTab(url, quick = true)
             startScreenRequested = false
-            updateDesktopSites()
-            components.zenSync.localEdited()
+        } else {
+            openOptionsUrl(url, metadata.name ?: components.store.state.extensions[id]?.name.orEmpty())
         }
+    }
 
-        override fun split() {
-            val previewed = glance ?: return
-            val selected = selectedTabId ?: return
-            val content = components.store.state.findCustomTab(previewed.tabId)?.content
-            closeGlance(remove = false)
-            components.tabs.adopt(previewed.tabId, content?.url ?: previewed.url, content?.title.orEmpty(), selected, select = false)
-            components.spaces.update { it.splitWith(selected, previewed.tabId) }
-            components.zenSync.localEdited()
+    private fun openOptionsUrl(url: String, name: String) {
+        val tab = createCustomTab(url)
+        components.store.dispatch(CustomTabListAction.AddCustomTabAction(tab))
+        showExtensionPage(ExtensionPage(extensionId = "", title = name, popup = null, optionsTabId = tab.id))
+    }
+
+    /**
+     * Shows an extension's page as Glance shows its preview: the pages behind are captured for a blurred backdrop
+     * and hidden. On the cover it opens in the bar's panel, which then places the page; unfolded, in a card.
+     */
+    private fun showExtensionPage(page: ExtensionPage) {
+        closeGlance()
+        closeExtensionPage()
+        captureBackdrop { backdrop ->
+            floatingBackdrop = backdrop
+            extensionPage = page
+            extensionsCardOpen = false
+            updateDesktopSites()
+            val view = floatingPage()
+            if (inner) {
+                layoutFloating()
+            } else {
+                // Out of sight until the bar's panel has grown and says where the page goes.
+                place(view.container, Rect.Zero)
+                barPanel = BarPanel.ExtensionPage
+            }
+            page.popup?.let(view::showSession) ?: page.optionsTabId?.let(view::show)
+            hidePages()
         }
+    }
+
+    /** The bar's panel says where an extension's page goes on the cover, or null once it's gone. */
+    private fun placeExtensionPage(area: Rect?) {
+        if (inner || extensionPage == null) return
+        place(floatingPage().container, area ?: Rect.Zero)
+    }
+
+    /** Closes an extension's page: a popup's session closes, a settings page's custom tab goes. */
+    private fun closeExtensionPage() {
+        val page = extensionPage ?: return
+        extensionPage = null
+        floatingBackdrop = emptyList()
+        floatingLayout = null
+        floatingPage().show(null)
+        page.popup?.let { session ->
+            components.store.dispatch(WebExtensionAction.UpdatePopupSessionAction(page.extensionId, popupSession = null))
+            session.close()
+        }
+        page.optionsTabId?.let { components.store.dispatch(CustomTabListAction.RemoveCustomTabAction(it)) }
+        if (barPanel == BarPanel.ExtensionPage) barPanel = BarPanel.Extensions
+        restorePages()
+        updateDesktopSites()
     }
 
     private val sidebarActions = object : SidebarActions {
@@ -1194,6 +1366,10 @@ class MainActivity : ComponentActivity() {
 
         override fun openZenSync() {
             zenSyncSheetOpen = true
+        }
+
+        override fun openExtensions() {
+            extensionsCardOpen = true
         }
 
         override fun setMuted(media: MediaCardState, muted: Boolean) {
@@ -1239,8 +1415,10 @@ class MainActivity : ComponentActivity() {
      */
     private fun updateDesktopSites() {
         val settings = components.settings
-        // Glance's preview is narrower than the page, so it asks for mobile sites, as a split's pages do.
-        val mobile = (if (settings.desktopSitesInSplit) emptySet() else splitTabIds) + setOfNotNull(glance?.tabId)
+        // Glance's preview and extensions' settings pages are narrower than the page, so they ask for mobile sites, as
+        // a split's pages do.
+        val mobile = (if (settings.desktopSitesInSplit) emptySet() else splitTabIds) +
+            setOfNotNull(glance?.tabId, extensionPage?.optionsTabId)
         components.desktopSites.setActive(inner && settings.desktopSitesUnfolded, components.store, mobile)
     }
 
@@ -1259,7 +1437,7 @@ class MainActivity : ComponentActivity() {
         this.shown = shown
         shown.split?.let { components.tabs.load(it.tabIds) }
         pagePanes.show(shown.tabIds)
-        if (glance != null) hidePagesForGlance()
+        if (pagesCovered) hidePages()
         if (inner) layoutInner()
     }
 
@@ -1584,6 +1762,13 @@ class MainActivity : ComponentActivity() {
                 }
         }
         lifecycleScope.launch {
+            // A popup can close itself (window.close()); its sheet goes with it.
+            components.store.flow(this@MainActivity)
+                .map { state -> extensionPage?.let { page -> page.popup != null && state.extensions[page.extensionId]?.popupSession == null } ?: false }
+                .distinctUntilChanged()
+                .collect { closed -> if (closed) closeExtensionPage() }
+        }
+        lifecycleScope.launch {
             // The tinted strip under the status bar takes the top of the space's colors, as the bar takes the bottom.
             components.spaces.state
                 .map { it.currentSpace.colors().stops.first().toArgb() }
@@ -1781,8 +1966,8 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
         const val EXTRA_DEBUG_KEPT = "enso_debug_kept"
 
-        /** How long Glance waits for the pages' captures before opening without them. */
-        const val GLANCE_CAPTURE_TIMEOUT_MS = 400L
+        /** How long Glance or an extension's page waits for the pages' captures before opening without them. */
+        const val BACKDROP_CAPTURE_TIMEOUT_MS = 400L
         const val EXTRA_DEBUG_SPLIT = "enso_debug_split"
         const val EXTRA_DEBUG_UNSPLIT = "enso_debug_unsplit"
 

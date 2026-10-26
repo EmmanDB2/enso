@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.mozilla.service.firefox.accounts)
     implementation(libs.mozilla.support.appservices)
     implementation(libs.mozilla.support.utils)
+    implementation(libs.mozilla.support.webextensions)
     implementation(libs.mozilla.ui.widgets)
 
     implementation(libs.androidx.activity)

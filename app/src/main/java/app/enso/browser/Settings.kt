@@ -160,6 +160,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_INNER_SIDEBAR_EXPANDED, false)
         set(value) = prefs.edit { putBoolean(KEY_INNER_SIDEBAR_EXPANDED, value) }
 
+    /** Whether Ensō has installed its bundled extensions (uBlock Origin) once; removed, they stay removed. */
+    var bundledExtensionsInstalled: Boolean
+        get() = prefs.getBoolean(KEY_BUNDLED_EXTENSIONS_INSTALLED, false)
+        set(value) = prefs.edit { putBoolean(KEY_BUNDLED_EXTENSIONS_INSTALLED, value) }
+
     /** When the app last went to the background. */
     var lastStoppedAt: Long?
         get() = prefs.getLong(KEY_LAST_STOPPED_AT, 0L).takeIf { it > 0 }
@@ -191,5 +196,6 @@ class Settings(context: Context) {
         const val KEY_START_SCREEN_AFTER_MINUTES = "start_screen_after_minutes"
         const val KEY_LAST_STOPPED_AT = "last_stopped_at"
         const val KEY_INNER_SIDEBAR_EXPANDED = "inner_sidebar_expanded"
+        const val KEY_BUNDLED_EXTENSIONS_INSTALLED = "bundled_extensions_installed"
     }
 }
