@@ -199,6 +199,15 @@ Split view (board 7), as in Zen:
 - Folding shows the focused page on the cover, where the tab sheet's current-tab card shows the whole split. Unfolding brings the split back.
 - Splits sync with Zen both ways: made or ended on either side, they show on the other. A split with a Quick Tab in it, or with a pinned tab and an open one (which Zen's split view can't hold), stays on the phone. Where both sides change a split at once, Zen's wins.
 
+Glance (board 8), on both screens:
+
+- Holding a link (or a linked image) opens a floating preview of it over the page, which blurs and dims behind it. The card shows the site's domain above the page.
+- ✕, Back, or a tap around the card closes it. Open as tab makes it a tab just below the one it came from (a Quick Tab when that one is). Split, unfolded beside a single page, puts it on the right as a split.
+- A preview stays out of your tabs and sync until it's opened as a tab or split.
+- Unfolded, the card sits over the page card with its buttons in a column beside it, and the sidebar stays as it is. On the cover, the card fills most of the screen with the buttons in a row below it, within reach of the thumb, and there's no Split.
+- Previews ask for mobile sites, since the card is narrower than the page.
+- Folding or unfolding keeps it open, fitted to the new screen.
+
 Desktop sites: while the sidebar layout shows, tabs ask for desktop sites. A setting turns this off. Folding or unfolding doesn't reload anything; each page switches the next time it loads, and new tabs start in the right mode.
 
 Page zoom: pages open at 80% by default on both screens, so more fits. It's a setting. GeckoView only offers it engine-wide and reads it at startup, so it can't differ between the screens, and a change applies after a restart.

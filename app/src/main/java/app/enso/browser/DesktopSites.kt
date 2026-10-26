@@ -43,10 +43,10 @@ class DesktopSites {
 
     /**
      * Switches desktop sites on or off for new tabs and the open ones, except [mobileTabs], without reloading any
-     * page.
+     * page. It goes over every tab each time, since a tab can join after its session started (Glance's preview
+     * opened as a tab); a session already in the right mode doesn't change.
      */
     fun setActive(desktop: Boolean, store: BrowserStore, mobileTabs: Set<String> = emptySet()) {
-        if (desktop == active && mobileTabs == this.mobileTabs) return
         active = desktop
         this.mobileTabs = mobileTabs
         store.state.tabs.forEach { tab ->

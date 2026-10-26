@@ -433,7 +433,7 @@ fun SpaceWave(state: SpaceWaveState, onPick: (tabId: String, spaceId: String) ->
 
 /** The page captured as the wave opened, blurred, fading in once the capture arrives. Blur needs Android 12. */
 @Composable
-private fun BlurredPage(image: ImageBitmap?, bounds: Rect) {
+internal fun BlurredPage(image: ImageBitmap?, bounds: Rect) {
     if (image == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
     val density = LocalDensity.current
     val shown = remember(image) { Animatable(0f) }

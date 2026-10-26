@@ -111,4 +111,9 @@
     <string name="action_settings">Settings</string>
     <string name="search_quick_tab_tag">Quick Tab</string>
     <string name="search_cancel">Cancel</string>
+
+    <!-- Glance (board 8) -->
+    <string name="glance_close">Close preview</string>
+    <string name="glance_open_as_tab">Open as tab</string>
+    <string name="glance_split">Split with this page</string>
 </resources>

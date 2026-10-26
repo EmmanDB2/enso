@@ -4,6 +4,7 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import mozilla.components.browser.state.action.CustomTabListAction
 import mozilla.components.browser.state.action.TabListAction
 import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.state.createTab
@@ -77,6 +78,18 @@ class TabManager(
             .mapNotNull { state.find(it)?.tab }
             .map { createTab(it.url, id = it.id, title = it.title) }
         if (tabs.isNotEmpty()) store.dispatch(TabListAction.AddMultipleTabsAction(tabs))
+    }
+
+    /**
+     * Makes a custom tab (Glance's preview) a tab of the current space, just below [parentId], keeping its page. Like
+     * pages other tabs open, it's a Quick Tab when its parent is one.
+     */
+    fun adopt(tabId: String, url: String, title: String, parentId: String?, select: Boolean) {
+        val quick = parentId?.let { spaces.state.value.find(it)?.tab?.quick }?.let { QuickTab(lastViewedAt = now()) }
+        // Into the model first, so the engine sync finds it there rather than adding it as a page-opened tab.
+        spaces.update { it.addOpenTab(Tab(tabId, url, title, quick = quick), afterId = parentId) }
+        store.dispatch(CustomTabListAction.TurnCustomTabIntoNormalTabAction(tabId))
+        if (select) tabsUseCases.selectTab(tabId)
     }
 
     /** Opens [url] in a new tab just below the current one. New searches pass [quick] to make a Quick Tab. */

@@ -15,7 +15,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **8a (done): split view on the inner screen.**
   - **The cover's bottom bar (done)** (boards B1–B4), in the style of Arc Search, came in before 8b. It replaced the top bar.
   - **8b (done): splits sync both ways with Zen.**
-  - **8c (next): Glance** (board 8), on both screens. The cover's Glance has no Split button.
+  - **8c (now): Glance** (board 8), on both screens. The cover's Glance has no Split button.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -135,7 +135,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - Back returns to the last tab.
 - `split/`: split view (board 7).
   - **Model:** `Space.splits` holds each `Split`: its tab IDs in page order, its `layout` (Zen's `gridType`: side by side, stacked or grid), its page `sizes`, which stay on the phone, and whether it came from Zen (`synced`). The tabs stay where they live. `SplitRows` (in `tabsheet/`) shows each split as one row where its first tab sits, and hides its other tabs.
-  - **Pages:** `PagePanes` holds one page view per page on screen, and replaces AC's `SessionFeature`.
+  - **Pages:** `PagePanes` holds one `PageView` per page on screen, and replaces AC's `SessionFeature`.
     - Each view keeps its tab while the focus moves around a split, so pages never swap views.
     - A GeckoSession can only be in one view, so a view releases its tab before another view takes it.
     - The first pane is the cover's page, and the one the bars' scrolling behaviors follow.
@@ -158,6 +158,14 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Bottom search makes the Quick Tab on submit, so Cancel leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
     - Closing the keyboard closes bottom search, as it cancels an edit.
   - **Thumbnails:** AC's `BrowserThumbnails` captures the selected tab's page as it loads, and `ThumbnailsMiddleware` keeps it in `thumbnailStorage`; `TabThumbnail` loads it. Capture only runs on the cover, since unfolded the first page view may show another tab of a split.
+- `glance/`: Glance (board 8), the floating preview of a held link.
+  - **Opening:** Gecko reports a long press as the tab's `hitResult`; the activity consumes every one, and a link (`HitResult.UNKNOWN`, or `IMAGE_SRC`'s link) opens Glance. It captures the pages on screen first, for the blurred backdrop.
+  - **The preview** is an AC custom tab, so `TabManager` (which follows `state.tabs`) and sync never see it. Open as tab and Split hand it to `TabManager.adopt`, which adds it to the model below its parent (a Quick Tab when the parent is) and turns it into a normal tab.
+  - **Drawing:** its page view (`PageView`, which renders custom tabs too) sits under the overlay. `GlanceOverlay` draws the backdrop, the card's header and the buttons on an offscreen layer, and clears a hole with the card's rounded corners for the page.
+    - The pages behind hide while it's open (their captures stand in), because two GeckoView surfaces under the hole would overlap in no set order.
+    - Taps around the card close it; nothing covers the card's page, so its touches pass through to the preview.
+    - On the cover it covers everything, the bottom bar included.
+  - It previews at mobile size (`DesktopSites`' `mobileTabs`), and stays open through a fold, without its backdrop.
 - `MainActivity.kt`: a `CoordinatorLayout` holding the page views, the bottom bar's anchor, the band under the status bar, and one overlay `ComposeView` for everything drawn over the page.
   - **Cover or inner:** a window at least 600 dp wide at its narrowest counts as the inner screen. A rotated cover doesn't count. In portrait, the unfolded screen uses the cover's layout when `unfoldedPortraitLayout` is `Mobile`.
     - The activity handles folding itself (`configChanges`), so the page, tab, space and scroll position carry over with no extra work. `onConfigurationChanged` swaps the layout and closes the tab sheet and any edit.

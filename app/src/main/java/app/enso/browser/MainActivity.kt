@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
@@ -67,6 +68,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
@@ -114,7 +116,13 @@ import app.enso.browser.spaces.splitWith
 import app.enso.browser.spaces.toggleFolder
 import app.enso.browser.spaces.unsplit
 import app.enso.browser.split.DraggedTab
+import app.enso.browser.glance.GlanceActions
+import app.enso.browser.glance.GlanceLayout
+import app.enso.browser.glance.GlanceOverlay
+import app.enso.browser.glance.GlanceState
+import app.enso.browser.glance.glanceLayout
 import app.enso.browser.split.PagePanes
+import app.enso.browser.split.PageView
 import app.enso.browser.split.SplitDivider
 import app.enso.browser.split.SplitDividerReach
 import app.enso.browser.split.SplitDropZone
@@ -149,7 +157,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import mozilla.components.browser.state.action.ContentAction
+import mozilla.components.browser.state.action.CustomTabListAction
+import mozilla.components.browser.state.selector.findCustomTab
 import mozilla.components.browser.state.selector.selectedTab
+import mozilla.components.browser.state.state.createCustomTab
+import mozilla.components.concept.engine.HitResult
 import mozilla.components.browser.thumbnails.BrowserThumbnails
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.concept.engine.mediasession.MediaSession
@@ -177,6 +190,26 @@ class MainActivity : ComponentActivity() {
     private lateinit var engineView: EngineView
     private lateinit var engineContainer: FrameLayout
     private lateinit var pagePanes: PagePanes
+
+    /** Everything Compose draws over the pages. */
+    private lateinit var overlay: ComposeView
+
+    /** The link being previewed (board 8), if any, and where it goes. */
+    private var glance by mutableStateOf<GlanceState?>(null)
+    private var glanceLayout by mutableStateOf<GlanceLayout?>(null)
+
+    /** The pages captured as Glance opened, blurred behind it, with where they were. */
+    private var glanceBackdrop by mutableStateOf(emptyList<Pair<ImageBitmap, Rect>>())
+
+    /** Glance's own page view, under the overlay; made the first time a link is held. */
+    private var glancePageView: PageView? = null
+
+    private fun glancePage(): PageView = glancePageView
+        ?: PageView(this, components.store, components.engine.createView(this).also { it.setActivityContext(this) }, keepVisible = false)
+            .also {
+                root.addView(it.container, root.indexOfChild(overlay))
+                glancePageView = it
+            }
     /** The cover's bottom bar is drawn in the overlay; this invisible view is what the page's scrolling slides. */
     private lateinit var barAnchor: ScrollingBarView
 
@@ -330,20 +363,16 @@ class MainActivity : ComponentActivity() {
 
         engineView = components.engine.createView(this)
         engineView.setActivityContext(this)
-        engineContainer = FrameLayout(this).apply {
-            setBackgroundColor(EnsoColors.Page.toArgb())
-            addView(engineView.asView(), MATCH_PARENT, MATCH_PARENT)
-        }
         pagePanes = PagePanes(
             activity = this,
             store = components.store,
             main = engineView,
-            mainContainer = engineContainer,
             createView = { components.engine.createView(this).also { it.setActivityContext(this) } },
             // Under the top bar and the overlay, like the first page.
             addContainer = { root.addView(it, root.indexOfChild(engineContainer) + 1) },
             load = { tabId -> if (tabId in shown.tabIds) components.tabs.load(listOf(tabId)) },
         )
+        engineContainer = pagePanes.panes.first().container
         barAnchor = ScrollingBarView(this).apply { isVisible = false }
         statusBand = ScrollingBarView(this).apply { isVisible = false }
         bottomEdge = View(this).apply {
@@ -351,7 +380,7 @@ class MainActivity : ComponentActivity() {
             contentDescription = getString(R.string.action_show_bar)
             setOnClickListener { expandBar() }
         }
-        val overlay = ComposeView(this).apply {
+        overlay = ComposeView(this).apply {
             setContent { CompositionLocalProvider(LocalSpaceMenuBlocks provides spaceMenuBlocks) { OverlayContent() } }
         }
         root = CoordinatorLayout(this).apply {
@@ -360,7 +389,7 @@ class MainActivity : ComponentActivity() {
             addView(statusBand)
             addView(barAnchor)
             addView(bottomEdge)
-            addView(overlay, CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            addView(this@MainActivity.overlay, CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         }
         setContentView(root)
         // Beside the root rather than in it, so the tint covers the system bars too.
@@ -420,6 +449,7 @@ class MainActivity : ComponentActivity() {
                 if (barPanel == BarPanel.Search) barPanel = null
             }
             imeWasVisible = imeVisible
+            layoutGlance()
             WindowInsetsCompat.CONSUMED
         }
         root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
@@ -427,6 +457,7 @@ class MainActivity : ComponentActivity() {
             // arrive before the new size does, so the page card is laid out again once the size is in.
             val resized = right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop
             if (inner && resized) root.post { if (inner) layoutInner() }
+            if (resized) root.post { layoutGlance() }
         }
         root.viewTreeObserver.addOnPreDrawListener {
             // The Compose bar follows the anchor that the page's scrolling slides.
@@ -469,6 +500,8 @@ class MainActivity : ComponentActivity() {
         tabSheetOpen = false
         barPanel = null
         sidebarMenu = null
+        // An open Glance stays and fits itself to the new screen; its backdrop was captured on the old one.
+        glanceBackdrop = emptyList()
         spaceMenuGesture.reset()
         spaceWave.close()
         // Thumbnails capture the cover's page; unfolded, the first page view may show another tab of a split.
@@ -490,7 +523,7 @@ class MainActivity : ComponentActivity() {
      * reaches into the pages, and touches there are the divider's.
      */
     private fun focusPageAt(x: Float, y: Float) {
-        shown.split ?: return
+        if (shown.split == null || glance != null) return
         if (startScreenVisible || sidebarMenu != null || zenSyncSheetOpen || tabDrag != null || dividerSizes != null) return
         val split = shown.split ?: return
         val cards = pageCards().map { it.card }
@@ -582,6 +615,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        closeGlance()
+        glancePageView?.release()
         pagePanes.release()
         super.onDestroy()
     }
@@ -607,7 +642,8 @@ class MainActivity : ComponentActivity() {
                 StartScreen(spaces, statusBarInset, paletteOpen = false, { if (it) bottomBarActions.newSearch() }, startScreenActions)
             }
             val page by components.store.observeAsComposableState { it.selectedTab?.toPageState() ?: PageState() }
-            BottomBar(
+            // Glance covers the whole cover, bar included.
+            if (glance == null) BottomBar(
                 spaces = spaces,
                 page = if (startScreenVisible) PageState() else page,
                 selectedTabId = selectedTabId.takeIf { !startScreenVisible },
@@ -640,6 +676,21 @@ class MainActivity : ComponentActivity() {
                 actions = tabSheetActions,
             )
         }
+        val glanceNow = glance
+        val layout = glanceLayout
+        if (glanceNow != null && layout != null) {
+            // A plain container, so the overlay's exact window constraints don't stretch Glance's pieces.
+            Box(Modifier.fillMaxSize()) {
+                GlanceOverlay(
+                    glance = glanceNow,
+                    layout = layout,
+                    backdrop = glanceBackdrop,
+                    areaCorner = if (inner && components.settings.innerPageBorder) CardCorner else 0.dp,
+                    canSplit = canSplitGlance(),
+                    actions = glanceActions,
+                )
+            }
+        }
         if (zenSyncSheetOpen) {
             BackHandler { zenSyncSheetOpen = false }
             ZenSyncSheet(
@@ -665,7 +716,9 @@ class MainActivity : ComponentActivity() {
         val perContainer = components.settings.essentialsPerContainer
         val border = components.settings.innerPageBorder
         val corner = if (border) CardCorner else 0.dp
-        val cards = pageCards()
+        // Under Glance the pages are hidden, and Glance's see-through hole would show a split's gaps and outline,
+        // so the frame draws the page area as one card.
+        val cards = if (glance != null) listOf(PageCard(cardRect)) else pageCards()
         InnerFrame(spaces.currentSpace.colors(), cards, focused = shown.tabIds.indexOf(selectedTabId).coerceAtLeast(0), page, corner)
         // Opening or closing, the sidebar is drawn at its full width and revealed as its edge moves, cross-fading
         // with the rail, so its rows don't lay out again on every frame.
@@ -709,7 +762,8 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        shown.split?.let { split ->
+        // No dividers under Glance either: nothing in Glance covers its page, so a divider there would take its touches.
+        shown.split?.takeIf { glance == null }?.let { split ->
             splitGaps(cards.map { it.card }, split.layout).forEach { (index, gap, across) ->
                 SplitDivider(
                     gap = gap,
@@ -1004,6 +1058,123 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** A long press's link, for Glance: a link, or a linked image's link. */
+    private fun glanceLink(hit: HitResult): String? = when (hit) {
+        is HitResult.UNKNOWN -> hit.src
+        is HitResult.IMAGE_SRC -> hit.uri
+        else -> null
+    }?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+
+    /** Holding a link: Glance captures the pages on screen for its backdrop, then opens over them (board 8). */
+    private fun openGlance(url: String, parentTabId: String) {
+        if (glance != null || tabSheetOpen || barPanel != null || zenSyncSheetOpen || spaceWave.mode != null) return
+        root.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        val visible = pagePanes.panes.filter { it.tabId != null && it.container.isVisible }
+        val captures = mutableListOf<Pair<ImageBitmap, Rect>>()
+        var waiting = visible.size
+        var opened = false
+        val open = {
+            if (!opened) {
+                opened = true
+                showGlance(url, parentTabId, captures.toList())
+            }
+        }
+        visible.forEach { pane ->
+            val at = IntArray(2).also(pane.container::getLocationInWindow)
+            pane.view.captureThumbnail { bitmap ->
+                if (bitmap != null) {
+                    val bounds = Rect(at[0].toFloat(), at[1].toFloat(), (at[0] + bitmap.width).toFloat(), (at[1] + bitmap.height).toFloat())
+                    captures += bitmap.asImageBitmap() to bounds
+                }
+                if (--waiting == 0) open()
+            }
+        }
+        // A capture that never answers mustn't hold Glance up.
+        if (visible.isEmpty()) open() else root.postDelayed({ open() }, GLANCE_CAPTURE_TIMEOUT_MS)
+    }
+
+    /**
+     * Opens the preview in a custom tab, which stays out of the user's tabs and sync until it's opened as a tab or
+     * split. The pages behind hide, since their blurred captures stand in for them and GeckoView's surfaces would
+     * otherwise overlap under the card.
+     */
+    private fun showGlance(url: String, parentTabId: String, backdrop: List<Pair<ImageBitmap, Rect>>) {
+        val tab = createCustomTab(url)
+        glance = GlanceState(tab.id, url, parentTabId)
+        glanceBackdrop = backdrop
+        updateDesktopSites()
+        components.store.dispatch(CustomTabListAction.AddCustomTabAction(tab))
+        layoutGlance()
+        glancePage().show(tab.id)
+        hidePagesForGlance()
+    }
+
+    /** Closes Glance; its custom tab goes too unless it's becoming a tab ([remove] false). */
+    private fun closeGlance(remove: Boolean = true): GlanceState? {
+        val closing = glance ?: return null
+        glance = null
+        glanceLayout = null
+        glanceBackdrop = emptyList()
+        glancePage().show(null)
+        if (remove) components.store.dispatch(CustomTabListAction.RemoveCustomTabAction(closing.tabId))
+        pagePanes.panes.forEachIndexed { index, pane -> pane.container.isVisible = index == 0 || pane.tabId != null }
+        updateDesktopSites()
+        return closing
+    }
+
+    private fun hidePagesForGlance() = pagePanes.panes.forEach { it.container.isInvisible = true }
+
+    /** Places Glance for the screen it's on: over the page card unfolded, over the whole cover folded. */
+    private fun layoutGlance() {
+        glance ?: return
+        val decor = window.decorView
+        if (decor.width == 0) return
+        val layout = if (inner) {
+            glanceLayout(cardRect, cardRect, inner = true, resources.displayMetrics.density)
+        } else {
+            // It dims the whole cover, and keeps clear of the status bar and the gesture handle.
+            val screen = Rect(0f, 0f, decor.width.toFloat(), (decor.height - root.paddingBottom).toFloat())
+            val room = screen.copy(top = statusBarInset.toFloat(), bottom = screen.bottom - gestureHandleInset)
+            glanceLayout(screen, room, inner = false, resources.displayMetrics.density)
+        }
+        glanceLayout = layout
+        place(glancePage().container, layout.page)
+    }
+
+    /** Glance's Split: unfolded, beside a single page of the current space that isn't an Essential. */
+    private fun canSplitGlance(): Boolean {
+        val selected = selectedTabId ?: return false
+        if (!inner || startScreenVisible || shown.split != null) return false
+        val place = components.spaces.state.value.find(selected)?.place ?: return false
+        return place !is TabPlace.Essential
+    }
+
+    private val glanceActions = object : GlanceActions {
+        override fun close() {
+            closeGlance()
+        }
+
+        override fun openAsTab() {
+            val previewed = glance ?: return
+            val content = components.store.state.findCustomTab(previewed.tabId)?.content
+            closeGlance(remove = false)
+            components.tabs.adopt(previewed.tabId, content?.url ?: previewed.url, content?.title.orEmpty(), previewed.parentTabId, select = true)
+            startScreenRequested = false
+            updateDesktopSites()
+            components.zenSync.localEdited()
+        }
+
+        override fun split() {
+            val previewed = glance ?: return
+            val selected = selectedTabId ?: return
+            val content = components.store.state.findCustomTab(previewed.tabId)?.content
+            closeGlance(remove = false)
+            components.tabs.adopt(previewed.tabId, content?.url ?: previewed.url, content?.title.orEmpty(), selected, select = false)
+            components.spaces.update { it.splitWith(selected, previewed.tabId) }
+            components.zenSync.localEdited()
+        }
+    }
+
     private val sidebarActions = object : SidebarActions {
         override fun setExpanded(expanded: Boolean) = showSidebar(expanded)
 
@@ -1068,7 +1239,8 @@ class MainActivity : ComponentActivity() {
      */
     private fun updateDesktopSites() {
         val settings = components.settings
-        val mobile = if (settings.desktopSitesInSplit) emptySet() else splitTabIds
+        // Glance's preview is narrower than the page, so it asks for mobile sites, as a split's pages do.
+        val mobile = (if (settings.desktopSitesInSplit) emptySet() else splitTabIds) + setOfNotNull(glance?.tabId)
         components.desktopSites.setActive(inner && settings.desktopSitesUnfolded, components.store, mobile)
     }
 
@@ -1087,6 +1259,7 @@ class MainActivity : ComponentActivity() {
         this.shown = shown
         shown.split?.let { components.tabs.load(it.tabIds) }
         pagePanes.show(shown.tabIds)
+        if (glance != null) hidePagesForGlance()
         if (inner) layoutInner()
     }
 
@@ -1394,6 +1567,23 @@ class MainActivity : ComponentActivity() {
                 .collect { loading -> if (loading) expandBar() }
         }
         lifecycleScope.launch {
+            // Holding a link opens Glance. Gecko reports what was held; nothing else uses it yet, so every report
+            // is consumed here.
+            components.store.flow(this@MainActivity)
+                .map { state ->
+                    state.tabs.firstNotNullOfOrNull { tab -> tab.content.hitResult?.let { tab.id to it } }
+                        ?: state.customTabs.firstNotNullOfOrNull { tab -> tab.content.hitResult?.let { tab.id to it } }
+                }
+                .distinctUntilChanged()
+                .collect { held ->
+                    val (tabId, hit) = held ?: return@collect
+                    components.store.dispatch(ContentAction.ConsumeHitResultAction(tabId))
+                    // Links held inside a preview don't open another one.
+                    val url = glanceLink(hit) ?: return@collect
+                    if (components.store.state.findCustomTab(tabId) == null) openGlance(url, tabId)
+                }
+        }
+        lifecycleScope.launch {
             // The tinted strip under the status bar takes the top of the space's colors, as the bar takes the bottom.
             components.spaces.state
                 .map { it.currentSpace.colors().stops.first().toArgb() }
@@ -1590,6 +1780,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_DEBUG_OPEN = "enso_debug_open"
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
         const val EXTRA_DEBUG_KEPT = "enso_debug_kept"
+
+        /** How long Glance waits for the pages' captures before opening without them. */
+        const val GLANCE_CAPTURE_TIMEOUT_MS = 400L
         const val EXTRA_DEBUG_SPLIT = "enso_debug_split"
         const val EXTRA_DEBUG_UNSPLIT = "enso_debug_unsplit"
 
