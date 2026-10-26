@@ -6,6 +6,8 @@ import app.enso.browser.spaces.PinnedItem
 import app.enso.browser.spaces.PinnedTab
 import app.enso.browser.spaces.Space
 import app.enso.browser.spaces.SpacesState
+import app.enso.browser.spaces.Split
+import app.enso.browser.spaces.SplitLayout
 import app.enso.browser.spaces.Tab
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -16,9 +18,10 @@ import kotlinx.serialization.json.doubleOrNull
 /**
  * Applies Zen's spaces from [mirror] to the phone (read-only sync, Zen → phone).
  *
- * Zen decides the spaces, their order and looks, pinned tabs, folders and Essentials. The phone keeps its own
- * open tabs (Quick Tabs included), selection and folder open/closed states. Phone spaces Zen doesn't have, like
- * the starting "Home", go away; their phone-only open tabs move to the first Zen space.
+ * Zen decides the spaces, their order and looks, pinned tabs, folders, split views and Essentials. The phone keeps
+ * its own open tabs (Quick Tabs included), its own splits, selection, folder open/closed states and split sizes.
+ * Phone spaces Zen doesn't have, like the starting "Home", go away; their phone-only open tabs move to the first Zen
+ * space.
  */
 fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
     val records = mirror.records
@@ -32,6 +35,9 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
 
     val localTabs = (essentials + spaces.flatMap { it.allTabs }).associateBy { it.id }
     val localFolders = spaces.flatMap { it.folders }.associateBy { it.id }
+    val localSplits = spaces.flatMap { it.splits }.associateBy { it.id }
+    // Splits the phone ended stay ended until Zen has dropped them too.
+    val ended = endedSplits.filterTo(mutableSetOf()) { records[it]?.kind == KIND_SPLIT }
 
     /** A tab from Zen's record, keeping what the phone knows about its page if it's the same one. */
     fun tabFrom(id: String): Tab? {
@@ -51,8 +57,21 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
         )
     }
 
-    /** A space's or folder's children: pinned items, plus unpinned tabs (synced only when Zen's option is on). */
-    fun childrenOf(ids: List<String>, seen: MutableSet<String>): Pair<List<PinnedItem>, List<Tab>> {
+    /** A split view from Zen, with the sizes the phone gave it while it keeps the same pages and layout. */
+    fun splitFrom(record: ZenRecord, tabs: List<Tab>): Split? {
+        if (tabs.size < 2) return null
+        val layout = SplitLayout.ofZen(record.data.string("gridType"))
+        val sizes = localSplits[record.id]
+            ?.takeIf { it.layout == layout && it.tabIds == tabs.map { tab -> tab.id } }
+            ?.sizes.orEmpty()
+        return Split(record.id, tabs.map { it.id }, layout, sizes, synced = true)
+    }
+
+    /**
+     * A space's or folder's children: pinned items, plus unpinned tabs (synced only when Zen's option is on). Split
+     * views among them go to [splits], and their tabs stay in place.
+     */
+    fun childrenOf(ids: List<String>, seen: MutableSet<String>, splits: MutableList<Split>): Pair<List<PinnedItem>, List<Tab>> {
         val pinned = mutableListOf<PinnedItem>()
         val open = mutableListOf<Tab>()
         for (id in ids) {
@@ -61,7 +80,7 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             when (record.kind) {
                 KIND_TAB -> tabFrom(id)?.let { if (it.pinnedUrl != null) pinned += PinnedTab(it) else open += it }
                 KIND_FOLDER -> {
-                    val (items, folderOpen) = childrenOf(record.data.strings("children").orEmpty(), seen)
+                    val (items, folderOpen) = childrenOf(record.data.strings("children").orEmpty(), seen, splits)
                     pinned += Folder(
                         id = id,
                         name = record.data.string("name").orEmpty(),
@@ -70,9 +89,10 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
                     )
                     open += folderOpen
                 }
-                // Split view arrives in step 8; until then a split's tabs show one after another.
-                KIND_SPLIT -> record.data.strings("tabs").orEmpty().mapNotNull(::tabFrom).forEach {
-                    if (it.pinnedUrl != null) pinned += PinnedTab(it) else open += it
+                KIND_SPLIT -> {
+                    val tabs = record.data.strings("tabs").orEmpty().filter { seen.add(it) }.mapNotNull(::tabFrom)
+                    tabs.forEach { if (it.pinnedUrl != null) pinned += PinnedTab(it) else open += it }
+                    if (id !in ended) splitFrom(record, tabs)?.let(splits::add)
                 }
             }
         }
@@ -83,7 +103,8 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
     val zenSpaces = ordered.map { record ->
         val uuid = record.uuid
         val local = spaces.firstOrNull { it.id == uuid }
-        val (pinned, syncedOpen) = childrenOf(record.data.strings("children").orEmpty(), seen)
+        val zenSplits = mutableListOf<Split>()
+        val (pinned, syncedOpen) = childrenOf(record.data.strings("children").orEmpty(), seen, zenSplits)
         Space(
             id = uuid,
             name = record.data.string("name").orEmpty(),
@@ -95,8 +116,10 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             pinned = pinned,
             tabs = withPhoneOnlyTabs(syncedOpen, local?.tabs.orEmpty()),
             selectedTabId = local?.selectedTabId,
-            // The phone's own splits; any whose tabs Zen removed are dropped as the model updates.
-            splits = local?.splits.orEmpty(),
+            // Zen's splits, then the phone's own: ones Zen can't hold (with a Quick Tab, or pinned and open tabs
+            // together) and new ones not sent yet. A phone split that was Zen's and is gone there ended on the
+            // desktop. Where a tab ends up in two, Zen's wins as the model updates.
+            splits = zenSplits + local?.splits.orEmpty().filter { !it.synced && zenSplits.none { zen -> zen.id == it.id } },
         )
     }
 
@@ -125,6 +148,7 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
         spaces = listOf(first) + zenSpaces.drop(1),
         essentials = essentials,
         currentSpaceId = if (currentWasOrphan) first.id else currentSpaceId,
+        endedSplits = ended,
     )
 }
 

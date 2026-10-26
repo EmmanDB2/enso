@@ -4,7 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.horizontalDrag
+import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -20,6 +22,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,16 +40,14 @@ import app.enso.browser.ui.EnsoColors
 import kotlin.math.roundToInt
 
 /**
- * The gap between two pages of a split (board 7), at [gapLeft] to [gapRight] in window pixels. Dragging it sideways
- * trades width between the pages ([onDrag] gets the change in pixels); holding it still makes the pages equal
- * again. It reaches a little into both pages, so it's easy to grab.
+ * The gap between two pages of a split (board 7), [gap] in window pixels. Dragging it trades length between the
+ * pages ([onDrag] gets the change in pixels): sideways, or up and down when the pages are stacked ([across]).
+ * Holding it still makes the pages equal again. It reaches a little into both pages, so it's easy to grab.
  */
 @Composable
 fun SplitDivider(
-    gapLeft: Float,
-    gapRight: Float,
-    top: Float,
-    bottom: Float,
+    gap: Rect,
+    across: Boolean,
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -61,24 +62,34 @@ fun SplitDivider(
     val end by rememberUpdatedState(onDragEnd)
     val reset by rememberUpdatedState(onReset)
     // The divider moves with the drag, so the finger is tracked in window coordinates (as the sidebar's edge is).
-    var handleX by remember { mutableFloatStateOf(0f) }
+    var handleAt by remember { mutableFloatStateOf(0f) }
     val label = stringResource(R.string.split_divider)
+    val area = if (across) {
+        Rect(gap.left, gap.top - reach, gap.right, gap.bottom + reach)
+    } else {
+        Rect(gap.left - reach, gap.top, gap.right + reach, gap.bottom)
+    }
     Box(
         Modifier
-            .offset { IntOffset((gapLeft - reach).roundToInt(), top.roundToInt()) }
-            .size(with(density) { (gapRight - gapLeft + 2 * reach).toDp() }, with(density) { (bottom - top).toDp() })
-            .onGloballyPositioned { handleX = it.positionInWindow().x }
+            .offset { IntOffset(area.left.roundToInt(), area.top.roundToInt()) }
+            .size(with(density) { area.width.toDp() }, with(density) { area.height.toDp() })
+            .onGloballyPositioned { handleAt = it.positionInWindow().let { at -> if (across) at.y else at.x } }
             .semantics { contentDescription = label }
-            .pointerInput(Unit) {
+            .pointerInput(across) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     pressed = true
-                    var lastX = handleX + down.position.x
+                    val along = { change: PointerInputChange -> handleAt + if (across) change.position.y else change.position.x }
+                    var last = along(down)
                     var moved: PointerInputChange? = null
                     // Held still for a long press: back to equal. Moved first: a drag.
                     val heldStill = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                        moved = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        moved = if (across) {
+                            awaitVerticalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        } else {
+                            awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                        }
                     } == null
                     val first = moved
                     when {
@@ -93,13 +104,13 @@ fun SplitDivider(
                         first != null -> {
                             val follow = { change: PointerInputChange ->
                                 change.consume()
-                                val x = handleX + change.position.x
-                                drag(x - lastX)
-                                lastX = x
+                                val at = along(change)
+                                drag(at - last)
+                                last = at
                             }
                             start()
                             follow(first)
-                            horizontalDrag(first.id, follow)
+                            if (across) verticalDrag(first.id, follow) else horizontalDrag(first.id, follow)
                             end()
                         }
                     }
@@ -111,8 +122,7 @@ fun SplitDivider(
         if (pressed) {
             Box(
                 Modifier
-                    .width(Grabber)
-                    .height(36.dp)
+                    .then(if (across) Modifier.width(36.dp).height(Grabber) else Modifier.width(Grabber).height(36.dp))
                     .background(EnsoColors.TextSecondary.copy(alpha = 0.5f), RoundedCornerShape(percent = 50)),
             )
         }

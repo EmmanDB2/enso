@@ -16,9 +16,14 @@ data class ZenChange(val id: String, val record: ZenRecord?)
  * The phone's changes to Zen's spaces, as records to upload (phone → Zen).
  *
  * Every record starts from the server's copy in [base], and only what the phone owns changes: whether a tab is
- * pinned or an Essential, which space and folder it's in, new tabs' pages, folder names and children. The rest
- * (containers, icons, themes, split layouts, live folders) passes through, so a record the phone didn't touch comes
- * out identical and isn't sent. Only items the phone showed and the user removed are deleted.
+ * pinned or an Essential, which space and folder it's in, new tabs' pages, folder names and children, and split
+ * views' tabs. The rest (containers, icons, themes, split layouts, live folders) passes through, so a record the
+ * phone didn't touch comes out identical and isn't sent. Only items the phone showed and the user removed are
+ * deleted.
+ *
+ * A phone split goes to Zen when its tabs all go to Zen under the same parent: no Quick Tabs, and not a pinned tab
+ * with an open one, which Zen's split view can't hold. Zen's own splits the phone hasn't taken on (before its first
+ * sync with splits, say) pass through while their tabs still sit together, unless the phone ended them.
  */
 internal fun zenChanges(
     state: SpacesState,
@@ -31,7 +36,14 @@ internal fun zenChanges(
     if (baseSpaces.isEmpty()) return emptyList()
 
     val projected = LinkedHashMap<String, ZenRecord>()
-    val splits = base.values.filter { it.kind == KIND_SPLIT }
+    val phoneSplits = state.spaces.flatMap { it.splits }
+    val phoneSplitTabs = phoneSplits.flatMapTo(mutableSetOf()) { it.tabIds }
+    // Zen's splits the phone doesn't have: they pass through as they are, unless the phone ended them or took one
+    // of their tabs into a split of its own.
+    val zenOnlySplits = base.values.filter { record ->
+        record.kind == KIND_SPLIT && record.id !in state.endedSplits && phoneSplits.none { it.id == record.id } &&
+            record.data.strings("tabs").orEmpty().none { it in phoneSplitTabs }
+    }
     val keptSplits = mutableSetOf<String>()
 
     fun put(id: String, kind: String, data: JsonObject) {
@@ -63,19 +75,35 @@ internal fun zenChanges(
     }
 
     /**
-     * The ids of [ids] (items directly under one parent) as Zen orders them, with each split view put back in place
-     * of its tabs when they still sit together under this parent.
+     * The ids of [ids] (items directly under one parent) as Zen orders them, with each split view in place of its
+     * tabs when they all sit under this parent: the space's own splits, then Zen's that pass through.
      */
-    fun withSplits(ids: List<String>, space: String, folder: String?, pinned: Boolean): List<String> {
+    fun withSplits(ids: List<String>, space: Space, folder: String?, pinned: Boolean): List<String> {
         val result = ids.toMutableList()
-        for (split in splits) {
-            val members = split.data.strings("tabs").orEmpty()
-            if (split.id in keptSplits || members.size < 2 || !result.containsAll(members)) continue
+        fun place(id: String, members: List<String>, data: () -> JsonObject) {
+            if (id in keptSplits || members.size < 2 || !result.containsAll(members)) return
             val at = result.indexOfFirst { it in members }
             result.removeAll(members.toSet())
-            result.add(at.coerceAtMost(result.size), split.id)
-            keptSplits += split.id
-            put(split.id, KIND_SPLIT, split.data.with("pinned" to pinned, "workspaceUuid" to space, "folderId" to folder))
+            result.add(at.coerceAtMost(result.size), id)
+            keptSplits += id
+            put(id, KIND_SPLIT, data())
+        }
+        for (split in space.splits) {
+            place(split.id, split.tabIds) {
+                (base[split.id]?.takeIf { it.kind == KIND_SPLIT }?.data ?: JsonObject(emptyMap())).with(
+                    "splitId" to split.id,
+                    "gridType" to split.layout.zenName,
+                    "pinned" to pinned,
+                    "tabs" to split.tabIds,
+                    "workspaceUuid" to space.id,
+                    "folderId" to folder,
+                )
+            }
+        }
+        for (split in zenOnlySplits) {
+            place(split.id, split.data.strings("tabs").orEmpty()) {
+                split.data.with("pinned" to pinned, "workspaceUuid" to space.id, "folderId" to folder)
+            }
         }
         return result
     }
@@ -101,7 +129,7 @@ internal fun zenChanges(
                 }
             }
         }
-        return withSplits(items.map { it.id }.filter { it in projected }, space.id, folder, pinned = true)
+        return withSplits(items.map { it.id }.filter { it in projected }, space, folder, pinned = true)
     }
 
     for (space in state.spaces) {
@@ -117,7 +145,7 @@ internal fun zenChanges(
                 base[tab.id]?.let { projected[tab.id] = it }
             }
         }
-        val openIds = withSplits(open.map { it.id }.filter { it in projected }, space.id, folder = null, pinned = false)
+        val openIds = withSplits(open.map { it.id }.filter { it in projected }, space, folder = null, pinned = false)
         put(record.id, KIND_SPACE, record.data.with("children" to pinnedIds + openIds))
     }
 

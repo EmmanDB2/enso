@@ -99,6 +99,7 @@ import app.enso.browser.spacemenu.WaveSpace
 import app.enso.browser.spaces.Space
 import app.enso.browser.spaces.SpacesState
 import app.enso.browser.spaces.Split
+import app.enso.browser.spaces.SplitLayout
 import app.enso.browser.spaces.TabPlace
 import app.enso.browser.spaces.essentialsFor
 import app.enso.browser.spaces.find
@@ -111,6 +112,7 @@ import app.enso.browser.spaces.space
 import app.enso.browser.spaces.splitOf
 import app.enso.browser.spaces.splitWith
 import app.enso.browser.spaces.toggleFolder
+import app.enso.browser.spaces.unsplit
 import app.enso.browser.split.DraggedTab
 import app.enso.browser.split.PagePanes
 import app.enso.browser.split.SplitDivider
@@ -119,6 +121,7 @@ import app.enso.browser.split.SplitDropZone
 import app.enso.browser.split.TabDrag
 import app.enso.browser.split.dragDivider
 import app.enso.browser.split.paneRects
+import app.enso.browser.split.splitGaps
 import app.enso.browser.split.splitDropZone
 import app.enso.browser.split.splitShares
 import app.enso.browser.start.HistoryMatch
@@ -489,9 +492,13 @@ class MainActivity : ComponentActivity() {
     private fun focusPageAt(x: Float, y: Float) {
         shown.split ?: return
         if (startScreenVisible || sidebarMenu != null || zenSyncSheetOpen || tabDrag != null || dividerSizes != null) return
+        val split = shown.split ?: return
         val cards = pageCards().map { it.card }
         val reach = SplitDividerReach.value * resources.displayMetrics.density
-        if (cards.zipWithNext().any { (left, right) -> x >= left.right - reach && x <= right.left + reach }) return
+        val onDivider = splitGaps(cards, split.layout).any { (_, gap, across) ->
+            if (across) y >= gap.top - reach && y <= gap.bottom + reach else x >= gap.left - reach && x <= gap.right + reach
+        }
+        if (onDivider) return
         val index = cards.indexOfFirst { it.contains(Offset(x, y)) }
         val tabId = shown.tabIds.getOrNull(index) ?: return
         if (tabId == selectedTabId) return
@@ -509,7 +516,10 @@ class MainActivity : ComponentActivity() {
      * `--activity-single-top` while the app runs, so the intent reaches `onNewIntent`) with:
      * - `--ez enso_restore_zen_snapshot true`: puts Zen's spaces collection back as it was before the phone's
      *   first write.
-     * - `--es enso_debug_open <url>`: opens the URL in a Quick Tab, for test pages.
+     * - `--es enso_debug_open <url>`: opens the URL in a Quick Tab, for test pages. With `--ez enso_debug_kept true`
+     *   it's a normal tab instead, which syncs to Zen.
+     * - `--es enso_debug_split <tabId>`: splits the tab on screen with that tab, as a drop on the page does, and
+     *   `--es enso_debug_unsplit <splitId>` ends a split. Both sync, for testing splits with Zen on the cover.
      * - `--ez enso_debug_desktop_sites true|false`: switches desktop sites on or off whatever the screen, until
      *   the next fold or unfold.
      */
@@ -522,8 +532,22 @@ class MainActivity : ComponentActivity() {
         }
         intent.getStringExtra(EXTRA_DEBUG_OPEN)?.let { url ->
             intent.removeExtra(EXTRA_DEBUG_OPEN)
-            components.tabs.openNewTab(url, quick = true)
+            val kept = intent.getBooleanExtra(EXTRA_DEBUG_KEPT, false)
+            intent.removeExtra(EXTRA_DEBUG_KEPT)
+            components.tabs.openNewTab(url, quick = !kept)
             startScreenRequested = false
+            if (kept) components.zenSync.localEdited()
+        }
+        intent.getStringExtra(EXTRA_DEBUG_SPLIT)?.let { tabId ->
+            intent.removeExtra(EXTRA_DEBUG_SPLIT)
+            val selected = selectedTabId ?: return@let
+            components.spaces.update { it.splitWith(selected, tabId) }
+            components.zenSync.localEdited()
+        }
+        intent.getStringExtra(EXTRA_DEBUG_UNSPLIT)?.let { splitId ->
+            intent.removeExtra(EXTRA_DEBUG_UNSPLIT)
+            components.spaces.update { it.unsplit(splitId) }
+            components.zenSync.localEdited()
         }
         if (intent.hasExtra(EXTRA_DEBUG_DESKTOP_SITES)) {
             val desktop = intent.getBooleanExtra(EXTRA_DEBUG_DESKTOP_SITES, false)
@@ -685,13 +709,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        if (shown.split != null) {
-            cards.zipWithNext().forEachIndexed { index, (left, right) ->
+        shown.split?.let { split ->
+            splitGaps(cards.map { it.card }, split.layout).forEach { (index, gap, across) ->
                 SplitDivider(
-                    gapLeft = left.card.right,
-                    gapRight = right.card.left,
-                    top = left.card.top,
-                    bottom = left.card.bottom,
+                    gap = gap,
+                    across = across,
                     onDragStart = ::startDividerDrag,
                     onDrag = { moveDivider(index, it) },
                     onDragEnd = ::endDividerDrag,
@@ -739,10 +761,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** The page cards as drawn, with where their pages are: one card, or a split's pages side by side. */
+    /** The page cards as drawn, with where their pages are: one card, or a split's pages as Zen lays them out. */
     private fun pageCards(): List<PageCard> {
         val count = shown.tabIds.size.coerceAtLeast(1)
-        val drawn = paneRects(cardRect, count, dividerSizes ?: shown.split?.sizes.orEmpty(), splitGap())
+        val split = shown.split
+        val drawn = paneRects(cardRect, count, dividerSizes ?: split?.sizes.orEmpty(), splitGap(), split?.layout ?: SplitLayout.SideBySide)
         return drawn.mapIndexed { index, card -> PageCard(card, paneViewRects.getOrNull(index) ?: card) }
     }
 
@@ -759,9 +782,9 @@ class MainActivity : ComponentActivity() {
         val split = shown.split ?: return
         val count = split.tabIds.size
         val sizes = dividerSizes ?: return
-        val width = cardRect.width - splitGap() * (count - 1)
+        val length = (if (split.layout == SplitLayout.Stacked) cardRect.height else cardRect.width) - splitGap() * (count - 1)
         val min = SPLIT_PAGE_MIN_DP * resources.displayMetrics.density
-        dividerSizes = dragDivider(sizes, count, index, delta, width, min)
+        dividerSizes = dragDivider(sizes, count, index, delta, length, min)
     }
 
     private fun endDividerDrag() {
@@ -1475,7 +1498,13 @@ class MainActivity : ComponentActivity() {
         val pageLeft = pinnedPageDp?.let { barInsets.left + (it * density).toInt() + border } ?: left
         // A split's pages share the card, at the sizes the divider last stopped at.
         val pageArea = Rect(pageLeft.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
-        val rects = paneRects(pageArea, shown.tabIds.size.coerceAtLeast(1), shown.split?.sizes.orEmpty(), splitGap())
+        val rects = paneRects(
+            pageArea,
+            shown.tabIds.size.coerceAtLeast(1),
+            shown.split?.sizes.orEmpty(),
+            splitGap(),
+            shown.split?.layout ?: SplitLayout.SideBySide,
+        )
         paneViewRects = rects
         pagePanes.panes.drop(1).forEachIndexed { index, pane -> rects.getOrNull(index + 1)?.let { place(pane.container, it) } }
         if (!place(engineContainer, rects.first())) return
@@ -1547,7 +1576,7 @@ class MainActivity : ComponentActivity() {
         /** How far past the wave's ends its stretch of the edge ignores the back gesture. */
         const val WAVE_EXCLUSION_MARGIN_DP = 64
 
-        /** The narrowest a split's page gets when its divider is dragged. */
+        /** The narrowest (or, stacked, the shortest) a split's page gets when its divider is dragged. */
         const val SPLIT_PAGE_MIN_DP = 240
 
         /** A navigation bar this short or shorter is gesture navigation's handle, not a bar of buttons. */
@@ -1560,6 +1589,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
         const val EXTRA_DEBUG_OPEN = "enso_debug_open"
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
+        const val EXTRA_DEBUG_KEPT = "enso_debug_kept"
+        const val EXTRA_DEBUG_SPLIT = "enso_debug_split"
+        const val EXTRA_DEBUG_UNSPLIT = "enso_debug_unsplit"
 
         /** The tick for each space the space menu's selection moves through. */
         val SPACE_TICK = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {

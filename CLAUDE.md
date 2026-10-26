@@ -12,10 +12,10 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Don't build UI or features from later steps early, even as stubs.
 - If the spec is unclear or silent, ask instead of guessing. The spec lists its own open questions at the end.
 - Current step: **8, split view and Glance**, in three passes. Step 7 (the inner screen and space colors) is done.
-  - **8a (done): split view on the inner screen, phone only.** Splits aren't synced yet.
-  - **Now, ahead of 8b: the cover's bottom bar** (boards B1–B4), in the style of Arc Search. It replaced the top bar.
-  - **8b (next): splits sync both ways with Zen.** Dry-run first, with the snapshot copied into the backup folder.
-  - **8c: Glance** (board 8), on both screens. The cover's Glance has no Split button.
+  - **8a (done): split view on the inner screen.**
+  - **The cover's bottom bar (done)** (boards B1–B4), in the style of Arc Search, came in before 8b. It replaced the top bar.
+  - **8b (done): splits sync both ways with Zen.**
+  - **8c (next): Glance** (board 8), on both screens. The cover's Glance has no Split button.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -76,11 +76,17 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - It holds back deletions when a sync would delete more than 10 records, since that looks like lost data.
   - **Projector:** `ZenSpacesProjector.zenChanges` turns the phone's model into records.
     - Each record starts from the server's copy, and only fields the phone owns change: pinned, Essential, space, folder, children, folder names, and new tabs' pages. An untouched record comes out identical and isn't sent.
-    - Containers, icons, themes, split layouts and live folders' children pass through. Split views are rebuilt while their tabs still sit together.
+    - Containers, icons, themes and live folders' children pass through.
+    - **Splits:** the space's splits go to Zen in Zen's format (`splitId`, `gridType`, `pinned`, `tabs`, `workspaceUuid`, `folderId`), with the split's id in its parent's `children` in place of its tabs.
+      - A split only goes when all its tabs go under the same parent. A Quick Tab doesn't go, and Zen can't hold a pinned tab with an open one (it would duplicate the pinned tab), so those splits stay on the phone.
+      - Zen's own splits the phone hasn't taken on pass through while their tabs still sit together, unless the phone ended them (`endedSplits`) or put one of their tabs in a split of its own. That kept the first sync after the update from deleting the user's existing Zen split.
+      - Zen keeps the id the phone gives a new split (its `groupFetchId`).
     - It only deletes items the phone showed, so a record the phone never displayed isn't removed for being missing.
     - A tab from Zen keeps Zen's URL unless `syncTabNavigations` is on.
     - New IDs follow Zen's formats: tabs `<time>-<uuid>` and folders `<time>-<0..99>`. Spaces are `{uuid}`, and the phone can't create them.
-  - **Mapper:** `ZenSpacesMapper` applies the mirror through `TabManager.applySpaces`. Zen owns spaces, pinned tabs, folders (which can nest) and Essentials. The phone keeps its Quick Tabs and its own open tabs (`Tab.synced` tells them apart).
+  - **Mapper:** `ZenSpacesMapper` applies the mirror through `TabManager.applySpaces`. Zen owns spaces, pinned tabs, folders (which can nest), split views and Essentials. The phone keeps its Quick Tabs and its own open tabs (`Tab.synced` tells them apart).
+    - Zen's splits become phone splits (`Split.synced`), keeping the sizes the phone gave them while their pages and layout stay the same. Zen's splits come first, so where a tab ends up in two, Zen's wins.
+    - The phone's own splits stay unless they were Zen's and Zen no longer has them, which means they ended on the desktop. Splits the phone ended stay out until Zen has dropped them too (`endedSplits`).
     - Open tabs follow Zen's order, and each phone-only tab stays after the tab it followed.
     - A tab ID must never be listed twice, or Zen gets duplicate children.
   - **Space look:** the accent comes from the theme's primary gradient color, and `Space.gradient` keeps all of its colors (Zen allows up to three). Icons go through `ZenIcons`.
@@ -128,7 +134,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - Tap it for bottom search on the cover, or the palette on the inner screen; swipe down for the tab sheet.
   - Back returns to the last tab.
 - `split/`: split view (board 7).
-  - **Model:** `Space.splits` holds each `Split`: its tab IDs in page order, and its page `sizes`, which stay on the phone. The tabs stay where they live. `SplitRows` (in `tabsheet/`) shows each split as one row where its first tab sits, and hides its other tabs.
+  - **Model:** `Space.splits` holds each `Split`: its tab IDs in page order, its `layout` (Zen's `gridType`: side by side, stacked or grid), its page `sizes`, which stay on the phone, and whether it came from Zen (`synced`). The tabs stay where they live. `SplitRows` (in `tabsheet/`) shows each split as one row where its first tab sits, and hides its other tabs.
   - **Pages:** `PagePanes` holds one page view per page on screen, and replaces AC's `SessionFeature`.
     - Each view keeps its tab while the focus moves around a split, so pages never swap views.
     - A GeckoSession can only be in one view, so a view releases its tab before another view takes it.
@@ -136,13 +142,13 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **What shows:** `MainActivity.shownFor` picks the pages: the selected tab's split on the inner screen, otherwise just the selected tab.
     - The selected tab is the focused page.
     - A touch-down on another page selects it (`focusPageAt`, from `dispatchTouchEvent`), and the touch still reaches the page.
-  - **Layout:** `paneRects` shares the card out with a 4 dp gap, the border's width, kept even with the border off.
+  - **Layout:** `paneRects` shares the card out with a 4 dp gap, the border's width, kept even with the border off. A grid, as in Zen, has two columns with the first two pages on the left; two pages in a grid sit side by side. Zen allows up to four.
     - `InnerFrame` takes a `PageCard` per page: where it's drawn, and where its view is.
     - While the divider drags, only the drawn cards move. The frame paints blank page where a card has no view under it, and the views resize once, at the end.
-  - **Divider:** `SplitDivider` reaches 10 dp into each page. A drag resizes the pages, each to at least 240 dp (`SPLIT_PAGE_MIN_DP`), and a long press makes them equal.
+  - **Divider:** `SplitDivider` reaches 10 dp into each page. A drag resizes the pages, each to at least 240 dp (`SPLIT_PAGE_MIN_DP`), and a long press makes them equal. Stacked pages resize up and down (`SplitGap.across`); a grid's pages stay equal, so it has no dividers (`splitGaps`).
   - **Drag to split:** `dragAfterHold` (`tabsheet/TabDrag.kt`) watches rows in the initial pass. A hold opens the row's menu as usual, and moving on turns it into a drag. A drop on `splitDropZone` (the card's right half) calls `splitWith`.
     - The rail's tiles sit in Android's left-edge back-gesture zone. A real held thumb cancels the back gesture, but scripted `input motionevent` touches don't count as held, so start scripted drags there at x ≥ 105 px.
-  - **Sync:** none yet (8a). The mapper keeps the phone's `splits` through each sync.
+  - **Sync:** both ways with Zen (see `sync/`). Ending a split from Zen adds it to `endedSplits` until the deletion reaches Zen.
 - `bottombar/`: the cover's bottom bar (boards B1–B4), in the style of Arc Search. The inner screen doesn't get it.
   - `BottomBar` draws the bar and its panels in the overlay, over the start screen and under the tab sheet. A panel (`BarPanel`) is the same surface growing upward: an `AnimatedContent` with a `SizeTransform` above the bar's row, anchored at the bottom.
   - **Hide-on-scroll:** an invisible `ScrollingBarView` anchor (`barAnchor`) sits at the bottom with AC's scrolling behavior. The activity copies its `translationY` into `barOffset` before each draw, and the Compose bar offsets by it.
@@ -245,7 +251,10 @@ The Fold connects over wireless debugging. Wireless debugging must be on in Deve
   - Hold a swipe partway: `motionevent DOWN|MOVE|UP x y`. The space menu tests this way: `DOWN 1235 1650` on the right edge, wait, `MOVE` up or down about 189 px (72 dp) per space, then `UP`. The user often uses the Fold while you test, so check the state between gestures rather than assuming your touches were the only ones.
 - **The cover's bottom bar:** its row sits at y ≈ 1832 on the cover: the Quick Tabs stack at x 107, "+" at 625 and the chevron at 1140. `adb shell uiautomator dump` lists every view's on-screen bounds (scroll translations included) without touching the screen.
 - **Test pages from the Mac:** serve them on `127.0.0.1:<port>` and run `adb reverse tcp:<port> tcp:<port>`. The Fold can then open `http://localhost:<port>/…`.
-  - Debug builds take two test extras: `--es enso_debug_open <url>` opens a URL in a Quick Tab, and `--ez enso_debug_desktop_sites true|false` switches desktop sites whatever the screen, until the next fold or unfold.
+  - Debug builds take test extras:
+    - `--es enso_debug_open <url>` opens a URL in a Quick Tab; add `--ez enso_debug_kept true` for a normal tab, which syncs to Zen.
+    - `--es enso_debug_split <tabId>` splits the tab on screen with that tab, and `--es enso_debug_unsplit <splitId>` ends a split. Both sync, so splits can be tested with Zen without unfolding.
+    - `--ez enso_debug_desktop_sites true|false` switches desktop sites whatever the screen, until the next fold or unfold.
   - While Ensō is running, add `--activity-single-top` to the `am start` command, or the extras never reach it.
 
 ## Testing on the Fold
@@ -261,6 +270,7 @@ The user browses with this build on the Fold, so its tabs are real.
   - To put the collection back (debug builds only): `adb shell am start -n app.enso.browser/.MainActivity --ez enso_restore_zen_snapshot true`.
   - Try risky changes in dry-run first: set `zen_sync_dry_run` to true in the prefs file while the app is stopped. The log (tag `ZenSync`) lists each record it would send and which fields changed.
   - Test with your own tabs and folders in one space, then remove them, so the deletions get tested too.
+  - The user may be changing things in Zen at the same time. Zen's tab, folder and split ids start with their creation time in milliseconds, which tells whether a record came from the phone's sync or from the desktop.
 - **Restore if needed:** stop the app with `am force-stop`, then run `adb exec-in run-as app.enso.browser sh -c 'cat > files/spaces.json' < backup.json`.
 - **Edge swipes:** a swipe that starts within about 60 px of the left or right edge is Android's back gesture. Start sideways swipes further in.
 - **Faking time:**

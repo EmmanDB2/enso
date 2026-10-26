@@ -168,8 +168,14 @@ fun SpacesState.splitWith(tabId: String, withTabId: String): SpacesState {
     }.withValidSplits()
 }
 
-fun SpacesState.unsplit(splitId: String) =
-    copy(spaces = spaces.map { space -> space.copy(splits = space.splits.filterNot { it.id == splitId }) })
+/** Ends a split. One from Zen is remembered until the sync has removed it there too. */
+fun SpacesState.unsplit(splitId: String): SpacesState {
+    val fromZen = spaces.any { space -> space.splits.any { it.id == splitId && it.synced } }
+    return copy(
+        spaces = spaces.map { space -> space.copy(splits = space.splits.filterNot { it.id == splitId }) },
+        endedSplits = if (fromZen) endedSplits + splitId else endedSplits,
+    )
+}
 
 /** Sets each page's share of the split's width, left to right; empty makes them equal. */
 fun SpacesState.resizeSplit(splitId: String, sizes: List<Float>) = copy(
@@ -193,7 +199,8 @@ fun SpacesState.withValidSplits(): SpacesState {
                 val tabIds = split.tabIds.filter { it in ids && it !in taken }.distinct()
                 if (tabIds.size < 2) return@mapNotNull null
                 taken += tabIds
-                val sizesFit = split.sizes.isEmpty() || split.sizes.size == tabIds.size
+                // Grids don't resize, and a resized split that loses a tab starts over at equal sizes.
+                val sizesFit = split.sizes.isEmpty() || (split.sizes.size == tabIds.size && split.layout != SplitLayout.Grid)
                 if (tabIds == split.tabIds && sizesFit) split else split.copy(tabIds = tabIds, sizes = emptyList())
             }
             if (kept == space.splits) space else space.copy(splits = kept)

@@ -15,6 +15,8 @@ data class SpacesState(
     /** Shared across all spaces, like Zen. */
     val essentials: List<Tab> = emptyList(),
     val currentSpaceId: String,
+    /** Zen splits the phone ended, kept until Zen has removed them too, so a sync can't bring them back. */
+    val endedSplits: Set<String> = emptySet(),
 ) {
     val currentSpace: Space get() = spaces.first { it.id == currentSpaceId }
 
@@ -64,14 +66,36 @@ data class Space(
 @Serializable
 data class Split(
     val id: String,
-    /** Its tabs in page order, left to right. */
+    /** Its tabs in page order: left to right, top to bottom, or down each column of a grid. */
     val tabIds: List<String>,
+    val layout: SplitLayout = SplitLayout.SideBySide,
     /**
-     * Each page's share of the width, left to right, set by dragging the divider. Empty means equal. It stays on
-     * the phone: Zen doesn't sync sizes.
+     * Each page's share of the width (or the height, stacked), set by dragging a divider. Empty means equal. It stays
+     * on the phone: Zen doesn't sync sizes.
      */
     val sizes: List<Float> = emptyList(),
+    /** Mirrors a split record in Zen's spaces sync. Splits without it exist only on the phone (or aren't sent yet). */
+    val synced: Boolean = false,
 )
+
+/** How a split's pages sit, as Zen's split view lays them out (its `gridType`). */
+@Serializable
+enum class SplitLayout(val zenName: String) {
+    /** In a row. */
+    SideBySide("vsep"),
+
+    /** In a column. */
+    Stacked("hsep"),
+
+    /** Two columns: the first two tabs on the left and the rest on the right. Two tabs sit side by side. */
+    Grid("grid"),
+    ;
+
+    companion object {
+        /** Zen's `gridType`; Zen's own default for one it doesn't name is a grid. */
+        fun ofZen(name: String?): SplitLayout = entries.firstOrNull { it.zenName == name } ?: Grid
+    }
+}
 
 @Serializable
 sealed interface PinnedItem {
