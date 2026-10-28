@@ -235,10 +235,10 @@ Shapes and type:
 
 - Rows 44–48 px tall with 12 px corners; current-tab card 14 px corners; menus and the palette 16–18 px corners.
 - Font in mockups: Inter, 15–16 px for rows, 22–24 px for the space name.
-- Icons: thin line icons (about 1.8 px stroke). Real favicons replace the letter placeholders, drawn on their own with no circle behind them; only a mostly white icon gets a dark circle, so it stays visible. Letters remain as the fallback.
+- Icons: thin line icons (about 1.8 px stroke). Real favicons replace the letter placeholders, drawn on their own with no circle behind them; only an icon that would vanish gets a circle (a mostly white one in light mode, a mostly black one in dark). Letters remain as the fallback.
 - The space menu (board 3) is a frosted overlay: the blurred page under a light frost and the space's tint.
 - **Motion:** rows fade in and out and slide into place as tabs open, close or move, and as folders open and close; cards (the sync sheet, prompts, the Extensions card) fade in with a slight scale; the start screen and pages cross-fade; a favicon fades in over its letter once it loads.
-- **Dark mode** follows Android's dark theme, with a setting to override it (system, light or dark). Every token above gets a dark value, and web pages are asked for their dark version too.
+- **Dark mode** follows Android's dark theme, with a setting to override it (system, light or dark). Every token above gets a dark value, and web pages are asked for their dark version too. Dark surfaces use Zen's own dark base (rgb 23, 23, 26) under the space colors, so a space looks as it does in Zen's dark mode.
 
 ## Extensions
 

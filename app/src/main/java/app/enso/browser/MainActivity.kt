@@ -160,6 +160,7 @@ import app.enso.browser.toolbar.toPageState
 import app.enso.browser.ui.AnimatedCard
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoMotion
+import app.enso.browser.ui.EnsoTheme
 import app.enso.browser.ui.FrostedOver
 import app.enso.browser.ui.FrostedPage
 import app.enso.browser.ui.LocalFavicons
@@ -183,6 +184,7 @@ import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.createCustomTab
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.HitResult
+import mozilla.components.concept.engine.mediaquery.PreferredColorScheme
 import mozilla.components.browser.thumbnails.BrowserThumbnails
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.concept.engine.mediasession.MediaSession
@@ -383,6 +385,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.getInsetsController(window, window.decorView).systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // Before any view takes a color.
+        applyTheme()
 
         inner = isInnerScreen(resources.configuration)
         // Before any tab gets an engine session, so the restored ones start in the right mode.
@@ -416,8 +420,10 @@ class MainActivity : ComponentActivity() {
         }
         overlay = ComposeView(this).apply {
             setContent {
-                CompositionLocalProvider(LocalSpaceMenuBlocks provides spaceMenuBlocks, LocalFavicons provides components.favicons) {
-                    OverlayContent()
+                EnsoTheme {
+                    CompositionLocalProvider(LocalSpaceMenuBlocks provides spaceMenuBlocks, LocalFavicons provides components.favicons) {
+                        OverlayContent()
+                    }
                 }
             }
         }
@@ -433,7 +439,7 @@ class MainActivity : ComponentActivity() {
         // Beside the root rather than in it, so the tint covers the system bars too.
         spaceWaveView = ComposeView(this).apply {
             isVisible = false
-            setContent { SpaceWave(spaceWave, onPick = ::addToSpace) }
+            setContent { EnsoTheme { SpaceWave(spaceWave, onPick = ::addToSpace) } }
         }
         addContentView(spaceWaveView, ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         spaceMenuGesture = SpaceMenuGesture(
@@ -530,6 +536,8 @@ class MainActivity : ComponentActivity() {
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        // Android's dark theme arrives here too: the activity handles uiMode itself.
+        applyTheme(newConfig)
         val nowInner = isInnerScreen(newConfig)
         if (nowInner == inner) return
         inner = nowInner
@@ -1841,8 +1849,7 @@ class MainActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             // The tinted strip under the status bar takes the top of the space's colors, as the bar takes the bottom.
-            components.spaces.state
-                .map { it.currentSpace.colors().stops.first().toArgb() }
+            combine(components.spaces.state, snapshotFlow { EnsoColors.dark }) { state, _ -> state.currentSpace.colors().stops.first().toArgb() }
                 .distinctUntilChanged()
                 .collect { statusBand.setBackgroundColor(it) }
         }
@@ -1981,6 +1988,35 @@ class MainActivity : ComponentActivity() {
     private fun onBarCollapsedChanged(collapsed: Boolean) {
         bottomEdge.isVisible = collapsed && !inner
         updateStatusBar()
+    }
+
+    /**
+     * Light or dark (step 10): as Android's dark theme is, unless [Settings.themeMode] picks one. Composables follow
+     * [EnsoColors.dark] by themselves. This sets the views that took a color once, the system bars' icons, and the
+     * scheme Gecko asks pages for, which follows the system by itself unless Ensō picked one.
+     */
+    private fun applyTheme(config: Configuration = resources.configuration) {
+        val mode = components.settings.themeMode
+        val dark = when (mode) {
+            ThemeMode.System -> config.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+            ThemeMode.Light -> false
+            ThemeMode.Dark -> true
+        }
+        EnsoColors.dark = dark
+        components.engine.settings.preferredColorScheme = when (mode) {
+            ThemeMode.System -> PreferredColorScheme.System
+            ThemeMode.Light -> PreferredColorScheme.Light
+            ThemeMode.Dark -> PreferredColorScheme.Dark
+        }
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+        val page = EnsoColors.Page.toArgb()
+        window.decorView.setBackgroundColor(page)
+        if (::root.isInitialized) root.setBackgroundColor(page)
+        if (::pagePanes.isInitialized) pagePanes.recolor()
+        floatingPageView?.recolor()
     }
 
     /**

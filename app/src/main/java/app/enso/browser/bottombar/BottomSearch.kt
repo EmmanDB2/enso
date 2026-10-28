@@ -79,7 +79,7 @@ internal fun SearchSuggestions(spaces: SpacesState, query: String, mode: SearchM
         tabs.asReversed().forEach { tab ->
             PaletteRow(
                 leading = {
-                    Favicon(tab, size = 26.dp, ring = if (tab.quick != null) EnsoColors.QuickTabOutlineOnLight else null)
+                    Favicon(tab, size = 26.dp, ring = if (tab.quick != null) EnsoColors.QuickTabOutline else null)
                 },
                 title = tab.displayTitle(),
                 trailing = { SwitchToTabChip() },
@@ -143,7 +143,7 @@ internal fun SearchRow(
             }
             if (mode == SearchMode.NewQuickTab) {
                 Spacer(Modifier.width(8.dp))
-                Box(Modifier.size(8.dp).background(EnsoColors.QuickTabOutlineOnLight, CircleShape))
+                Box(Modifier.size(8.dp).background(EnsoColors.QuickTabOutline, CircleShape))
                 Spacer(Modifier.width(6.dp))
                 Text(
                     stringResource(R.string.search_quick_tab_tag),

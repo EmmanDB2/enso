@@ -351,7 +351,7 @@ private fun MenuCard(header: String, items: List<MenuItem?>, accent: Color) {
         Modifier
             .width(280.dp)
             .shadow(12.dp, shape)
-            .background(Color.White, shape)
+            .background(EnsoColors.Card, shape)
             .clip(shape)
             // Taps inside the card shouldn't reach the dim layer and dismiss it.
             .pointerInput(Unit) { detectTapGestures { } },
@@ -465,7 +465,7 @@ private fun FolderNameDialog(
             )
         },
         shape = RoundedCornerShape(18.dp),
-        containerColor = Color.White,
+        containerColor = EnsoColors.Card,
     )
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 }

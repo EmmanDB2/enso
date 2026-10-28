@@ -56,7 +56,7 @@ fun ZenSyncSheet(
                 .widthIn(max = 480.dp)
                 .fillMaxWidth()
                 .shadow(16.dp, shape)
-                .background(Color.White, shape)
+                .background(EnsoColors.Card, shape)
                 .clip(shape)
                 // Taps inside the card shouldn't reach the dim layer and close it.
                 .pointerInput(Unit) { detectTapGestures { } }

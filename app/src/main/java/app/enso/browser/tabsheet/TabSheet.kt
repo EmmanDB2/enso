@@ -482,7 +482,7 @@ internal fun TabSheetActions.swipe(tabId: String, action: SwipeAction) = when (a
 
 private fun Modifier.rowSurface(highlight: RowHighlight, colors: SpaceColors) = when (highlight) {
     RowHighlight.Current -> background(EnsoColors.CurrentTab)
-    RowHighlight.Soft -> spaceSurface(colors).background(SoftHighlight)
+    RowHighlight.Soft -> spaceSurface(colors).background(EnsoColors.SoftHighlight)
     RowHighlight.None -> spaceSurface(colors)
 }
 
@@ -795,9 +795,7 @@ private fun SheetSearchField(
 /** How much deeper each folder level sits. */
 internal val FolderIndent = 32.dp
 
-/** The white wash over the sheet's pinned current tab. */
-private val SoftHighlight = Color.White.copy(alpha = 0.55f)
 
 /** Quick Tabs get a 2dp gold outline (spec: Quick Tabs, "Look"). */
 internal fun Modifier.quickTabOutline(tab: Tab, shape: Shape): Modifier =
-    if (tab.quick != null) border(2.dp, EnsoColors.QuickTabOutlineOnLight, shape) else this
+    if (tab.quick != null) border(2.dp, EnsoColors.QuickTabOutline, shape) else this

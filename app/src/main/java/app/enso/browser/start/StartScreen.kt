@@ -200,7 +200,7 @@ private fun SearchPalette(
                 .fillMaxWidth()
                 .heightIn(max = maxHeight - top - 12.dp)
                 .shadow(16.dp, shape)
-                .background(Color.White, shape)
+                .background(EnsoColors.Card, shape)
                 .clip(shape)
                 // Taps inside the card shouldn't reach the dim layer and close it.
                 .pointerInput(Unit) { detectTapGestures { } },
@@ -224,7 +224,7 @@ private fun SearchPalette(
                             Favicon(
                                 tab,
                                 size = 26.dp,
-                                ring = if (tab.quick != null) EnsoColors.QuickTabOutlineOnLight else null,
+                                ring = if (tab.quick != null) EnsoColors.QuickTabOutline else null,
                             )
                         },
                         title = tab.displayTitle(),
@@ -246,7 +246,7 @@ private fun SearchPalette(
             }
             PaletteDivider()
             Row(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).background(EnsoColors.QuickTabOutlineOnLight, CircleShape))
+                Box(Modifier.size(8.dp).background(EnsoColors.QuickTabOutline, CircleShape))
                 Spacer(Modifier.width(12.dp))
                 Text(stringResource(R.string.palette_footer), style = EnsoType.Secondary)
             }
@@ -335,7 +335,7 @@ internal fun SwitchToTabChip() {
             Modifier.size(22.dp).background(EnsoColors.TextSecondary, RoundedCornerShape(6.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(painterResource(R.drawable.ic_arrow_right), contentDescription = null, Modifier.size(14.dp), tint = Color.White)
+            Icon(painterResource(R.drawable.ic_arrow_right), contentDescription = null, Modifier.size(14.dp), tint = EnsoColors.OnTextPrimary)
         }
     }
 }

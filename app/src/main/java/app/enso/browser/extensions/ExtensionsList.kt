@@ -193,7 +193,7 @@ private fun ExtensionRowItem(row: ExtensionRow, actions: ExtensionListActions) {
                 onCheckedChange = { actions.setEnabled(row.id, it) },
                 colors = SwitchDefaults.colors(
                     checkedTrackColor = EnsoColors.TextPrimary,
-                    checkedThumbColor = Color.White,
+                    checkedThumbColor = EnsoColors.Card,
                     uncheckedTrackColor = EnsoColors.FieldFill,
                     uncheckedBorderColor = EnsoColors.TextSecondary.copy(alpha = 0.4f),
                 ),
@@ -203,7 +203,7 @@ private fun ExtensionRowItem(row: ExtensionRow, actions: ExtensionListActions) {
             expanded = menu,
             onDismissRequest = { menu = false },
             shape = RoundedCornerShape(16.dp),
-            containerColor = Color.White,
+            containerColor = EnsoColors.Card,
         ) {
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.action_settings), style = EnsoType.MenuItem) },

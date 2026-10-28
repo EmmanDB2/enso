@@ -89,6 +89,9 @@ class PageView(
         view.setActivityContext(null)
         view.release()
     }
+
+    /** Its blank page's color again, after Ensō switches between light and dark. */
+    fun recolor() = container.setBackgroundColor(EnsoColors.Page.toArgb())
 }
 
 /**
@@ -122,4 +125,6 @@ class PagePanes(
     }
 
     fun release() = panes.forEach { it.release() }
+
+    fun recolor() = panes.forEach { it.recolor() }
 }

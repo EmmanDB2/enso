@@ -95,7 +95,7 @@ fun ExtensionPromptCard(
                 .widthIn(max = 440.dp)
                 .fillMaxWidth()
                 .shadow(16.dp, shape)
-                .background(Color.White, shape)
+                .background(EnsoColors.Card, shape)
                 .clip(shape)
                 // Taps inside the card shouldn't reach the dim layer and close it.
                 .pointerInput(Unit) { detectTapGestures { } }

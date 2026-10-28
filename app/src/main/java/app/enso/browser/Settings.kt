@@ -19,6 +19,14 @@ enum class CoverStatusBar {
     TintedStrip,
 }
 
+/** Whether Ensō is light or dark (step 10). Pages are asked for the same. */
+enum class ThemeMode {
+    /** As Android's dark theme is. */
+    System,
+    Light,
+    Dark,
+}
+
 /** Which layout the unfolded screen uses while it's held in portrait. */
 enum class UnfoldedPortraitLayout {
     /** The sidebar or rail beside the page card, as in landscape (boards 5 and 6). */
@@ -32,6 +40,13 @@ class Settings(context: Context) {
     private val prefs = context.getSharedPreferences("enso_settings", Context.MODE_PRIVATE)
 
     // User preferences. None are in a settings UI yet; they're meant to become settings later.
+
+    /** Light or dark: Android's dark theme decides, unless this picks one. */
+    var themeMode: ThemeMode
+        get() = prefs.getString(KEY_THEME_MODE, null)
+            ?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } }
+            ?: ThemeMode.System
+        set(value) = prefs.edit { putString(KEY_THEME_MODE, value.name) }
 
     /** What the cover does with the status bar while you browse. */
     var coverStatusBar: CoverStatusBar
@@ -179,6 +194,7 @@ class Settings(context: Context) {
         // The key predates the bottom bar, when it also covered the cover; it stays so the saved choice carries over.
         const val KEY_HIDE_STATUS_BAR = "hide_status_bar_with_top_bar"
         const val KEY_COVER_STATUS_BAR = "cover_status_bar"
+        const val KEY_THEME_MODE = "theme_mode"
         const val KEY_QUICK_TABS_IN_TAB_SHEET = "quick_tabs_in_tab_sheet"
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
         const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"

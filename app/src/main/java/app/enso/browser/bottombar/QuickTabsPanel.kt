@@ -178,7 +178,7 @@ private fun QuickTabCard(
             }
             .shadow(if (focused) 14.dp else 6.dp, shape)
             .background(EnsoColors.CurrentTab, shape)
-            .border(2.dp, EnsoColors.QuickTabOutlineOnLight, shape)
+            .border(2.dp, EnsoColors.QuickTabOutline, shape)
             .clip(shape)
             .clickable(onClick = onOpen),
     ) {
@@ -219,7 +219,7 @@ private fun QuickTabCard(
             Favicon(tab, size = 48.dp)
         }
         Row(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).background(EnsoColors.QuickTabOutlineOnLight, CircleShape))
+            Box(Modifier.size(8.dp).background(EnsoColors.QuickTabOutline, CircleShape))
             Spacer(Modifier.width(10.dp))
             Text(stringResource(R.string.quick_tab_clears_in, clearsIn(remainingMs)), style = EnsoType.Secondary)
         }
@@ -257,7 +257,7 @@ private fun PageDots(count: Int, current: Int, modifier: Modifier = Modifier) {
                 Modifier
                     .size(width = width, height = 6.dp)
                     .background(
-                        if (index == current) EnsoColors.QuickTabOutlineOnLight else EnsoColors.TextSecondary.copy(alpha = 0.35f),
+                        if (index == current) EnsoColors.QuickTabOutline else EnsoColors.TextSecondary.copy(alpha = 0.35f),
                         CircleShape,
                     ),
             )

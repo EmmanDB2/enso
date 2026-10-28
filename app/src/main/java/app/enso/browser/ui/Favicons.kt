@@ -60,8 +60,8 @@ private val FaviconFills = listOf(
 )
 
 /**
- * Where favicons come from (spec: visual style), best first: a loaded tab's page icon, which AC's icon module puts in
- * the store; Zen's icon for a synced tab; the icon module's caches; the site's `/favicon.ico`. A page with none of
+ * Where favicons come from (spec: visual style), best first: a loaded tab's page icon, which the page reports to AC's
+ * icon module; Zen's icon for a synced tab; the icon module's caches; the site's `/favicon.ico`. A page with none of
  * these keeps its letter. Composables reach it through [LocalFavicons].
  */
 class FaviconSource(
@@ -72,8 +72,11 @@ class FaviconSource(
 ) {
     private val scope = MainScope()
 
-    /** Loaded tabs' page icons, by tab id. */
-    val pageIcons: StateFlow<Map<String, Bitmap>> = store.flow()
+    /**
+     * What AC's icon module put in the store for loaded tabs, by tab id. Only a sign that the page has reported its
+     * icons: when it has none, the module puts its own made-up icon (a colored square with a letter) there too.
+     */
+    val pageReports: StateFlow<Map<String, Bitmap>> = store.flow()
         .map { state -> state.tabs.mapNotNull { tab -> tab.content.icon?.let { tab.id to it } }.toMap() }
         .distinctUntilChanged()
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
@@ -83,10 +86,14 @@ class FaviconSource(
 
     fun found(url: String, zenIcon: String?): Bitmap? = found.get(keyOf(url, zenIcon))
 
-    /** The icon for a page that isn't loaded, or null when only its letter is left. */
-    suspend fun load(url: String, zenIcon: String?): Bitmap? = try {
+    /**
+     * A page's icon, or null when only its letter is left. For a page that's loaded ([pageLoaded]), the icons it
+     * reported come first: the module remembers them for its address.
+     */
+    suspend fun load(url: String, zenIcon: String?, pageLoaded: Boolean): Bitmap? = try {
         val zen = zenIcon?.let { listOf(IconRequest.Resource(it, IconRequest.Resource.Type.FAVICON)) }.orEmpty()
-        val icon = request(url, zen)
+        val icon = (if (pageLoaded) request(url, emptyList()) else null)
+            ?: request(url, zen)
             // Nothing known for the page: the site's own default icon, which the module then remembers for it.
             ?: siteRoot(url)?.let { root -> request(url, listOf(IconRequest.Resource("$root/favicon.ico", IconRequest.Resource.Type.FAVICON))) }
         icon?.also { found.put(keyOf(url, zenIcon), it) }
@@ -135,16 +142,17 @@ fun Favicon(title: String, url: String, tabId: String?, modifier: Modifier = Mod
         LetterFavicon(title, url, modifier, size, ring)
         return
     }
-    val pageIcons by source.pageIcons.collectAsState()
+    val pageReports by source.pageReports.collectAsState()
     val zenIcons by source.zenIcons.collectAsState()
-    val pageIcon = tabId?.let { pageIcons[it] }
+    val pageReport = tabId?.let { pageReports[it] }
     val zenIcon = tabId?.let { zenIcons[it] }
-    var loaded by remember(url, zenIcon) { mutableStateOf(source.found(url, zenIcon)) }
-    LaunchedEffect(url, zenIcon, pageIcon == null) {
-        if (pageIcon == null && loaded == null) loaded = source.load(url, zenIcon)
+    var shown by remember(url, zenIcon) { mutableStateOf(source.found(url, zenIcon)) }
+    // Again whenever the page reports its icons, since the report itself may be the module's made-up one.
+    LaunchedEffect(url, zenIcon, pageReport) {
+        if (pageReport != null || shown == null) shown = source.load(url, zenIcon, pageLoaded = pageReport != null)
     }
     // The letter gives way to the icon once it loads; an icon found already shows at once.
-    Crossfade(pageIcon ?: loaded, modifier, tween(EnsoMotion.FAVICON_FADE_MS), label = "favicon") { bitmap ->
+    Crossfade(shown, modifier, tween(EnsoMotion.FAVICON_FADE_MS), label = "favicon") { bitmap ->
         if (bitmap == null) LetterFavicon(title, url, size = size, ring = ring) else FaviconImage(bitmap, size, ring)
     }
 }
@@ -152,15 +160,17 @@ fun Favicon(title: String, url: String, tabId: String?, modifier: Modifier = Mod
 @Composable
 private fun FaviconImage(bitmap: Bitmap, size: Dp, ring: Color?) {
     val image = remember(bitmap) { bitmap.asImageBitmap() }
-    // The user wanted no circles behind favicons, but a white mark (GitHub's, for dark themes) would vanish on the
-    // light surfaces, so only those get a dark one.
-    val light = remember(bitmap) { bitmap.isLight() }
+    // The user wanted no circles behind favicons, but a mostly white mark (GitHub's for dark themes) would vanish on
+    // light surfaces, and a mostly black one in dark mode, so only those get a circle.
+    val dark = EnsoColors.dark
+    val lightness = remember(bitmap) { bitmap.lightness() }
+    val vanishes = if (dark) lightness < DARK_ICON else lightness > LIGHT_ICON
     val icon = @Composable { iconModifier: Modifier ->
         Box(
-            iconModifier.size(size).then(if (light) Modifier.background(EnsoColors.FaviconBackdropForLight, CircleShape) else Modifier),
+            iconModifier.size(size).then(if (vanishes) Modifier.background(EnsoColors.FaviconContrastCircle, CircleShape) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
-            val iconSize = size * if (light) FAVICON_IN_CIRCLE else FAVICON_SCALE
+            val iconSize = size * if (vanishes) FAVICON_IN_CIRCLE else FAVICON_SCALE
             Image(image, contentDescription = null, modifier = Modifier.size(iconSize).clip(RoundedCornerShape(iconSize * 0.18f)))
         }
     }
@@ -176,11 +186,14 @@ private fun FaviconImage(bitmap: Bitmap, size: Dp, ring: Color?) {
 /** A favicon's size within the space a letter takes. */
 private const val FAVICON_SCALE = 0.8f
 
-/** A white favicon's size within its dark circle. */
+/** A favicon's size within its contrast circle. */
 private const val FAVICON_IN_CIRCLE = 0.66f
 
-/** Whether an icon is mostly white or near it, judged on a 16-pixel copy with its transparent parts left out. */
-private fun Bitmap.isLight(): Boolean {
+/**
+ * How light an icon is on average, from 0 (black) to 1 (white), judged on a 16-pixel copy with its transparent parts
+ * left out. NaN for an icon with nothing showing.
+ */
+private fun Bitmap.lightness(): Float {
     val readable = if (config == Bitmap.Config.HARDWARE) copy(Bitmap.Config.ARGB_8888, false) else this
     val small = Bitmap.createScaledBitmap(readable, LIGHTNESS_SAMPLE, LIGHTNESS_SAMPLE, true)
     val pixels = IntArray(LIGHTNESS_SAMPLE * LIGHTNESS_SAMPLE)
@@ -195,13 +208,19 @@ private fun Bitmap.isLight(): Boolean {
         weight += alpha
         lightness += alpha * luminance
     }
-    return weight > 0f && lightness / weight > LIGHT_ICON
+    return if (weight > 0f) lightness / weight else Float.NaN
 }
 
 private const val LIGHTNESS_SAMPLE = 16
 
 /** Average lightness above which an icon counts as white. */
 private const val LIGHT_ICON = 0.82f
+
+/** Average lightness below which an icon counts as black. */
+private const val DARK_ICON = 0.18f
+
+/** The letter placeholders' pastel circles stay light in dark mode, so their letters stay dark. */
+private val LetterInk = Color(0xFF26232B)
 
 /**
  * Letter placeholder in a circle: the fallback for a page without a favicon ([Favicon]). [ring] draws a ring around
@@ -222,7 +241,7 @@ fun LetterFavicon(
         Box(circleModifier.size(size).background(fill, CircleShape), contentAlignment = Alignment.Center) {
             Text(
                 letter.toString(),
-                style = EnsoType.Row.copy(fontSize = (size.value * 0.5f).sp, fontWeight = FontWeight.Bold),
+                style = EnsoType.Row.copy(fontSize = (size.value * 0.5f).sp, fontWeight = FontWeight.Bold, color = LetterInk),
             )
         }
     }

@@ -150,7 +150,7 @@ internal fun OverflowMenu(onOpenExtensions: () -> Unit, onOpenZenSync: () -> Uni
             expanded = expanded,
             onDismissRequest = { expanded = false },
             shape = RoundedCornerShape(16.dp),
-            containerColor = Color.White,
+            containerColor = EnsoColors.Card,
             shadowElevation = 8.dp,
         ) {
             MenuRow(R.drawable.ic_extensions, R.string.action_extensions) {

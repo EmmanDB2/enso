@@ -357,7 +357,7 @@ private fun Chevron(down: Boolean, onClick: () -> Unit) {
             painterResource(if (down) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up),
             contentDescription = stringResource(if (down) R.string.bar_close else R.string.bar_actions),
             Modifier.size(24.dp),
-            tint = if (down) Color.White else EnsoColors.TextPrimary,
+            tint = if (down) EnsoColors.OnTextPrimary else EnsoColors.TextPrimary,
         )
     }
 }
@@ -372,7 +372,7 @@ private fun QuickTabStack(tabs: List<Tab>, active: Boolean, thumbnails: Thumbnai
         Modifier
             .size(50.dp)
             .clip(RoundedCornerShape(14.dp))
-            .then(if (active) Modifier.background(EnsoColors.QuickTabOutlineOnLight.copy(alpha = 0.2f)) else Modifier)
+            .then(if (active) Modifier.background(EnsoColors.QuickTabOutline.copy(alpha = 0.2f)) else Modifier)
             .clickable(enabled = tabs.isNotEmpty(), onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -391,7 +391,7 @@ private fun QuickTabStack(tabs: List<Tab>, active: Boolean, thumbnails: Thumbnai
                     .align(Alignment.TopEnd)
                     .offset(x = 4.dp, y = (-4).dp)
                     .size(22.dp)
-                    .background(EnsoColors.QuickTabOutlineOnLight, CircleShape),
+                    .background(EnsoColors.QuickTabOutline, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(tabs.size.toString(), style = EnsoType.Row.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
@@ -406,8 +406,8 @@ private fun MiniCard(modifier: Modifier, content: @Composable () -> Unit) {
     Box(
         modifier
             .size(width = 28.dp, height = 36.dp)
-            .background(CardCream, shape)
-            .border(2.dp, EnsoColors.QuickTabOutlineOnLight, shape)
+            .background(EnsoColors.QuickTabCard, shape)
+            .border(2.dp, EnsoColors.QuickTabOutline, shape)
             .clip(shape),
         contentAlignment = Alignment.Center,
     ) { content() }
@@ -442,5 +442,4 @@ private val Corner = 26.dp
 private val Scrim = Color.Black.copy(alpha = 0.22f)
 
 /** The bar's light pills and tiles over the space's tint. */
-internal val PillFill = Color.White.copy(alpha = 0.62f)
-private val CardCream = Color(0xFFFFF8EA)
+internal val PillFill: Color get() = EnsoColors.PillFill

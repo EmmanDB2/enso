@@ -19,8 +19,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Step 9, **Extensions**, is done: bundled uBlock Origin, the Extensions list, popups and settings pages in a sheet (9a), and installs from addons.mozilla.org with an Ensō-style prompt and daily updates (9b). The user dropped the recommended extensions list for a "Find more add-ons here" link.
 - Current step: **10, Polish**, in four passes.
   - **10a (done): real favicons** with letter fallbacks: the loaded page's icon, Zen's synced icon for tabs that aren't loaded, AC's icon cache or the site's `/favicon.ico`, then the letter. The user had the neutral circles behind them removed; only mostly white icons get a dark circle.
-  - **10b (now): the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
-  - **10c: dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
+  - **10b (done): the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
+  - **10c (now): dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
   - **10d: settings screens.** Settings opens the current site's settings first (security, desktop site remembered per site, tracking protection per site, clear cookies and data), with an All settings button for every preference. Show the user a layout sketch and wording first: no board covers them.
 - Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
 - The start screen (board 9) stays as it is: the user plans to build a fidget for it.
@@ -239,14 +239,20 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Mute state: AC's Gecko engine never calls `onMediaMuteChanged`, so `MediaSessionState.muted` stays false. The activity keeps its own record (`mutedMedia`), keyed to the session's controller, so a new session starts unmuted.
   - `InnerFrame` paints the space colors with a rounded hole for each page card. GeckoView's surface ignores view clipping, so the cards' rounded corners are this paint. It has no touch handling, so the pages get the cards' touches.
 - `ui/`:
-  - `Theme.kt` holds color tokens from the spec's Visual style table and the Inter font (bundled in `res/font`; its license is in `assets/licenses`).
+  - `Theme.kt` holds the color tokens and the Inter font (bundled in `res/font`; its license is in `assets/licenses`).
+    - **Light and dark:** every `EnsoColors` token is a getter that picks its value by `EnsoColors.dark`, snapshot state the activity sets (`applyTheme`). Composables that read a color recompose when it flips, so use the tokens, never `Color.White` or a raw color, for anything that's a surface or text. `EnsoType`'s styles are getters too, for their colors.
+    - The dark base is Zen's own (rgb 23, 23, 26): Zen blends a theme's colors into it at the theme's opacity, as Ensō does with the light base, so spaces match Zen's dark mode.
+    - Tokens beyond the spec's table: `Card` (cards and menus), `SoftHighlight`, `PillFill` (the bar's buttons), `OnTextPrimary` (icons on a `TextPrimary` fill), `FaviconContrastCircle`, `QuickTabOutline` (deeper gold on light, brighter on dark) and `QuickTabCard`.
+    - `EnsoTheme` wraps every Compose view: Material's light scheme as before, or its dark one with Ensō's surfaces, for what Ensō doesn't color itself (the folder name dialog, plain text).
   - `Motion.kt`: `EnsoMotion`, the shared timings and card transitions.
     - Cards fade in and out (`AnimatedVisibility`, or `AnimatedCard` for a value such as the first extension prompt), and the card itself scales through `animateEnterExit` on its `cardModifier`. The sync sheet, the extension prompt and the Extensions card take one.
     - The start screen and pages cross-fade (`PageFadeIn`/`PageFadeOut` in the activity). Its back handler checks `startScreenVisible`, so it's off while it fades out.
   - `Backdrop.kt`: frosted backdrops (`FrostedPage`, `frostedCopy`, `FrostedOver`, `LocalSurfaceBackdrop`). Blurring once on the CPU works before Android 12, which `Modifier.blur` needs.
   - `Favicons.kt`: favicons, the letter fallbacks and the space icons. A favicon cross-fades from its letter once it loads.
     - `Favicon(tab)` (or with a title, URL and tab id) draws a page's icon on its own, with no circle: the user had the neutral circles removed. Only a mostly white icon (`isLight`, such as GitHub's dark-theme mark) gets a dark circle (`FaviconBackdropForLight`). Use it for every tab or page; `LetterFavicon` is the fallback, and the extension icons' own.
-    - `FaviconSource` (`Components.favicons`, provided as `LocalFavicons` in the overlay) picks the icon: a loaded tab's page icon from the store (`pageIcons`), else for a tab that isn't loaded Zen's icon (`zenIcons`), AC's caches, or the site's `/favicon.ico` (AC's module has no such fallback itself), else null for the letter. It keeps found icons in an LRU, so rows draw them at once.
+    - `FaviconSource` (`Components.favicons`, provided as `LocalFavicons` in the overlay) picks the icon: a loaded tab's page icon, else Zen's icon (`zenIcons`), AC's caches, or the site's `/favicon.ico` (AC's module has no such fallback itself), else null for the letter. It keeps found icons in an LRU, so rows draw them at once.
+      - The store's `content.icon` (`pageReports`) only says when a page has reported its icons: AC puts its own made-up icon (a colored square with a letter) there for a page with none. The icon itself comes back through the module, which tells made-up ones apart (`Icon.Source.GENERATOR`).
+      - In dark mode the contrast circle flips: a mostly black icon gets a light one. The letters' pastel circles keep dark letters.
   - **Icons module:** `Components.icons` is AC's `BrowserIcons` over the Gecko fetch client. `EnsoApplication` installs it, which adds its built-in extension (`icons@mozac.org`): pages report their icons, and the store's `content.icon` gets them.
   - **Zen's icons:** `ZenMirror.tabIcons()` takes each synced tab's `icon` (mostly `data:` images; Zen's `chrome:` ones are dropped), and `ZenSync.icons` holds them: loaded from the mirror at start, refreshed after each sync, cleared on sign-out. They stay out of `spaces.json`, where they'd be about 16 times its size.
   - `SpaceColors.kt`: a space's chrome colors.
@@ -273,6 +279,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.
   - `syncTabNavigations` (default off) lets navigating a tab from Zen move it on the desktop too. It's off because phone pages often redirect, to a login page for example.
   - `zenSyncDryRun` (default off) logs what sync would upload without uploading. It's for testing.
+  - `themeMode` (default `System`) picks light or dark, or follows Android's dark theme. `MainActivity.applyTheme` applies it at start and on every configuration change (the activity handles `uiMode` itself): `EnsoColors.dark`, the system bars' icons, the views that took a color once (window, root, page containers), and Gecko's `preferredColorScheme` for pages, which follows the system by itself under `System`.
   - `updateExtensions` (default on) checks extensions for updates daily and installs them.
   - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) and `bundledExtensionsInstalled` are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
@@ -327,6 +334,7 @@ The user browses with this build on the Fold, so its tabs are real.
   - The user may be changing things in Zen at the same time. Zen's tab, folder and split ids start with their creation time in milliseconds, which tells whether a record came from the phone's sync or from the desktop.
 - **Restore if needed:** stop the app with `am force-stop`, then run `adb exec-in run-as app.enso.browser sh -c 'cat > files/spaces.json' < backup.json`.
 - **Edge swipes:** a swipe that starts within about 60 px of the left or right edge is Android's back gesture. Start sideways swipes further in.
+- **Dark mode:** the user's Fold goes dark on a schedule (19:00 to 07:00), so check `adb shell dumpsys uimode` (`mComputedNightMode`) for which theme you'll see. To test the other one, set `theme_mode` in Ensō's prefs file while the app is stopped, and put it back after; never change the phone's own setting.
 - **Faking time:**
   - Away time: edit `last_stopped_at` in the prefs file while the app is stopped.
   - Quick Tab expiry: edit a test tab's `quick.lastViewedAt` in `spaces.json`.

@@ -147,7 +147,7 @@ private fun KeepRow(space: Space, remainingMs: Long, onKeep: () -> Unit, onKeepE
             .fillMaxWidth()
             .clip(shape)
             .background(EnsoColors.CurrentTab, shape)
-            .border(2.dp, EnsoColors.QuickTabOutlineOnLight, shape)
+            .border(2.dp, EnsoColors.QuickTabOutline, shape)
             .combinedClickable(onClick = onKeep, onLongClick = onKeepElsewhere)
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
