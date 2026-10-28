@@ -17,8 +17,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **8b (done): splits sync both ways with Zen.**
   - **8c (done): Glance** (board 8), on both screens.
 - Current step: **9, Extensions**, in two passes.
-  - **9a (now): bundled uBlock Origin**, the Extensions list (the bar's panel, and a card from the sidebar's ⋮ menu), and popups and settings pages in a sheet.
-  - **9b (next): the store and updates.** Mozilla's recommended Android extensions in the list, installing from addons.mozilla.org with an Ensō-style permission prompt, and daily updates (AC's `AddonManager`, `AMOAddonsProvider` and `DefaultAddonUpdater`).
+  - **9a (done): bundled uBlock Origin**, the Extensions list (the bar's panel, and a card from the sidebar's ⋮ menu), and popups and settings pages in a sheet.
+  - **9b (now): the store and updates.** A "Find more add-ons here" link to addons.mozilla.org, installing from it with an Ensō-style permission prompt, and daily updates (AC's `DefaultAddonUpdater`). The user dropped the recommended extensions list: just the link.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -40,7 +40,9 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Gecko reads it only at startup and for the whole engine, so it can't change live or differ per screen. Both screens are 420 dpi anyway.
     - The only live option is text size (`fontSizeFactor`). A per-screen zoom would need a built-in extension (step 9).
   - History goes into Firefox's Places database through `HistoryDelegate`; the palette reads it, and step 5 syncs it.
+  - **Add-on web API:** the runtime turns on `extensionsWebAPIEnabled`, as Firefox for Android does, so the add-on site installs through `mozAddonManager`. Without it the site falls back to opening the `.xpi`, and nothing installs.
 - `DesktopSites.kt`: desktop sites while the sidebar layout shows.
+  - addons.mozilla.org always gets its mobile version (`alwaysMobile`, by the tab's page when its session starts or the screen changes). The site serves both versions at `/en-US/firefox/` and picks one by user agent; the desktop one lists Firefox's desktop add-ons.
   - AC's Gecko engine has no desktop default for new sessions, so a store middleware switches each session as it's linked (`LinkEngineSessionAction`), before the engine middleware loads its first page. That's why it comes first in the store's middleware list.
   - Folding or unfolding switches open sessions with `toggleDesktopMode(reload = false)`: by the user's choice, pages keep their version until they next load.
   - Tabs in a split keep mobile sites (`setActive`'s `mobileTabs`) unless `desktopSitesInSplit` is on.
@@ -157,7 +159,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **Hide-on-scroll:** an invisible `ScrollingBarView` anchor (`barAnchor`) sits at the bottom with AC's scrolling behavior. The activity copies its `translationY` into `barOffset` before each draw, and the Compose bar offsets by it.
     - Its height is `R.dimen.bottom_bar_height` plus the gesture handle, and `BarMetrics` must add up to the same.
     - The surface catches every touch on it, or touches on its padding would fall through to the page.
-  - **Panels:** `QuickTabsPanel` (B2), `ActionsPanel` and `SettingsPanel` (B3; Settings only has Sync with Zen for now), and `SearchSuggestions` with `SearchRow` (B4). Reader, Find and Extensions are grayed out until they're built.
+  - **Panels:** `QuickTabsPanel` (B2), `ActionsPanel` and `SettingsPanel` (B3; Settings only has Sync with Zen for now), and `SearchSuggestions` with `SearchRow` (B4). Reader and Find are grayed out until they're built.
     - Bottom search makes the Quick Tab on submit, so Cancel leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
     - Closing the keyboard closes bottom search, as it cancels an edit.
   - **Thumbnails:** AC's `BrowserThumbnails` captures the selected tab's page as it loads, and `ThumbnailsMiddleware` keeps it in `thumbnailStorage`; `TabThumbnail` loads it. Capture only runs on the cover, since unfolded the first page view may show another tab of a split.
@@ -165,7 +167,16 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `Extensions` (in `Components`, started by `EnsoApplication`): installs the bundled uBlock Origin once (`bundledExtensionsInstalled`) and answers its own permission prompt (`webExtensionPromptRequest`), and routes the tabs extensions open, close or select through `TabManager`. Extension tabs are Quick Tabs (`openExtensionTab`).
     - The signed package is in `assets/extensions/`. AC refuses `resource:` URLs to install from (GeckoView would take them), so it's copied to the cache dir and installed from a `file:` URL.
     - uBlock Origin is GPL-3.0: its license and a notice with its source are in `assets/licenses/`.
-  - `ExtensionsList` shows `extensionRows(state)`: built-in extensions left out, and the toolbar button merged with the tab on screen's override (uBlock Origin's count is per tab).
+  - `ExtensionsList` shows `extensionRows(state)`: built-in extensions left out, and the toolbar button merged with the tab on screen's override (uBlock Origin's count is per tab). Its icon is the toolbar button's, or the extension's own when it has none (or is switched off).
+    - It ends with "Find more add-ons here" (`ExtensionListActions.findMore`), which opens `Extensions.ADDONS_SITE_URL` in a Quick Tab and closes the panel or card.
+  - **Prompts:** `Extensions.prompts` queues Gecko's questions and notices as `ExtensionPrompt`s; the overlay shows the first in `ExtensionPromptCard`, over everything, and `answer` passes the reply back.
+    - From the store's `webExtensionPromptRequest` (consumed once taken): installs from the site (`Permissions.Required`), optional permissions, failed installs (not a cancel), and an "added" notice only for an install the user just agreed to, since updates install too.
+    - The bundled install answers its own prompt (`installingBundled`). Installs grant no private browsing and don't share the optional technical data.
+    - Permission wording comes from AC's `Addon.localizePermissions` and `localizeDataCollectionPermissions`.
+  - **Updates:** AC's `DefaultAddonUpdater` runs a daily WorkManager job per extension, through an `AddonManager` registered with `GlobalAddonDependencyProvider` (`NoFeaturedAddons`, since nothing lists featured add-ons).
+    - `scheduleUpdates` follows the store's extensions: added ones are scheduled (idempotent, keeping their time), removed ones unscheduled, and all of them unscheduled with `updateExtensions` off.
+    - An update that wants more permissions comes through `WebExtensionSupport`'s `onUpdatePermissionRequest` as an Update prompt, not AC's notification. A newer check replaces an unanswered one.
+    - The updater's first check runs right after scheduling. AC's own logs don't reach logcat; WorkManager's (`WM-WorkerWrapper`) show each result. To see the jobs, copy `no_backup/androidx.work.workdb*` off the phone and query `workspec` joined with `worktag` (state 0 is queued, 5 cancelled).
   - **Popups and settings:** the activity's `popupObserver` and `optionsPageObserver` (AC's) show them as an `ExtensionPage`, in the floating page view Glance uses. A popup is an engine session (`PageView.showSession`); a settings page is a custom tab.
     - On the cover it's the bar's `BarPanel.ExtensionPage`: the bar clears a hole for the page and reports where it is (`BarExtensions.onPageArea`) once its surface has grown. Unfolded it's a Glance card.
     - Closing a popup dispatches `UpdatePopupSessionAction` with no session and closes it; a popup that closes itself takes its sheet along.
@@ -242,6 +253,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.
   - `syncTabNavigations` (default off) lets navigating a tab from Zen move it on the desktop too. It's off because phone pages often redirect, to a login page for example.
   - `zenSyncDryRun` (default off) logs what sync would upload without uploading. It's for testing.
+  - `updateExtensions` (default on) checks extensions for updates daily and installs them.
   - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) and `bundledExtensionsInstalled` are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
 
@@ -276,6 +288,7 @@ The Fold connects over wireless debugging. Wireless debugging must be on in Deve
     - `--es enso_debug_open <url>` opens a URL in a Quick Tab; add `--ez enso_debug_kept true` for a normal tab, which syncs to Zen.
     - `--es enso_debug_split <tabId>` splits the tab on screen with that tab, and `--es enso_debug_unsplit <splitId>` ends a split. Both sync, so splits can be tested with Zen without unfolding.
     - `--ez enso_debug_desktop_sites true|false` switches desktop sites whatever the screen, until the next fold or unfold.
+    - `--ez enso_debug_update_extensions true` checks every extension for an update now.
   - While Ensō is running, add `--activity-single-top` to the `am start` command, or the extras never reach it.
 
 ## Testing on the Fold

@@ -22,12 +22,14 @@ mozilla-concept-fetch = { module = "org.mozilla.components:concept-fetch", versi
 mozilla-concept-storage = { module = "org.mozilla.components:concept-storage", version.ref = "mozilla-components" }
 mozilla-concept-sync = { module = "org.mozilla.components:concept-sync", version.ref = "mozilla-components" }
 mozilla-concept-toolbar = { module = "org.mozilla.components:concept-toolbar", version.ref = "mozilla-components" }
+mozilla-feature-addons = { module = "org.mozilla.components:feature-addons", version.ref = "mozilla-components" }
 mozilla-feature-accounts = { module = "org.mozilla.components:feature-accounts", version.ref = "mozilla-components" }
 mozilla-feature-session = { module = "org.mozilla.components:feature-session", version.ref = "mozilla-components" }
 mozilla-feature-tabs = { module = "org.mozilla.components:feature-tabs", version.ref = "mozilla-components" }
 mozilla-lib-state = { module = "org.mozilla.components:lib-state", version.ref = "mozilla-components" }
 mozilla-service-firefox-accounts = { module = "org.mozilla.components:service-firefox-accounts", version.ref = "mozilla-components" }
 mozilla-support-appservices = { module = "org.mozilla.components:support-appservices", version.ref = "mozilla-components" }
+mozilla-support-base = { module = "org.mozilla.components:support-base", version.ref = "mozilla-components" }
 mozilla-support-utils = { module = "org.mozilla.components:support-utils", version.ref = "mozilla-components" }
 mozilla-support-webextensions = { module = "org.mozilla.components:support-webextensions", version.ref = "mozilla-components" }
 mozilla-ui-widgets = { module = "org.mozilla.components:ui-widgets", version.ref = "mozilla-components" }

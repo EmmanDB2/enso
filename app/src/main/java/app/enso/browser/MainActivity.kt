@@ -40,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -118,6 +119,8 @@ import app.enso.browser.spaces.unsplit
 import app.enso.browser.split.DraggedTab
 import app.enso.browser.bottombar.BarExtensions
 import app.enso.browser.extensions.ExtensionListActions
+import app.enso.browser.extensions.ExtensionPromptCard
+import app.enso.browser.extensions.Extensions
 import app.enso.browser.extensions.ExtensionsCard
 import app.enso.browser.extensions.extensionRows
 import app.enso.browser.glance.GlanceButton
@@ -575,6 +578,7 @@ class MainActivity : ComponentActivity() {
      *   `--es enso_debug_unsplit <splitId>` ends a split. Both sync, for testing splits with Zen on the cover.
      * - `--ez enso_debug_desktop_sites true|false`: switches desktop sites on or off whatever the screen, until
      *   the next fold or unfold.
+     * - `--ez enso_debug_update_extensions true`: checks every extension for an update now, rather than daily.
      */
     private fun handleDebugIntent(intent: Intent?) {
         val debuggable = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
@@ -606,6 +610,10 @@ class MainActivity : ComponentActivity() {
             val desktop = intent.getBooleanExtra(EXTRA_DEBUG_DESKTOP_SITES, false)
             intent.removeExtra(EXTRA_DEBUG_DESKTOP_SITES)
             components.desktopSites.setActive(desktop, components.store)
+        }
+        if (intent.getBooleanExtra(EXTRA_DEBUG_UPDATE_EXTENSIONS, false)) {
+            intent.removeExtra(EXTRA_DEBUG_UPDATE_EXTENSIONS)
+            components.extensions.updateNow()
         }
     }
 
@@ -655,6 +663,7 @@ class MainActivity : ComponentActivity() {
     private fun OverlayContent() {
         val spaces by components.spaces.state.collectAsState()
         val installedExtensions by components.store.observeAsComposableState { extensionRows(it) }
+        val extensionPrompts by components.extensions.prompts.collectAsState()
         val zenStatus by components.zenSync.status.collectAsState()
         val statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() }
         if (inner) {
@@ -758,6 +767,12 @@ class MainActivity : ComponentActivity() {
                 onSignOut = { components.zenSync.signOut() },
                 onDismiss = { zenSyncSheetOpen = false },
             )
+        }
+        // Gecko's questions about extensions go over everything, one at a time.
+        extensionPrompts.firstOrNull()?.let { prompt ->
+            key(prompt) {
+                ExtensionPromptCard(prompt, ComposeColor(spaces.currentSpace.accent)) { yes -> components.extensions.answer(prompt, yes) }
+            }
         }
     }
 
@@ -1262,6 +1277,14 @@ class MainActivity : ComponentActivity() {
         override fun settings(id: String) = openExtensionSettings(id)
 
         override fun remove(id: String) = components.extensions.uninstall(id)
+
+        /** The add-on site opens in a Quick Tab, as sign-in does: the user won't keep it. */
+        override fun findMore() {
+            barPanel = null
+            extensionsCardOpen = false
+            components.tabs.openNewTab(Extensions.ADDONS_SITE_URL, quick = true)
+            startScreenRequested = false
+        }
     }
 
     /** AC's popup observer: an extension's toolbar button opened its popup. */
@@ -1964,6 +1987,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
         const val EXTRA_DEBUG_OPEN = "enso_debug_open"
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
+        const val EXTRA_DEBUG_UPDATE_EXTENSIONS = "enso_debug_update_extensions"
         const val EXTRA_DEBUG_KEPT = "enso_debug_kept"
 
         /** How long Glance or an extension's page waits for the pages' captures before opening without them. */

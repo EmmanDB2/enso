@@ -116,6 +116,34 @@
     <string name="extensions_title">Extensions</string>
     <string name="extensions_none">No extensions yet</string>
     <string name="extension_remove">Remove</string>
+    <string name="extensions_find_more">Find more add-ons here</string>
+    <string name="extension_unnamed">the extension</string>
+    <string name="extension_prompt_install">Add %1$s?</string>
+    <string name="extension_prompt_update">Update %1$s?</string>
+    <string name="extension_prompt_more">Allow %1$s more access?</string>
+    <string name="extension_prompt_added">%1$s added</string>
+    <string name="extension_prompt_failed">Couldn’t add %1$s</string>
+    <string name="extension_prompt_install_can">It will be able to:</string>
+    <string name="extension_prompt_update_can">The new version also wants to:</string>
+    <string name="extension_prompt_more_can">It’s asking to:</string>
+    <string name="extension_prompt_no_permissions">It doesn’t ask for any permissions.</string>
+    <string name="extension_prompt_collects">The developer says it collects %1$s.</string>
+    <string name="extension_prompt_added_where">You’ll find it in Extensions.</string>
+    <string name="extension_prompt_add">Add</string>
+    <string name="extension_prompt_cancel">Cancel</string>
+    <string name="extension_prompt_update_button">Update</string>
+    <string name="extension_prompt_not_now">Not now</string>
+    <string name="extension_prompt_allow">Allow</string>
+    <string name="extension_prompt_deny">Don’t allow</string>
+    <string name="extension_prompt_ok">OK</string>
+    <string name="extension_failed_network">The download didn’t finish. Check your connection and try again.</string>
+    <string name="extension_failed_corrupt">The file seems to be damaged.</string>
+    <string name="extension_failed_not_signed">It isn’t signed by Mozilla.</string>
+    <string name="extension_failed_incompatible">It doesn’t work with this version of Ensō.</string>
+    <string name="extension_failed_blocked">Mozilla has blocked it.</string>
+    <string name="extension_failed_unsupported">Ensō can’t install this kind of add-on.</string>
+    <string name="extension_failed_admin">Only an administrator can install it.</string>
+    <string name="extension_failed_unknown">Something went wrong.</string>
 
     <!-- Glance (board 8) -->
     <string name="glance_close">Close preview</string>

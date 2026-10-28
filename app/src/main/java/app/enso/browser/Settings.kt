@@ -127,6 +127,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_SYNC_TAB_NAVIGATIONS, false)
         set(value) = prefs.edit { putBoolean(KEY_SYNC_TAB_NAVIGATIONS, value) }
 
+    /** Checks extensions for updates once a day and installs them. An update that wants more permissions asks first. */
+    var updateExtensions: Boolean
+        get() = prefs.getBoolean(KEY_UPDATE_EXTENSIONS, true)
+        set(value) = prefs.edit { putBoolean(KEY_UPDATE_EXTENSIONS, value) }
+
     /** For testing: work out and log what Zen sync would upload, without uploading. */
     var zenSyncDryRun: Boolean
         get() = prefs.getBoolean(KEY_ZEN_SYNC_DRY_RUN, false)
@@ -191,6 +196,7 @@ class Settings(context: Context) {
         const val KEY_SYNC_OPEN_TABS = "sync_open_tabs"
         const val KEY_SYNC_TAB_NAVIGATIONS = "sync_tab_navigations"
         const val KEY_ZEN_SYNC_DRY_RUN = "zen_sync_dry_run"
+        const val KEY_UPDATE_EXTENSIONS = "update_extensions"
         const val KEY_QUICK_TAB_LIFETIME_HOURS = "quick_tab_lifetime_hours"
         const val KEY_PAGE_ZOOM_PERCENT = "page_zoom_percent"
         const val KEY_START_SCREEN_AFTER_MINUTES = "start_screen_after_minutes"

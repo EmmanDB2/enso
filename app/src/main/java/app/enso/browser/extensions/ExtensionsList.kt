@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +52,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,6 +63,7 @@ import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.LetterFavicon
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.selector.selectedTab
+import mozilla.components.support.webextensions.WebExtensionSupport
 import kotlin.math.roundToInt
 
 /** An installed extension as the Extensions list shows it. */
@@ -89,7 +92,8 @@ fun extensionRows(state: BrowserState): List<ExtensionRow> = state.extensions.va
             enabled = extension.enabled,
             hasPopup = action != null,
             badge = action?.badgeText?.ifBlank { null },
-            loadIcon = action?.loadIcon,
+            // Without a toolbar button (or switched off, when it has none), the extension's own icon.
+            loadIcon = action?.loadIcon ?: WebExtensionSupport.installedExtensions[extension.id]?.let { it::loadIcon },
         )
     }
 
@@ -103,11 +107,15 @@ interface ExtensionListActions {
     fun settings(id: String)
 
     fun remove(id: String)
+
+    /** Opens Mozilla's add-on site, where the user finds and installs more. */
+    fun findMore()
 }
 
 /**
  * The user's extensions: icon, name, badge and an on/off switch. Tapping one opens its popup; holding it offers
- * Settings and Remove. Used by the bottom bar's Extensions panel and the inner screen's Extensions card.
+ * Settings and Remove. A link to Mozilla's add-on site ends the list. Used by the bottom bar's Extensions panel and
+ * the inner screen's Extensions card.
  */
 @Composable
 fun ExtensionsList(rows: List<ExtensionRow>, actions: ExtensionListActions, modifier: Modifier = Modifier) {
@@ -120,6 +128,30 @@ fun ExtensionsList(rows: List<ExtensionRow>, actions: ExtensionListActions, modi
             )
         }
         rows.forEach { row -> ExtensionRowItem(row, actions) }
+        FindMoreLink(actions::findMore)
+    }
+}
+
+/** "Find more add-ons here", lined up with the extensions' names. */
+@Composable
+private fun FindMoreLink(onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+            Icon(painterResource(R.drawable.ic_open_tab), contentDescription = null, Modifier.size(22.dp), tint = EnsoColors.TextSecondary)
+        }
+        Spacer(Modifier.width(14.dp))
+        Text(
+            stringResource(R.string.extensions_find_more),
+            style = EnsoType.Row.copy(fontSize = 16.sp, textDecoration = TextDecoration.Underline),
+        )
     }
 }
 

@@ -28,7 +28,15 @@ class Components(private val context: Context) {
         // Pages' default zoom: a lower display density lays pages out with more CSS pixels, so text, images and
         // layout all shrink together. Gecko reads it once, at startup, for both screens (they share a density).
         val density = context.resources.displayMetrics.density * settings.pageZoomPercent / 100f
-        GeckoRuntime.create(context, GeckoRuntimeSettings.Builder().displayDensityOverride(density).build())
+        GeckoRuntime.create(
+            context,
+            GeckoRuntimeSettings.Builder()
+                .displayDensityOverride(density)
+                // The add-on site installs through Firefox's add-on web API (mozAddonManager), as Firefox for Android
+                // turns it on. Without it the site falls back to opening the .xpi, which Gecko doesn't install.
+                .extensionsWebAPIEnabled(true)
+                .build(),
+        )
     }
 
     /** HTTP through Gecko, for application-services and Zen sync. */
