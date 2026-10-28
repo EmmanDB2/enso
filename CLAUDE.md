@@ -18,8 +18,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **8c (done): Glance** (board 8), on both screens.
 - Step 9, **Extensions**, is done: bundled uBlock Origin, the Extensions list, popups and settings pages in a sheet (9a), and installs from addons.mozilla.org with an Ensō-style prompt and daily updates (9b). The user dropped the recommended extensions list for a "Find more add-ons here" link.
 - Current step: **10, Polish**, in four passes.
-  - **10a (now): real favicons** with letter fallbacks: the loaded page's icon, Zen's synced icon for tabs that aren't loaded, AC's icon cache or the site's `/favicon.ico`, then the letter. The user had the neutral circles behind them removed; only mostly white icons get a dark circle.
-  - **10b: the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
+  - **10a (done): real favicons** with letter fallbacks: the loaded page's icon, Zen's synced icon for tabs that aren't loaded, AC's icon cache or the site's `/favicon.ico`, then the letter. The user had the neutral circles behind them removed; only mostly white icons get a dark circle.
+  - **10b (now): the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
   - **10c: dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
   - **10d: settings screens.** Settings opens the current site's settings first (security, desktop site remembered per site, tracking protection per site, clear cookies and data), with an All settings button for every preference. Show the user a layout sketch and wording first: no board covers them.
 - Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
@@ -69,6 +69,11 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - Expiry runs in `onStart` and every minute while the app is open. Pages on screen (both of a split's) are never cleared while you're viewing them.
 - `tabsheet/`:
   - `TabSheet.kt` is the cover tab sheet (board 4). Quick Tabs get a gold outline.
+    - **Frosted backdrop:** as the sheet opens, `MainActivity.captureFrostedPage` captures the page, and `frostedCopy` blurs a copy an eighth of its size once. `FrostedOver` provides it as `LocalSurfaceBackdrop`.
+      - `SurfaceBackdrop.frosted` blends the page and the space colors (at 80%, `FROSTED_COLORS`) into one small picture of the whole window, and every `spaceSurface` inside draws it lined up with the window, so rows sliding over it are the same pixels.
+      - Draw it in one layer. Rows clip to rounded corners, and layering the page and the colors separately left each layer's softened edge showing as an outline around every row.
+      - The plain colors cover it at first and fade out once the capture arrives. Over the start screen there's no capture, so the sheet stays its plain colors.
+    - **Rows animate** (`Modifier.animateItem`): they fade in and out and slide into place as tabs open, close or move, and as folders open and close. The sidebar's rows do the same through `animatedItem`.
   - Rows that can swap which tab they show (like the current-tab card) must key their swipe state by tab ID, or a dismissed state carries over and closes the next tab.
   - `TabMenu.kt` is the hold menu (board 4b).
     - On a Quick Tab it shows the spec's menu: Add to [space], Add to another space (the wave as a picker; hidden with one space) and Close tab.
@@ -135,7 +140,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
       - **Ink stroke:** a tapered stroke along the wave, 16 dp at the thumb, with a Gaussian taper over about two rows.
       - **Hovered space:** a frosted pill with a 22 sp name and its icon (no ring). The other names are 16, 13 and 12 sp and lighten with distance.
       - **Colors:** `EnsoColors.WaveFrost`, `WavePill`, `WaveInk` and `WaveText`, so dark mode can swap them.
-    - **Tab sheet:** it doesn't blur yet; the spec puts its blurred snapshot in step 10.
+    - **Tab sheet:** it has its own frosted backdrop (see `tabsheet/`), not the wave's `Modifier.blur`.
     - When there isn't room to reach every space, a row takes less travel (down to 22 dp), and the list scrolls so the hovered row stays under the thumb.
     - Past either end, or 160 dp sideways, nothing is hovered, the bulge eases back, and letting go does nothing.
   - **Picker:** "Add to another space" opens the wave without the tab's space, resting a little below the middle of the screen. Touch or drag on the list and lift on a space: the tab becomes a normal tab there (`keepQuickTabIn`), and Ensō follows it. A touch away from the list, or Back, cancels.
@@ -168,6 +173,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **Panels:** `QuickTabsPanel` (B2), `ActionsPanel` and `SettingsPanel` (B3; Settings only has Sync with Zen for now), and `SearchSuggestions` with `SearchRow` (B4). Reader and Find are grayed out until they're built.
     - Bottom search makes the Quick Tab on submit, so Cancel leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
     - Closing the keyboard closes bottom search, as it cancels an edit.
+  - **No frost:** the bar and its panels keep their plain colors. The Fold has no cross-window blur (`ro.surface_flinger.supports_background_blur` is 0), and Compose can't sample GeckoView's surface, so a frosted bar would need page captures that lag while the page scrolls. The user chose to leave it.
   - **Thumbnails:** AC's `BrowserThumbnails` captures the selected tab's page as it loads, and `ThumbnailsMiddleware` keeps it in `thumbnailStorage`; `TabThumbnail` loads it. Capture only runs on the cover, since unfolded the first page view may show another tab of a split.
 - `extensions/`: WebExtensions (step 9), on AC's `WebExtensionSupport`, which keeps installed extensions in the store (`state.extensions`) with their toolbar actions, popup sessions and options pages.
   - `Extensions` (in `Components`, started by `EnsoApplication`): installs the bundled uBlock Origin once (`bundledExtensionsInstalled`) and answers its own permission prompt (`webExtensionPromptRequest`), and routes the tabs extensions open, close or select through `TabManager`. Extension tabs are Quick Tabs (`openExtensionTab`).
@@ -175,7 +181,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - uBlock Origin is GPL-3.0: its license and a notice with its source are in `assets/licenses/`.
   - `ExtensionsList` shows `extensionRows(state)`: built-in extensions left out, and the toolbar button merged with the tab on screen's override (uBlock Origin's count is per tab). Its icon is the toolbar button's, or the extension's own when it has none (or is switched off).
     - It ends with "Find more add-ons here" (`ExtensionListActions.findMore`), which opens `Extensions.ADDONS_SITE_URL` in a Quick Tab and closes the panel or card.
-  - **Prompts:** `Extensions.prompts` queues Gecko's questions and notices as `ExtensionPrompt`s; the overlay shows the first in `ExtensionPromptCard`, over everything, and `answer` passes the reply back.
+  - **Prompts:** `Extensions.prompts` queues Gecko's questions and notices as `ExtensionPrompt`s; the overlay shows the first in `ExtensionPromptCard`, over everything, and `answer` passes the reply back once. A tap while the card fades out finds it gone from the queue, so Gecko's prompt isn't completed twice.
     - From the store's `webExtensionPromptRequest` (consumed once taken): installs from the site (`Permissions.Required`), optional permissions, failed installs (not a cancel), and an "added" notice only for an install the user just agreed to, since updates install too.
     - The bundled install answers its own prompt (`installingBundled`). Installs grant no private browsing and don't share the optional technical data.
     - Permission wording comes from AC's `Addon.localizePermissions` and `localizeDataCollectionPermissions`.
@@ -234,7 +240,11 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `InnerFrame` paints the space colors with a rounded hole for each page card. GeckoView's surface ignores view clipping, so the cards' rounded corners are this paint. It has no touch handling, so the pages get the cards' touches.
 - `ui/`:
   - `Theme.kt` holds color tokens from the spec's Visual style table and the Inter font (bundled in `res/font`; its license is in `assets/licenses`).
-  - `Favicons.kt`: favicons, the letter fallbacks and the space icons.
+  - `Motion.kt`: `EnsoMotion`, the shared timings and card transitions.
+    - Cards fade in and out (`AnimatedVisibility`, or `AnimatedCard` for a value such as the first extension prompt), and the card itself scales through `animateEnterExit` on its `cardModifier`. The sync sheet, the extension prompt and the Extensions card take one.
+    - The start screen and pages cross-fade (`PageFadeIn`/`PageFadeOut` in the activity). Its back handler checks `startScreenVisible`, so it's off while it fades out.
+  - `Backdrop.kt`: frosted backdrops (`FrostedPage`, `frostedCopy`, `FrostedOver`, `LocalSurfaceBackdrop`). Blurring once on the CPU works before Android 12, which `Modifier.blur` needs.
+  - `Favicons.kt`: favicons, the letter fallbacks and the space icons. A favicon cross-fades from its letter once it loads.
     - `Favicon(tab)` (or with a title, URL and tab id) draws a page's icon on its own, with no circle: the user had the neutral circles removed. Only a mostly white icon (`isLight`, such as GitHub's dark-theme mark) gets a dark circle (`FaviconBackdropForLight`). Use it for every tab or page; `LetterFavicon` is the fallback, and the extension icons' own.
     - `FaviconSource` (`Components.favicons`, provided as `LocalFavicons` in the overlay) picks the icon: a loaded tab's page icon from the store (`pageIcons`), else for a tab that isn't loaded Zen's icon (`zenIcons`), AC's caches, or the site's `/favicon.ico` (AC's module has no such fallback itself), else null for the letter. It keeps found icons in an LRU, so rows draw them at once.
   - **Icons module:** `Components.icons` is AC's `BrowserIcons` over the Gecko fetch client. `EnsoApplication` installs it, which adds its built-in extension (`icons@mozac.org`): pages report their icons, and the store's `content.icon` gets them.

@@ -23,6 +23,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -55,6 +57,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
@@ -154,16 +157,23 @@ import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.toolbar.PageState
 import app.enso.browser.toolbar.ScrollingBarView
 import app.enso.browser.toolbar.toPageState
+import app.enso.browser.ui.AnimatedCard
 import app.enso.browser.ui.EnsoColors
+import app.enso.browser.ui.EnsoMotion
+import app.enso.browser.ui.FrostedOver
+import app.enso.browser.ui.FrostedPage
 import app.enso.browser.ui.LocalFavicons
+import app.enso.browser.ui.frostedCopy
 import app.enso.browser.ui.colors
 import kotlin.math.roundToInt
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import mozilla.components.browser.state.action.ContentAction
 import mozilla.components.browser.state.action.CustomTabListAction
@@ -248,6 +258,9 @@ class MainActivity : ComponentActivity() {
 
     private var editing by mutableStateOf(false)
     private var tabSheetOpen by mutableStateOf(false)
+
+    /** The page the tab sheet opened over, blurred for its frosted backdrop (spec: board 4). */
+    private var sheetBackdrop by mutableStateOf<FrostedPage?>(null)
     private var selectedTabId by mutableStateOf<String?>(null)
 
     /** Set when the app comes back after being away a while; cleared by opening or switching to a tab. */
@@ -675,9 +688,10 @@ class MainActivity : ComponentActivity() {
             // A plain container, so the rail and sidebar keep their own widths instead of the window's.
             Box(Modifier.fillMaxSize()) { InnerContent(spaces) }
         } else {
-            if (startScreenVisible) {
+            // The start screen and the page cross-fade.
+            AnimatedVisibility(startScreenVisible, enter = PageFadeIn, exit = PageFadeOut) {
                 // Back from the start screen returns to the last tab, if there is one.
-                BackHandler(enabled = selectedTabId != null) { startScreenRequested = false }
+                BackHandler(enabled = startScreenVisible && selectedTabId != null) { startScreenRequested = false }
                 // On the cover, tapping it opens bottom search rather than the palette.
                 StartScreen(spaces, statusBarInset, paletteOpen = false, { if (it) bottomBarActions.newSearch() }, startScreenActions)
             }
@@ -704,6 +718,14 @@ class MainActivity : ComponentActivity() {
                 actions = bottomBarActions,
             )
         }
+        LaunchedEffect(tabSheetOpen) {
+            // A fresh capture each time it opens. The last one stays through the closing fade. Over the start
+            // screen there's no page to capture, so the sheet is its plain colors.
+            if (tabSheetOpen && !inner) {
+                sheetBackdrop = null
+                if (!startScreenVisible) sheetBackdrop = captureFrostedPage()
+            }
+        }
         AnimatedVisibility(
             visible = tabSheetOpen && !inner,
             // It comes up from the bottom bar, where the swipe that opens it starts.
@@ -711,7 +733,7 @@ class MainActivity : ComponentActivity() {
             exit = fadeOut() + slideOutVertically { it / 12 },
         ) {
             BackHandler { tabSheetOpen = false }
-            TabSheet(
+            FrostedOver(sheetBackdrop) { TabSheet(
                 spaces = spaces,
                 essentials = spaces.essentialsFor(perContainer = components.settings.essentialsPerContainer),
                 selectedTabId = selectedTabId,
@@ -721,7 +743,7 @@ class MainActivity : ComponentActivity() {
                 headerSwitchesSpaces = components.settings.switchSpacesFromSheetHeader,
                 showQuickTabs = components.settings.quickTabsInTabSheet,
                 actions = tabSheetActions,
-            )
+            ) }
         }
         val glanceNow = glance
         val layout = floatingLayout
@@ -757,13 +779,20 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        if (inner && extensionsCardOpen && pageNow == null) {
+        AnimatedVisibility(inner && extensionsCardOpen && pageNow == null, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
             Box(Modifier.fillMaxSize()) {
-                ExtensionsCard(cardRect, areaCorner, installedExtensions, extensionListActions, onClose = { extensionsCardOpen = false })
+                ExtensionsCard(
+                    cardRect,
+                    areaCorner,
+                    installedExtensions,
+                    extensionListActions,
+                    onClose = { extensionsCardOpen = false },
+                    cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                )
             }
         }
-        if (zenSyncSheetOpen) {
-            BackHandler { zenSyncSheetOpen = false }
+        AnimatedVisibility(zenSyncSheetOpen, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
+            BackHandler(enabled = zenSyncSheetOpen) { zenSyncSheetOpen = false }
             ZenSyncSheet(
                 status = zenStatus,
                 accent = ComposeColor(spaces.currentSpace.accent),
@@ -771,12 +800,18 @@ class MainActivity : ComponentActivity() {
                 onSyncNow = { components.zenSync.syncNow() },
                 onSignOut = { components.zenSync.signOut() },
                 onDismiss = { zenSyncSheetOpen = false },
+                cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
             )
         }
         // Gecko's questions about extensions go over everything, one at a time.
-        extensionPrompts.firstOrNull()?.let { prompt ->
+        AnimatedCard(extensionPrompts.firstOrNull()) { prompt ->
             key(prompt) {
-                ExtensionPromptCard(prompt, ComposeColor(spaces.currentSpace.accent)) { yes -> components.extensions.answer(prompt, yes) }
+                ExtensionPromptCard(
+                    prompt,
+                    ComposeColor(spaces.currentSpace.accent),
+                    onAnswer = { yes -> components.extensions.answer(prompt, yes) },
+                    cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                )
             }
         }
     }
@@ -861,8 +896,8 @@ class MainActivity : ComponentActivity() {
                 onDragEnd = ::endSidebarResize,
             )
         }
-        if (startScreenVisible && !cardRect.isEmpty) {
-            BackHandler(enabled = selectedTabId != null) { startScreenRequested = false }
+        AnimatedVisibility(startScreenVisible && !cardRect.isEmpty, enter = PageFadeIn, exit = PageFadeOut) {
+            BackHandler(enabled = startScreenVisible && selectedTabId != null) { startScreenRequested = false }
             Box(
                 Modifier
                     .offset { IntOffset(cardRect.left.roundToInt(), cardRect.top.roundToInt()) }
@@ -1177,6 +1212,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (visible.isEmpty()) finish() else root.postDelayed({ finish() }, BACKDROP_CAPTURE_TIMEOUT_MS)
+    }
+
+    /** The page on screen, captured and blurred for a frosted backdrop, or null when there's none to capture. */
+    private suspend fun captureFrostedPage(): FrostedPage? {
+        val (image, bounds) = suspendCancellableCoroutine<Pair<ImageBitmap, Rect>?> { continuation ->
+            captureBackdrop { captures -> continuation.resume(captures.firstOrNull()) }
+        } ?: return null
+        return withContext(Dispatchers.Default) { FrostedPage(frostedCopy(image.asAndroidBitmap()), bounds) }
     }
 
     /**
@@ -1994,6 +2037,10 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
         const val EXTRA_DEBUG_UPDATE_EXTENSIONS = "enso_debug_update_extensions"
         const val EXTRA_DEBUG_KEPT = "enso_debug_kept"
+
+        /** The start screen and pages cross-fading. */
+        val PageFadeIn = fadeIn(tween(EnsoMotion.PAGE_FADE_MS))
+        val PageFadeOut = fadeOut(tween(EnsoMotion.PAGE_FADE_MS))
 
         /** How long Glance or an extension's page waits for the pages' captures before opening without them. */
         const val BACKDROP_CAPTURE_TIMEOUT_MS = 400L

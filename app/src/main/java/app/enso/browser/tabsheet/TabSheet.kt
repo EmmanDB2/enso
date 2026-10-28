@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -164,7 +165,8 @@ fun TabSheet(
             ) {
                 items(rows, key = { it.key }, contentType = { it::class }) { row ->
                     val openMenu = { target: MenuTarget -> menu = target }
-                    when (row) {
+                    // Rows fade in and out, and slide into place, as tabs open, close or move and folders open or close.
+                    Box(Modifier.animateItem()) { when (row) {
                         is SheetRow.Header -> SheetHeader(
                             space = row.space,
                             onSwipe = actions::switchSpace.takeIf { headerSwitchesSpaces },
@@ -222,7 +224,7 @@ fun TabSheet(
                             actions = actions,
                             onLongClick = null,
                         )
-                    }
+                    } }
                 }
             }
             SheetSearchField(
@@ -465,6 +467,13 @@ internal fun TabRow(
     }
     if (swipe == null) content() else SwipeToClose(swipe, onSwiped = { actions.swipe(tab.id, swipe) }) { content() }
 }
+
+/**
+ * A list row that fades in and out, and slides into place, as tabs open, close or move and folders open or close. The
+ * sidebar's rows are these; the tab sheet's do the same with `animateItem` itself.
+ */
+internal fun LazyListScope.animatedItem(key: Any, content: @Composable () -> Unit) =
+    item(key = key) { Box(Modifier.animateItem()) { content() } }
 
 internal fun TabSheetActions.swipe(tabId: String, action: SwipeAction) = when (action) {
     SwipeAction.Close -> close(tabId)

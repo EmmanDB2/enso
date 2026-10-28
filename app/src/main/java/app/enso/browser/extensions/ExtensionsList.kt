@@ -230,7 +230,15 @@ private fun ExtensionRowItem(row: ExtensionRow, actions: ExtensionListActions) {
  * ([area], window pixels). A tap around it, or Back, closes it.
  */
 @Composable
-fun ExtensionsCard(area: Rect, areaCorner: Dp, rows: List<ExtensionRow>, actions: ExtensionListActions, onClose: () -> Unit) {
+fun ExtensionsCard(
+    area: Rect,
+    areaCorner: Dp,
+    rows: List<ExtensionRow>,
+    actions: ExtensionListActions,
+    onClose: () -> Unit,
+    /** For the card itself, inside its dim layer: its entrance, say. */
+    cardModifier: Modifier = Modifier,
+) {
     BackHandler(onBack = onClose)
     BlockSpaceMenu()
     val density = LocalDensity.current
@@ -244,7 +252,7 @@ fun ExtensionsCard(area: Rect, areaCorner: Dp, rows: List<ExtensionRow>, actions
         ) {
             val shape = RoundedCornerShape(24.dp)
             Column(
-                Modifier
+                cardModifier
                     .widthIn(max = 460.dp)
                     .fillMaxWidth(0.8f)
                     .heightIn(max = with(density) { area.height.toDp() } - 80.dp)

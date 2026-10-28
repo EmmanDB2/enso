@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
 import android.util.LruCache
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -141,11 +143,14 @@ fun Favicon(title: String, url: String, tabId: String?, modifier: Modifier = Mod
     LaunchedEffect(url, zenIcon, pageIcon == null) {
         if (pageIcon == null && loaded == null) loaded = source.load(url, zenIcon)
     }
-    val bitmap = pageIcon ?: loaded
-    if (bitmap == null) {
-        LetterFavicon(title, url, modifier, size, ring)
-        return
+    // The letter gives way to the icon once it loads; an icon found already shows at once.
+    Crossfade(pageIcon ?: loaded, modifier, tween(EnsoMotion.FAVICON_FADE_MS), label = "favicon") { bitmap ->
+        if (bitmap == null) LetterFavicon(title, url, size = size, ring = ring) else FaviconImage(bitmap, size, ring)
     }
+}
+
+@Composable
+private fun FaviconImage(bitmap: Bitmap, size: Dp, ring: Color?) {
     val image = remember(bitmap) { bitmap.asImageBitmap() }
     // The user wanted no circles behind favicons, but a white mark (GitHub's, for dark themes) would vanish on the
     // light surfaces, so only those get a dark one.
@@ -160,9 +165,9 @@ fun Favicon(title: String, url: String, tabId: String?, modifier: Modifier = Mod
         }
     }
     if (ring == null) {
-        icon(modifier)
+        icon(Modifier)
     } else {
-        Box(modifier.size(size + 10.dp).border(2.dp, ring, CircleShape), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(size + 10.dp).border(2.dp, ring, CircleShape), contentAlignment = Alignment.Center) {
             icon(Modifier)
         }
     }

@@ -39,6 +39,8 @@ fun ZenSyncSheet(
     onSyncNow: () -> Unit,
     onSignOut: () -> Unit,
     onDismiss: () -> Unit,
+    /** For the card itself, inside its dim layer: its entrance, say. */
+    cardModifier: Modifier = Modifier,
 ) {
     Box(
         Modifier
@@ -49,7 +51,7 @@ fun ZenSyncSheet(
     ) {
         val shape = RoundedCornerShape(20.dp)
         Column(
-            Modifier
+            cardModifier
                 .padding(16.dp)
                 .widthIn(max = 480.dp)
                 .fillMaxWidth()

@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -82,6 +83,7 @@ import app.enso.browser.tabsheet.SplitRows
 import app.enso.browser.tabsheet.TabDragActions
 import app.enso.browser.tabsheet.TabRow
 import app.enso.browser.tabsheet.TabSheetActions
+import app.enso.browser.tabsheet.animatedItem
 import app.enso.browser.tabsheet.dragAfterHold
 import app.enso.browser.tabsheet.quickTabOutline
 import app.enso.browser.tabsheet.swipeAction
@@ -357,14 +359,14 @@ private fun SpaceTabs(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         if (essentials.isNotEmpty()) {
-            item(key = "essentials") {
+            animatedItem(key = "essentials") {
                 EssentialsGrid(essentials, rows.current, tabActions, onMenu, tileHeight = RowHeight, gap = EdgePadding, bottomPadding = 4.dp)
             }
         }
-        item(key = "name") { SpaceName(space) }
+        animatedItem(key = "name") { SpaceName(space) }
         pinnedRows(space.pinned, depth = 0, rows)
-        if (space.pinned.isNotEmpty()) item(key = "divider") { SheetDivider() }
-        item(key = "new-tab") { NewTabRow(highlighted = newTabShowing, onClick = actions::newTab) }
+        if (space.pinned.isNotEmpty()) animatedItem(key = "divider") { SheetDivider() }
+        animatedItem(key = "new-tab") { NewTabRow(highlighted = newTabShowing, onClick = actions::newTab) }
         space.tabs.forEach { tab -> tabRow(tab, depth = 0, rows) }
     }
 }
@@ -380,12 +382,12 @@ private class SidebarRows(
     val drag: TabDragActions?,
 )
 
-private fun androidx.compose.foundation.lazy.LazyListScope.pinnedRows(items: List<PinnedItem>, depth: Int, rows: SidebarRows) {
+private fun LazyListScope.pinnedRows(items: List<PinnedItem>, depth: Int, rows: SidebarRows) {
     for (item in items) {
         when (item) {
             is PinnedTab -> tabRow(item.tab, depth, rows)
             is Folder -> {
-                item(key = item.id) { FolderRow(item, depth, rows.colors, rows.tabActions, rows.onMenu, height = RowHeight) }
+                animatedItem(key = item.id) { FolderRow(item, depth, rows.colors, rows.tabActions, rows.onMenu, height = RowHeight) }
                 if (item.expanded) pinnedRows(item.items, depth + 1, rows)
             }
         }
@@ -393,11 +395,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.pinnedRows(items: Lis
 }
 
 /** A tab's row, or its split's row when the split shows here (see [SplitRows]). */
-private fun androidx.compose.foundation.lazy.LazyListScope.tabRow(tab: Tab, depth: Int, rows: SidebarRows) {
+private fun LazyListScope.tabRow(tab: Tab, depth: Int, rows: SidebarRows) {
     if (rows.splits.isHidden(tab.id)) return
     val split = rows.splits.at(tab.id)
     if (split != null) {
-        item(key = "split:" + tab.id) {
+        animatedItem(key = "split:" + tab.id) {
             SplitRow(
                 tabs = split,
                 colors = rows.colors,
@@ -411,7 +413,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tabRow(tab: Tab, dept
             )
         }
     } else {
-        item(key = tab.id) {
+        animatedItem(key = tab.id) {
             TabRow(
                 tab = tab,
                 colors = rows.colors,

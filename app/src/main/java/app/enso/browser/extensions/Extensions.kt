@@ -92,9 +92,14 @@ class Extensions(
         installBundled()
     }
 
+    /** Passes the user's answer on, once: a tap on the card while it fades out answers nothing. */
     fun answer(prompt: ExtensionPrompt, yes: Boolean) {
-        queue.update { it - prompt }
-        prompt.answer(yes)
+        var waiting = false
+        queue.update { prompts ->
+            waiting = prompt in prompts
+            prompts - prompt
+        }
+        if (waiting) prompt.answer(yes)
     }
 
     /** Turns one of Gecko's install requests into a prompt, or answers it quietly. False if it isn't one Ensō handles. */

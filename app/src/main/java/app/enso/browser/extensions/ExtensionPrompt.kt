@@ -72,7 +72,13 @@ class ExtensionPrompt(
  * for, and the answers. Back or a tap outside says no.
  */
 @Composable
-fun ExtensionPromptCard(prompt: ExtensionPrompt, accent: Color, onAnswer: (Boolean) -> Unit) {
+fun ExtensionPromptCard(
+    prompt: ExtensionPrompt,
+    accent: Color,
+    onAnswer: (Boolean) -> Unit,
+    /** For the card itself, inside its dim layer: its entrance, say. */
+    cardModifier: Modifier = Modifier,
+) {
     BackHandler { onAnswer(false) }
     BlockSpaceMenu()
     Box(
@@ -84,7 +90,7 @@ fun ExtensionPromptCard(prompt: ExtensionPrompt, accent: Color, onAnswer: (Boole
     ) {
         val shape = RoundedCornerShape(20.dp)
         Column(
-            Modifier
+            cardModifier
                 .padding(16.dp)
                 .widthIn(max = 440.dp)
                 .fillMaxWidth()

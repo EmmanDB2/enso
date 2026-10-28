@@ -3,21 +3,29 @@ package app.enso.browser.ui
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.IntOffset
 import app.enso.browser.spaces.Space
+import kotlin.math.roundToInt
 
 /**
  * How a space colors Ensō's chrome (spec: Visual style): one gradient down the whole window, from its Zen
@@ -55,13 +63,35 @@ fun Space.pageColors(): SpaceColors {
 
 /**
  * Paints this surface with [colors]' window-wide gradient, lined up with where the surface sits in the window,
- * so neighboring surfaces (and rows moving over them) read as one.
+ * so neighboring surfaces (and rows moving over them) read as one. Inside a [LocalSurfaceBackdrop] (the tab sheet)
+ * the blurred page shows through under the colors, lined up the same way.
  */
 fun Modifier.spaceSurface(colors: SpaceColors, shape: Shape = RectangleShape): Modifier = composed {
     val windowHeight = LocalWindowInfo.current.containerSize.height.toFloat()
-    var top by remember { mutableFloatStateOf(0f) }
-    onGloballyPositioned { top = it.positionInWindow().y }
-        .background(colors.brush(top, windowHeight), shape)
+    val backdrop = LocalSurfaceBackdrop.current
+    var position by remember { mutableStateOf(Offset.Zero) }
+    val positioned = onGloballyPositioned { position = it.positionInWindow() }
+    if (backdrop == null) {
+        positioned.background(colors.brush(position.y, windowHeight), shape)
+    } else {
+        val windowSize = LocalWindowInfo.current.containerSize
+        val frosted = backdrop.frosted(colors, windowSize)
+        positioned.drawWithCache {
+            val outline = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache)) }
+            onDrawBehind {
+                clipPath(outline) {
+                    drawImage(
+                        frosted,
+                        dstOffset = IntOffset(-position.x.roundToInt(), -position.y.roundToInt()),
+                        dstSize = windowSize,
+                        filterQuality = FilterQuality.Low,
+                    )
+                    val plain = backdrop.plainColorsAlpha()
+                    if (plain > 0f) drawRect(colors.brush(position.y, windowHeight), alpha = plain)
+                }
+            }
+        }
+    }
 }
 
 private const val PAGE_TINT = 0.10f
