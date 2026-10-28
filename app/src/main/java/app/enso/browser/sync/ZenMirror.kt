@@ -34,6 +34,19 @@ data class ZenMirror(
     val records: Map<String, ZenRecord> = emptyMap(),
 )
 
+/**
+ * Each synced tab's icon as Zen's record has it, by tab id: mostly `data:` images, sometimes a web address. Zen's
+ * own `chrome:` icons mean nothing outside Zen and are left out.
+ */
+fun ZenMirror.tabIcons(): Map<String, String> = records.values
+    .filter { it.kind == KIND_TAB }
+    .mapNotNull { record ->
+        record.data.string("icon")
+            ?.takeIf { it.startsWith("data:image/") || it.startsWith("https://") || it.startsWith("http://") }
+            ?.let { record.id to it }
+    }
+    .toMap()
+
 /** Keeps the [ZenMirror] in a file, so syncs only download what changed. */
 class ZenMirrorStore(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "zen-spaces-mirror.json"))

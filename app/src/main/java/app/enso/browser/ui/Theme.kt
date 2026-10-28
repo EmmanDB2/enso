@@ -18,6 +18,9 @@ object EnsoColors {
     val TextSecondary = Color(0xFF5F5B66)
     val FieldFill = TextPrimary.copy(alpha = 0.07f)
     val CurrentTab = Color.White
+
+    /** The circle behind a favicon that's mostly white, so it stays visible. Other favicons have none. */
+    val FaviconBackdropForLight = Color(0xFF6F6B76)
     val QuickTabOutlineOnDark = Color(0xFFF2C94C)
     val QuickTabOutlineOnLight = Color(0xFFE0A800)
     val CloseSwipe = Color(0xFFD6404A)

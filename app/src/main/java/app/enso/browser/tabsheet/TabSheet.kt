@@ -77,7 +77,7 @@ import app.enso.browser.spaces.toggleFolder
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.SpaceColors
 import app.enso.browser.ui.SpaceIcon
 import app.enso.browser.ui.colors
@@ -409,7 +409,7 @@ internal fun EssentialsGrid(
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        LetterFavicon(tab.title, tab.url)
+                        Favicon(tab)
                     }
                 }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
@@ -458,7 +458,7 @@ internal fun TabRow(
                 .padding(start = 12.dp + FolderIndent * depth, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LetterFavicon(tab.title, tab.url)
+            Favicon(tab)
             Spacer(Modifier.width(14.dp))
             Text(tab.displayTitle(), style = EnsoType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -582,7 +582,7 @@ private fun SplitPart(
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LetterFavicon(tab.title, tab.url)
+        Favicon(tab)
         Spacer(Modifier.width(10.dp))
         Text(
             tab.displayTitle(),
@@ -706,7 +706,7 @@ private fun CurrentTabCard(entry: TabEntry, actions: TabSheetActions, onLongClic
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LetterFavicon(tab.title, tab.url)
+            Favicon(tab)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(

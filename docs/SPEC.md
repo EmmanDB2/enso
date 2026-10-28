@@ -29,7 +29,7 @@ Synced Spaces flow from Zen through the Mozilla account into a local store that 
 | Android Components | Tabs, Mozilla account sign-in, sync, favicons (browser-icons module), add-ons UI |
 | Zen Spaces sync | Zen syncs Spaces, folders and tabs through the Mozilla account when "Sync your Spaces across devices" is on in Settings > Sync ([Zen release notes](https://www.zen-browser.app/release-notes)). The data format is not documented, so it must be worked out while building |
 | Reference app | [Dejavu](https://alternativeto.net/software/dejavu/about/), an Android Gecko browser that already syncs Zen workspaces, containers and pinned tabs. Check its license before reusing code |
-| Favicons | Synced tab records include icon URLs; the browser-icons module fetches and caches them |
+| Favicons | Zen's tab records carry each tab's icon (mostly as `data:` images), so synced tabs show theirs before they load. Other tabs get the page's own icon from the browser-icons module, which also fetches and caches icons for tabs that aren't loaded |
 
 ## Cover screen: the bottom bar (boards B1–B4)
 
@@ -235,8 +235,9 @@ Shapes and type:
 
 - Rows 44–48 px tall with 12 px corners; current-tab card 14 px corners; menus and the palette 16–18 px corners.
 - Font in mockups: Inter, 15–16 px for rows, 22–24 px for the space name.
-- Icons: thin line icons (about 1.8 px stroke). Real favicons replace the letter placeholders, inside a small neutral circle so white icons stay visible; letters remain as the fallback.
+- Icons: thin line icons (about 1.8 px stroke). Real favicons replace the letter placeholders, drawn on their own with no circle behind them; only a mostly white icon gets a dark circle, so it stays visible. Letters remain as the fallback.
 - The space menu (board 3) is a frosted overlay: the blurred page under a light frost and the space's tint.
+- **Dark mode** follows Android's dark theme, with a setting to override it (system, light or dark). Every token above gets a dark value, and web pages are asked for their dark version too.
 
 ## Extensions
 
@@ -251,6 +252,19 @@ Ensō supports WebExtensions through GeckoView, starting with uBlock Origin.
 - **Tabs an extension opens** (uBlock Origin's dashboard, say) are Quick Tabs: extension pages mean nothing on Zen's desktop.
 - **Placement:** extensions live behind Extensions in the bottom bar's actions sheet (and the inner sidebar's ⋮ menu), and an extension's popup opens as a sheet. No extension icons in the bar.
 
+## Settings
+
+No board covers these screens, so their layout and wording get agreed before they're built.
+
+- **Site settings come first.** Settings (in the bar's actions sheet on the cover, and the sidebar's ⋮ menu unfolded) opens the settings of the page on screen: on the cover the bar's panel grows into them, and unfolded they're a card over the page.
+  - **Connection security:** whether the connection is secure, and who verified the site.
+  - **Desktop site:** which version the site gets now. Changing it reloads the page and is remembered for that site. Sites the user hasn't set follow the screen.
+  - **Tracking protection:** Gecko's Enhanced Tracking Protection (Standard by default), with an on/off switch per site.
+  - **Clear cookies and site data** for this site, after a confirmation.
+  - **All settings**, a button at the bottom.
+- **All settings** holds every preference, grouped: appearance, layout, tabs, the space menu, sync (with Sync with Zen at the top) and extensions. With no page on screen (the start screen), Settings opens it directly.
+- Site permissions join site settings in step 11.
+
 ## Build order
 
 Build the browser core first, then sync, then the signature interactions. Each step should run on the Fold before the next starts.
@@ -264,14 +278,15 @@ Build the browser core first, then sync, then the signature interactions. Each s
 7. **Inner screen:** collapsed rail, full sidebar, sidebar swipe for spaces, fold continuity. Also space colors, which the sidebar needs: Zen's theme gradient on the tinted surfaces on both screens (top bar, tab sheet, start screen, sidebar), with the accent kept for small marks.
 8. **Split view and Glance.**
 9. **Extensions:** bundled uBlock Origin and the add-ons UI.
-10. **Polish:** real favicons with letter fallbacks, blur snapshot for the tab sheet, animations, dark mode.
+10. **Polish:** real favicons with letter fallbacks, blur snapshot for the tab sheet, animations, dark mode, and the settings screens (site settings, then All settings).
+11. **Site permissions:** prompts when a site asks for the camera, microphone, location or notifications, Android's own permission when it's needed, and each site's choices in its site settings. Until then, sites' requests are refused without a prompt.
 
 ## Open questions and naming
 
 - [ ] Quick Tab expiry: 12 hours, 24 hours, or user-set?
 - [ ] How long away before the app reopens on the start screen instead of the last tab?
 - [ ] Exact format of Zen's synced Spaces data (to confirm while building sync).
-- [ ] Does dark mode follow the system, or a per-space setting?
+- [x] Does dark mode follow the system, or a per-space setting? It follows the system, with a setting to override it, and web pages are asked for their dark version too.
 - [ ] Check the Play Store for the name "Ensō" before publishing.
 
 Naming and trademarks: Zen's code is MPL 2.0, which allows forking but grants no rights to the Zen name or logo. The same applies to "Firefox." Ensō should not use either name or logo, and can say it "syncs with Zen Browser" in its description. Ask the Zen team before using their name in any other way. This is not legal advice.

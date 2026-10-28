@@ -44,7 +44,7 @@ import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.toolbar.UrlEditor
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.displayTitle
 import kotlinx.coroutines.delay
 import mozilla.components.support.ktx.util.URLStringUtils
@@ -79,7 +79,7 @@ internal fun SearchSuggestions(spaces: SpacesState, query: String, mode: SearchM
         tabs.asReversed().forEach { tab ->
             PaletteRow(
                 leading = {
-                    LetterFavicon(tab.title, tab.url, size = 26.dp, ring = if (tab.quick != null) EnsoColors.QuickTabOutlineOnLight else null)
+                    Favicon(tab, size = 26.dp, ring = if (tab.quick != null) EnsoColors.QuickTabOutlineOnLight else null)
                 },
                 title = tab.displayTitle(),
                 trailing = { SwitchToTabChip() },

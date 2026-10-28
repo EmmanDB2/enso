@@ -7,8 +7,10 @@ import app.enso.browser.spaces.TabManager
 import app.enso.browser.sync.FetchSyncHttp
 import app.enso.browser.sync.MozillaAccount
 import app.enso.browser.sync.ZenSync
+import app.enso.browser.ui.FaviconSource
 import mozilla.components.browser.engine.gecko.GeckoEngine
 import mozilla.components.browser.engine.gecko.fetch.GeckoViewFetchClient
+import mozilla.components.browser.icons.BrowserIcons
 import mozilla.components.browser.state.engine.EngineMiddleware
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.storage.sync.PlacesHistoryStorage
@@ -72,4 +74,8 @@ class Components(private val context: Context) {
     val zenSync by lazy {
         ZenSync(context, accountManager, FetchSyncHttp(fetchClient), spaces, tabs, settings).also { it.start() }
     }
+
+    /** AC's icon module: pages' icons into the store (once installed), and a cache that fetches the rest. */
+    val icons by lazy { BrowserIcons(context, fetchClient) }
+    val favicons by lazy { FaviconSource(icons, store, zenSync.icons) }
 }

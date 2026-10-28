@@ -75,6 +75,14 @@ class ZenSync internal constructor(
     private val _status = MutableStateFlow<ZenSyncStatus>(ZenSyncStatus.Starting)
     val status: StateFlow<ZenSyncStatus> = _status.asStateFlow()
 
+    private val _icons = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /**
+     * Synced tabs' icons from Zen, by tab id, so they show before the tab loads. They stay in the mirror, not the
+     * spaces model: together they're many times the size of spaces.json.
+     */
+    val icons: StateFlow<Map<String, String>> = _icons.asStateFlow()
+
     private val observer = object : AccountObserver {
         override fun onReady(authenticatedAccount: OAuthAccount?) {
             scope.launch {
@@ -108,6 +116,7 @@ class ZenSync internal constructor(
         override fun onLoggedOut() {
             scope.launch {
                 engine.reset()
+                _icons.value = emptyMap()
                 _status.value = ZenSyncStatus.SignedOut
             }
         }
@@ -116,6 +125,11 @@ class ZenSync internal constructor(
     fun start() {
         accountManager.register(observer)
         scope.launch { accountManager.start() }
+        scope.launch {
+            val icons = withContext(Dispatchers.IO) { mirrorStore.load().tabIcons() }
+            // A sync that finished first has newer ones.
+            if (_icons.value.isEmpty()) _icons.value = icons
+        }
     }
 
     /** The URL of Mozilla's sign-in page, to open in a tab. */
@@ -174,6 +188,7 @@ class ZenSync internal constructor(
                 }
                 val state = when (result) {
                     is ZenSyncResult.Synced -> {
+                        _icons.value = result.mirror.tabIcons()
                         when {
                             // Edited while syncing: applying now would undo the edit, so sync it first.
                             edits != editsBefore -> localEdited()

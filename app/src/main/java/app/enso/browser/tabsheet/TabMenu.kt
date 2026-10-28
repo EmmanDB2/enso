@@ -73,7 +73,7 @@ import app.enso.browser.spaces.unsplit
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.SpaceIcon
 import app.enso.browser.ui.displayTitle
 import java.util.concurrent.TimeUnit
@@ -301,10 +301,10 @@ private fun LiftedRow(target: MenuTarget, spaces: SpacesState) {
             is MenuTarget.ForTab -> {
                 val entry = spaces.find(target.tabId) ?: return@Box
                 if (entry.place is TabPlace.Essential) {
-                    LetterFavicon(entry.tab.title, entry.tab.url, Modifier.align(Alignment.Center))
+                    Favicon(entry.tab, Modifier.align(Alignment.Center))
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        LetterFavicon(entry.tab.title, entry.tab.url)
+                        Favicon(entry.tab)
                         Spacer(Modifier.width(14.dp))
                         Text(entry.tab.displayTitle(), style = EnsoType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }

@@ -33,7 +33,7 @@ import app.enso.browser.spaces.Tab
 import app.enso.browser.tabsheet.quickTabOutline
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.displayTitle
 import kotlin.math.roundToInt
 
@@ -79,7 +79,7 @@ fun DraggedTab(tab: Tab, finger: Offset) {
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LetterFavicon(tab.title, tab.url)
+        Favicon(tab)
         Spacer(Modifier.width(12.dp))
         Text(tab.displayTitle(), style = EnsoType.RowTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }

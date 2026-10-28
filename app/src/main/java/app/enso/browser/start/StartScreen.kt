@@ -64,7 +64,7 @@ import app.enso.browser.spaces.Tab
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.displayTitle
 import app.enso.browser.ui.pageColors
 import app.enso.browser.ui.spaceSurface
@@ -221,9 +221,8 @@ private fun SearchPalette(
                 tabs.forEach { tab ->
                     PaletteRow(
                         leading = {
-                            LetterFavicon(
-                                tab.title,
-                                tab.url,
+                            Favicon(
+                                tab,
                                 size = 26.dp,
                                 ring = if (tab.quick != null) EnsoColors.QuickTabOutlineOnLight else null,
                             )

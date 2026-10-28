@@ -92,7 +92,7 @@ import app.enso.browser.toolbar.PageState
 import app.enso.browser.toolbar.UrlEditor
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.SpaceColors
 import app.enso.browser.ui.SpaceIcon
 import app.enso.browser.ui.colors
@@ -482,7 +482,7 @@ private fun MediaCard(media: MediaCardState, onOpen: () -> Unit, onMute: (Boolea
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(40.dp).clip(RoundedCornerShape(20.dp)).clickable(onClick = onOpen), contentAlignment = Alignment.Center) {
-            LetterFavicon(media.title, media.url)
+            Favicon(media.title, media.url, media.tabId)
         }
         Spacer(Modifier.weight(1f))
         val features = media.features
@@ -661,7 +661,7 @@ private fun RailSplit(tabs: List<Tab>, current: String?, tabActions: TabSheetAct
                     .combinedClickable(onClick = { select() }, onLongClick = { onMenu(MenuTarget.ForTab(tab.id, bounds)) }),
                 contentAlignment = Alignment.Center,
             ) {
-                LetterFavicon(tab.title, tab.url)
+                Favicon(tab)
             }
         }
     }
@@ -699,7 +699,7 @@ private fun RailTab(
             .combinedClickable(onClick = { select() }, onLongClick = { onMenu(MenuTarget.ForTab(tab.id, bounds)) }),
         contentAlignment = Alignment.Center,
     ) {
-        LetterFavicon(tab.title, tab.url)
+        Favicon(tab)
     }
 }
 

@@ -54,7 +54,7 @@ import app.enso.browser.spaces.Tab
 import app.enso.browser.tabsheet.clearsIn
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.SpaceIcon
 import app.enso.browser.ui.displayTitle
 import kotlinx.coroutines.launch
@@ -183,7 +183,7 @@ private fun QuickTabCard(
             .clickable(onClick = onOpen),
     ) {
         Row(Modifier.fillMaxWidth().height(58.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            LetterFavicon(tab.title, tab.url, size = 28.dp)
+            Favicon(tab, size = 28.dp)
             Spacer(Modifier.width(12.dp))
             Text(
                 tab.displayTitle(),
@@ -216,7 +216,7 @@ private fun QuickTabCard(
                 .clip(RoundedCornerShape(16.dp))
                 .background(EnsoColors.FieldFill),
         ) {
-            LetterFavicon(tab.title, tab.url, size = 48.dp)
+            Favicon(tab, size = 48.dp)
         }
         Row(Modifier.padding(start = 18.dp, end = 18.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(EnsoColors.QuickTabOutlineOnLight, CircleShape))

@@ -53,6 +53,7 @@ configurations.configureEach {
 
 dependencies {
     implementation(libs.mozilla.browser.engine.gecko)
+    implementation(libs.mozilla.browser.icons)
     implementation(libs.mozilla.browser.state)
     implementation(libs.mozilla.browser.thumbnails)
     implementation(libs.mozilla.browser.storage.sync)

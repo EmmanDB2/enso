@@ -155,6 +155,7 @@ import app.enso.browser.toolbar.PageState
 import app.enso.browser.toolbar.ScrollingBarView
 import app.enso.browser.toolbar.toPageState
 import app.enso.browser.ui.EnsoColors
+import app.enso.browser.ui.LocalFavicons
 import app.enso.browser.ui.colors
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -401,7 +402,11 @@ class MainActivity : ComponentActivity() {
             setOnClickListener { expandBar() }
         }
         overlay = ComposeView(this).apply {
-            setContent { CompositionLocalProvider(LocalSpaceMenuBlocks provides spaceMenuBlocks) { OverlayContent() } }
+            setContent {
+                CompositionLocalProvider(LocalSpaceMenuBlocks provides spaceMenuBlocks, LocalFavicons provides components.favicons) {
+                    OverlayContent()
+                }
+            }
         }
         root = CoordinatorLayout(this).apply {
             setBackgroundColor(EnsoColors.Page.toArgb())

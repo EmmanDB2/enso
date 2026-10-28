@@ -16,9 +16,14 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **The cover's bottom bar (done)** (boards B1–B4), in the style of Arc Search, came in before 8b. It replaced the top bar.
   - **8b (done): splits sync both ways with Zen.**
   - **8c (done): Glance** (board 8), on both screens.
-- Current step: **9, Extensions**, in two passes.
-  - **9a (done): bundled uBlock Origin**, the Extensions list (the bar's panel, and a card from the sidebar's ⋮ menu), and popups and settings pages in a sheet.
-  - **9b (now): the store and updates.** A "Find more add-ons here" link to addons.mozilla.org, installing from it with an Ensō-style permission prompt, and daily updates (AC's `DefaultAddonUpdater`). The user dropped the recommended extensions list: just the link.
+- Step 9, **Extensions**, is done: bundled uBlock Origin, the Extensions list, popups and settings pages in a sheet (9a), and installs from addons.mozilla.org with an Ensō-style prompt and daily updates (9b). The user dropped the recommended extensions list for a "Find more add-ons here" link.
+- Current step: **10, Polish**, in four passes.
+  - **10a (now): real favicons** with letter fallbacks: the loaded page's icon, Zen's synced icon for tabs that aren't loaded, AC's icon cache or the site's `/favicon.ico`, then the letter. The user had the neutral circles behind them removed; only mostly white icons get a dark circle.
+  - **10b: the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
+  - **10c: dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
+  - **10d: settings screens.** Settings opens the current site's settings first (security, desktop site remembered per site, tracking protection per site, clear cookies and data), with an All settings button for every preference. Show the user a layout sketch and wording first: no board covers them.
+- Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
+- The start screen (board 9) stays as it is: the user plans to build a fidget for it.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -30,6 +35,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - **Sign-in client ID:** `sync/MozillaAccount.kt` signs in with **Firefox for Android's OAuth client ID** (`a2270f727f45f648`), as Fenix forks like Dejavu do, because Mozilla only gives Sync access to its own apps. That's agreed for personal use and testing only. **Before publishing, get Ensō its own client ID from Mozilla and replace it.**
 - **Reused code:** `sync/SyncClient.kt`, `sync/SyncCrypto.kt` and the emoji table in `ui/ZenIcons.kt` are adapted from Dejavu ([by-architect/Dejavu](https://github.com/by-architect/Dejavu), MPL 2.0). They keep their MPL headers and must stay MPL. Zen's record format comes from Zen's `src/zen/sync/ZenSpacesSync*.sys.mjs` (also MPL 2.0).
 - **App-services setup:** `EnsoApplication` (main process only) runs `AppServicesInitializer.init` and `RustHttpConfig.setClient` before any Places or account code runs.
+- **AC's logs:** debug builds add AC's `AndroidLogSink`, so Android Components' own logs (tags like `BrowserIcons`) reach logcat. Without it, AC fails silently. They include page URLs, so don't quote them to the user.
 - `app/build.gradle.kts` has a capability rule that picks GeckoView's copy of `glean-native`. GeckoView's omni build bundles it, and application-services (Places) asks for the standalone one. Keep the rule while both are in the build.
 - The build is limited to `arm64-v8a`, the Fold's chip type.
 
@@ -176,7 +182,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **Updates:** AC's `DefaultAddonUpdater` runs a daily WorkManager job per extension, through an `AddonManager` registered with `GlobalAddonDependencyProvider` (`NoFeaturedAddons`, since nothing lists featured add-ons).
     - `scheduleUpdates` follows the store's extensions: added ones are scheduled (idempotent, keeping their time), removed ones unscheduled, and all of them unscheduled with `updateExtensions` off.
     - An update that wants more permissions comes through `WebExtensionSupport`'s `onUpdatePermissionRequest` as an Update prompt, not AC's notification. A newer check replaces an unanswered one.
-    - The updater's first check runs right after scheduling. AC's own logs don't reach logcat; WorkManager's (`WM-WorkerWrapper`) show each result. To see the jobs, copy `no_backup/androidx.work.workdb*` off the phone and query `workspec` joined with `worktag` (state 0 is queued, 5 cancelled).
+    - The updater's first check runs right after scheduling. WorkManager's logs (`WM-WorkerWrapper`) show each result. To see the jobs, copy `no_backup/androidx.work.workdb*` off the phone and query `workspec` joined with `worktag` (state 0 is queued, 5 cancelled).
   - **Popups and settings:** the activity's `popupObserver` and `optionsPageObserver` (AC's) show them as an `ExtensionPage`, in the floating page view Glance uses. A popup is an engine session (`PageView.showSession`); a settings page is a custom tab.
     - On the cover it's the bar's `BarPanel.ExtensionPage`: the bar clears a hole for the page and reports where it is (`BarExtensions.onPageArea`) once its surface has grown. Unfolded it's a Glance card.
     - Closing a popup dispatches `UpdatePopupSessionAction` with no session and closes it; a popup that closes itself takes its sheet along.
@@ -228,7 +234,11 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `InnerFrame` paints the space colors with a rounded hole for each page card. GeckoView's surface ignores view clipping, so the cards' rounded corners are this paint. It has no touch handling, so the pages get the cards' touches.
 - `ui/`:
   - `Theme.kt` holds color tokens from the spec's Visual style table and the Inter font (bundled in `res/font`; its license is in `assets/licenses`).
-  - `Favicons.kt` has the letter favicon placeholders and the space icons.
+  - `Favicons.kt`: favicons, the letter fallbacks and the space icons.
+    - `Favicon(tab)` (or with a title, URL and tab id) draws a page's icon on its own, with no circle: the user had the neutral circles removed. Only a mostly white icon (`isLight`, such as GitHub's dark-theme mark) gets a dark circle (`FaviconBackdropForLight`). Use it for every tab or page; `LetterFavicon` is the fallback, and the extension icons' own.
+    - `FaviconSource` (`Components.favicons`, provided as `LocalFavicons` in the overlay) picks the icon: a loaded tab's page icon from the store (`pageIcons`), else for a tab that isn't loaded Zen's icon (`zenIcons`), AC's caches, or the site's `/favicon.ico` (AC's module has no such fallback itself), else null for the letter. It keeps found icons in an LRU, so rows draw them at once.
+  - **Icons module:** `Components.icons` is AC's `BrowserIcons` over the Gecko fetch client. `EnsoApplication` installs it, which adds its built-in extension (`icons@mozac.org`): pages report their icons, and the store's `content.icon` gets them.
+  - **Zen's icons:** `ZenMirror.tabIcons()` takes each synced tab's `icon` (mostly `data:` images; Zen's `chrome:` ones are dropped), and `ZenSync.icons` holds them: loaded from the mirror at start, refreshed after each sync, cleared on sign-out. They stay out of `spaces.json`, where they'd be about 16 times its size.
   - `SpaceColors.kt`: a space's chrome colors.
     - `Space.colors()` lays each gradient color over the base at the theme's opacity (`Space.themeOpacity`). A space without colors gets its accent at 16%.
     - `Modifier.spaceSurface` paints one gradient down the whole window, lined up by each surface's window position. The bottom bar, sheet, rows and sidebar therefore read as one, and rows that swipe over it still look seamless.

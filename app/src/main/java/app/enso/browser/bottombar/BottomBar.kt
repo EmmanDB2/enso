@@ -71,7 +71,7 @@ import app.enso.browser.toolbar.LoadProgress
 import app.enso.browser.toolbar.PageState
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
-import app.enso.browser.ui.LetterFavicon
+import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.colors
 import app.enso.browser.ui.spaceSurface
 import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
@@ -381,7 +381,7 @@ private fun QuickTabStack(tabs: List<Tab>, active: Boolean, thumbnails: Thumbnai
         MiniCard(Modifier.offset(2.dp, (-1).dp).rotate(4f).alpha(alpha)) {
             tabs.firstOrNull()?.let { tab ->
                 TabThumbnail(tab.id, thumbnails, Modifier.fillMaxSize(), ContentScale.Crop) {
-                    LetterFavicon(tab.title, tab.url, size = 18.dp)
+                    Favicon(tab, size = 18.dp)
                 }
             }
         }
