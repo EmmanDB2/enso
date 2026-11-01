@@ -103,6 +103,8 @@ fun StartScreen(
     actions: StartScreenActions,
     /** On the inner screen the palette sits centered on the page card (board 9c) instead of in the upper half. */
     centered: Boolean = false,
+    /** The ensō fidget in the middle of the blank page (boards F1–F4). */
+    showEnso: Boolean = false,
 ) {
     val accent = Color(spaces.currentSpace.accent)
     val openPalette by rememberUpdatedState { onPaletteOpenChange(true) }
@@ -118,6 +120,12 @@ fun StartScreen(
                 detectTapOrSwipeDown(onTap = { openPalette() }, onSwipeDown = { openTabSheet() })
             },
     ) {
+        if (showEnso && !paletteOpen) {
+            // The accent (Zen's primary) leads, then the theme's other colors.
+            val space = spaces.currentSpace
+            val glow = remember(space.accent, space.gradient) { (listOf(space.accent) + space.gradient).distinct().map(::Color) }
+            EnsoFidget(glow = glow, modifier = Modifier.align(Alignment.Center))
+        }
         if (paletteOpen) {
             SearchPalette(
                 spaces = spaces,

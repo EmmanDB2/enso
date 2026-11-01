@@ -25,7 +25,7 @@ enum class Setting {
     SyncOpenTabs, SyncNavigations, EssentialsPerContainer,
     Theme, PageZoom, CoverStatusBar, HideStatusBarUnfolded, PageBorder,
     UnfoldedPortrait, DesktopSitesUnfolded, DesktopSitesInSplit,
-    QuickTabLifetime, QuickTabsInSheet, StartScreenAfter, SheetHeaderSwipe,
+    QuickTabLifetime, QuickTabsInSheet, StartScreenAfter, ShowEnso, SheetHeaderSwipe,
     HoldTime, LeftHanded, EdgeStrip,
     TrackingProtection,
     UpdateExtensions,
@@ -177,6 +177,11 @@ fun AllSettingsContent(settings: Settings, zenStatus: ZenSyncStatus, actions: Al
             { minutes -> change(Setting.StartScreenAfter) { startScreenAfterMinutes = minutes } },
         )
         SwitchRow(
+            stringResource(R.string.settings_show_enso),
+            values.showEnsoOnNewTabs,
+            { on -> change(Setting.ShowEnso) { showEnsoOnNewTabs = on } },
+        )
+        SwitchRow(
             stringResource(R.string.settings_sheet_header_swipe),
             values.switchSpacesFromSheetHeader,
             { on -> change(Setting.SheetHeaderSwipe) { switchSpacesFromSheetHeader = on } },
@@ -245,6 +250,7 @@ private data class SettingsValues(
     val quickTabLifetimeHours: Int,
     val quickTabsInTabSheet: Boolean,
     val startScreenAfterMinutes: Int,
+    val showEnsoOnNewTabs: Boolean,
     val switchSpacesFromSheetHeader: Boolean,
     val spaceMenuHoldMs: Int,
     val spaceMenuLeftHanded: Boolean,
@@ -258,7 +264,7 @@ private data class SettingsValues(
                 syncOpenTabs, syncTabNavigations, essentialsPerContainer,
                 themeMode, pageZoomPercent, coverStatusBar, hideStatusBarUnfolded, innerPageBorder,
                 unfoldedPortraitLayout, desktopSitesUnfolded, desktopSitesInSplit,
-                quickTabLifetimeHours, quickTabsInTabSheet, startScreenAfterMinutes, switchSpacesFromSheetHeader,
+                quickTabLifetimeHours, quickTabsInTabSheet, startScreenAfterMinutes, showEnsoOnNewTabs, switchSpacesFromSheetHeader,
                 spaceMenuHoldMs.toInt(), spaceMenuLeftHanded, spaceMenuStripHeight,
                 trackingProtection,
                 updateExtensions,

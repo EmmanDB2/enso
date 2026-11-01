@@ -4,7 +4,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 
 - **Spec:** [docs/SPEC.md](docs/SPEC.md). It is the source of truth for behavior, layout and the build order.
 - **Mockups:** [docs/mockups/](docs/mockups/). Filenames start with the spec's board numbers (for example `4 · Tab sheet.png` is board 4). Look at the relevant boards before building any UI.
-- **Logo:** [docs/logo.png](docs/logo.png), an ensō brush circle.
+- **Logo:** [docs/logo.png](docs/logo.png), an ensō brush circle. **Brand files** are in [docs/brand/](docs/brand/): `enso-icon.svg` (the app icon) and `enso-mark.svg` (the mark alone). The fidget's boards are `docs/mockups/F1–F4`.
 
 ## How we work
 
@@ -28,7 +28,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Gecko's Enhanced Tracking Protection is on (`trackingProtection`, Standard by default). Standard blocks trackers' cookies; their scripts only under Strict.
     - Not yet checked on the Fold: the unfolded card.
 - Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
-- The start screen (board 9) stays as it is: the user plans to build a fidget for it.
+- The start screen (board 9) has the ensō fidget (boards F1–F4), which the user asked for as a side piece alongside step 10. So does the app icon.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
 ## Project
@@ -154,6 +154,29 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - The start screen shows when no tab is selected, when the selected tab belongs to another space, or when the app was away for `startScreenAfterMinutes`.
   - Tap it for bottom search on the cover, or the palette on the inner screen; swipe down for the tab sheet.
   - Back returns to the last tab.
+- `start/EnsoFidget.kt`: the ensō fidget on the blank page (spec: "The ensō fidget"; boards F1–F4), behind `showEnsoOnNewTabs`. It hides while the inner palette is open.
+  - **The stroke** is rebuilt from the spec's formula every frame it changes (`ensoStroke`, cached in `StrokeCache`), in the mark's 512 grid. enso-mark.svg's box is 50 to 462 of it, drawn at 240 dp. At rest it lies within 0.66 grid units of the SVG's main stroke (the SVG's rounding). The two strands are the SVG's paths, verbatim.
+    - The stroke and strands draw into one layer (`saveLayer` with the ink's alpha) and fade together. Drawn separately, the translucent strands darkened wherever they crossed the stroke, which showed once the head looped over them.
+  - **Touch:** its `pointerInput` only consumes a down that lands on the ring (`TOUCH_BAND`, 100 to 200 grid units from the center). Any other touch reaches the start screen's tap and swipe detector, because that detector's `awaitFirstDown` skips consumed downs.
+  - **Spin:** drags snap `rotation`, and the release sends it home with `spinHome`.
+    - First an `animateDecay` whose `absVelocityThreshold` is the cruising speed (`CRUISE_SPEED`, 40° a second), so friction stops there. `exponentialDecay` runs at 4.2 × its friction multiplier per second, so 0.362 is ×0.975 a frame at 60 fps.
+    - Then a linear tween at that speed, in the spin's direction (`spinDirection`), to the next whole turn, which is the logo at rest. The last 12° ease out on a curve whose starting slope matches the cruise.
+    - It stays at that multiple of 360° rather than snapping to 0, since a jump would fire the tick watcher.
+    - The 30° ticks watch `rotation` itself, so drags, flings and the way home all tick.
+  - **Hold:** `headSweep` (degrees) grows at a steady acceleration (`SWEEP_ACCELERATION`), driven frame by frame, with a rising rumble alongside.
+    - `ensoStroke` adds it as an extension before the head: from 124° − sweep up to 124°, at the head's own radius and width, with the cap moved to its end. The original stroke stays as it is underneath; the user didn't want it to morph.
+    - The gap closes at 52° (`GAP_SWEEP`, the head reaching the tail's end at 72°), with a click. A full loop is 360° (`FULL_SWEEP`), with a heavier click, and the glow peaks at 50% there.
+    - The glow (`glowStops`) is the space's accent in the middle, fading out through its other gradient colors over the inner 65% (`GLOW_COLORS_REACH`). A one-color space keeps the original stops (full, 55% at 0.55, gone at the edge).
+    - Release before the loop closes eases `headSweep` back to 0.
+    - **Let-go:** when the loop closes, `letGo` runs in its own job, so lifting the finger doesn't stop it. It bounces the whole mark (`bounce`, an underdamped spring started with a velocity), unwinds `headSweep` to 0, and calls `spinHome` with `unwindKick`. That kick is sized so friction carries it to the next whole turn at least 300° away, slowing to the cruise just before, so it settles at rest.
+  - **Spinning at any time:** once the finger moves past the slop (6 dp, or `HOLD_BREAK_SLOP` 14 dp during a hold), the finger turns it, whatever else was happening.
+    - Before the hold's 350 ms, that cancels the hold.
+    - After it, the hold carries on closing as it turns: the user wanted only lifting the finger to stop it.
+    - Once the hold has started, turning starts from the current angle, which a let-go may have spun it to.
+    - A let-go while the finger is turning it bounces and unwinds but doesn't spin (`letGo(spin = false)`), so the turning stays the finger's.
+    - On release a spin goes home with `spinHome`. Otherwise `spinHome` only runs if it's off its resting angle and not already moving, so a let-go's spin carries on.
+  - **Haptics:** `FidgetHaptics` uses composition primitives (Android 12+, if the motor has them), else plain haptic feedback, which can't rumble. The VIBRATE permission is for this.
+- **App icon:** `mipmap-anydpi/ic_launcher` (and `_round`) is an adaptive icon. `drawable/ic_launcher_foreground` is the mark converted from docs/brand/enso-icon.svg, scaled by 72/512 and 18 dp in, so the brand tile fills the 72 dp visible square. It's also the monochrome layer. The ground is `@color/ic_launcher_background` (#F1EEE6).
 - `split/`: split view (board 7).
   - **Model:** `Space.splits` holds each `Split`: its tab IDs in page order, its `layout` (Zen's `gridType`: side by side, stacked or grid), its page `sizes`, which stay on the phone, and whether it came from Zen (`synced`). The tabs stay where they live. `SplitRows` (in `tabsheet/`) shows each split as one row where its first tab sits, and hides its other tabs.
   - **Pages:** `PagePanes` holds one `PageView` per page on screen, and replaces AC's `SessionFeature`.
@@ -286,6 +309,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `zenSyncDryRun` (default off) logs what sync would upload without uploading. It's for testing.
   - `themeMode` (default `System`) picks light or dark, or follows Android's dark theme. `MainActivity.applyTheme` applies it at start and on every configuration change (the activity handles `uiMode` itself): `EnsoColors.dark`, the system bars' icons, the views that took a color once (window, root, page containers), and Gecko's `preferredColorScheme` for pages, which follows the system by itself under `System`.
   - `updateExtensions` (default on) checks extensions for updates daily and installs them.
+  - `showEnsoOnNewTabs` (default on) shows the ensō fidget on the blank start page.
   - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) and `bundledExtensionsInstalled` are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
 

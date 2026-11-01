@@ -738,7 +738,14 @@ class MainActivity : ComponentActivity() {
                 // Back from the start screen returns to the last tab, if there is one.
                 BackHandler(enabled = startScreenVisible && selectedTabId != null) { startScreenRequested = false }
                 // On the cover, tapping it opens bottom search rather than the palette.
-                StartScreen(spaces, statusBarInset, paletteOpen = false, { if (it) bottomBarActions.newSearch() }, startScreenActions)
+                StartScreen(
+                    spaces,
+                    statusBarInset,
+                    paletteOpen = false,
+                    { if (it) bottomBarActions.newSearch() },
+                    startScreenActions,
+                    showEnso = settings.showEnsoOnNewTabs,
+                )
             }
             val page by components.store.observeAsComposableState { it.selectedTab?.toPageState() ?: PageState() }
             // Glance covers the whole cover, bar included.
@@ -977,7 +984,7 @@ class MainActivity : ComponentActivity() {
                     .size(with(density) { cardRect.width.toDp() }, with(density) { cardRect.height.toDp() })
                     .clip(RoundedCornerShape(CardCorner)),
             ) {
-                StartScreen(spaces, 0.dp, paletteOpen, { paletteOpen = it }, startScreenActions, centered = true)
+                StartScreen(spaces, 0.dp, paletteOpen, { paletteOpen = it }, startScreenActions, centered = true, showEnso = settings.showEnsoOnNewTabs)
             }
         }
         sidebarMenu?.let { target ->

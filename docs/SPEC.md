@@ -147,6 +147,34 @@ Once added to a space, the tab loses its outline, becomes a normal tab and syncs
 
 When no tab is open, or after the app has been away long enough (threshold to decide), Ensō shows a blank page with a faint space tint, like Zen's empty state. Spaces stay one gesture away.
 
+### The ensō fidget (boards F1–F4)
+
+In the middle of the blank page sits the ensō, about 240 dp, something to play with while you think. A setting, "Show ensō on new tabs" (on by default), hides it.
+
+- **The stroke** is generated, not drawn from the SVG, so it can move. In the mark's 512×512 grid, centered on (256, 256), it sweeps from 124° to 432°, in about 140 samples:
+  - Radius: 152 + 6t + 3·sin(2.2πt).
+  - Width: taper(t) = ((74 − 2.5)·(1 − t)^1.15 + 2.5) × (1 + 0.06·e^(−t/0.15)).
+  - The outline runs along the outer and inner edges, with a round cap at the thick start (the head).
+  - It matches enso-mark.svg's main stroke. The two thin dry-brush strands near the tail come from the SVG as they are.
+  - The stroke and strands are one layer, faded as a whole, so where they overlap the ink doesn't darken.
+- **Look (F1):** the ink at about 25% so it doesn't draw the eye, breathing very slowly unless Android's "Remove animations" is on. While touched, about 85%.
+- **Touch:** only touches that start on the ensō's circle are its own. A tap anywhere else on the blank page still opens search.
+- **Spin (F2):**
+  - Dragging around the center turns it by the finger's angle change.
+  - Let go, and it keeps spinning and slows smoothly (friction about ×0.975 per frame at 60 fps).
+  - Once it's slowed to a slow, even speed (40° a second), it carries on at that speed in the same direction until it's back at rest as the logo, easing in over the last few degrees. A gentle release with no flick goes home the same way, in the direction of the drag, and so does an ensō caught mid-spin when it's let go. A touch stops it on the way.
+  - Spinning fast, two faint copies trail it, fading as it slows.
+  - A haptic low tick for every 30° turned, never closer than about 25 ms apart.
+- **Hold (F3, F4):** a 350 ms press that doesn't move more than about 6 dp.
+  - **The head extends:** the thick head keeps sweeping back round (anticlockwise) into the thin tail and on, faster as it goes, laying new ink at the head's own width and radius. The stroke itself never changes or morphs. The gap closes as the head reaches the tail's end, about 1.3 s in. By about 3.5 s the head has gone a full loop, and the ensō reads as a solid circle because it has been painted round over itself.
+  - **Glow:** a soft radial glow in the space's colors behind it, rising as the head sweeps, up to about 50% at the full loop. The space's primary color is in the middle, fading outward through its other theme colors (Zen allows up to three); a space with one color glows in that color alone.
+  - **Haptics:** a gentle rumble rising as the head sweeps, a click as the gap closes, and a heavier click when the loop is complete.
+  - **The loop lets go:** as the loop completes and the heavier click plays, it releases by itself, held or not. The whole ensō bounces, the head unwinds back to the open ensō, and the unwinding sends it spinning on with that momentum, about a turn, to settle at its resting angle.
+  - Letting go before the loop completes draws the head back to the open ensō: a quick ease-out, no overshoot.
+- **Always spinnable:** a drag spins it at any point: before a hold starts (which then doesn't start), during one, after the loop has let go, or while it's still spinning or on its way home.
+  - A hold isn't interrupted by spinning: it keeps closing as the finger turns it, and only lifting the finger stops it. During a hold the turning starts after a slightly bigger move (about 14 dp), so a finger's natural wobble doesn't jiggle it.
+  - If the loop completes while the finger is turning it, it still bounces and unwinds, but the turning stays the finger's. On release, it carries on with the throw and settles home.
+
 On the cover, tapping the blank page opens bottom search (board B4). On the inner screen, tapping it or New Tab opens a command palette modeled on Zen's:
 
 - A search field ("Search or type a URL").
@@ -238,6 +266,7 @@ Shapes and type:
 - Icons: thin line icons (about 1.8 px stroke). Real favicons replace the letter placeholders, drawn on their own with no circle behind them; only an icon that would vanish gets a circle (a mostly white one in light mode, a mostly black one in dark). Letters remain as the fallback.
 - The space menu (board 3) is a frosted overlay: the blurred page under a light frost and the space's tint.
 - **Motion:** rows fade in and out and slide into place as tabs open, close or move, and as folders open and close; cards (the sync sheet, prompts, the Extensions card) fade in with a slight scale; the start screen and pages cross-fade; a favicon fades in over its letter once it loads.
+- **App icon:** an adaptive icon from docs/brand/enso-icon.svg: the ensō mark in #1C1B1F on a solid #F1EEE6 ground, sized as in the brand icon and inside the safe zone, so circle and squircle masks never cut it. A monochrome layer of the mark makes Android's themed icons work. All of it is vector drawables.
 - **Dark mode** follows Android's dark theme, with a setting to override it (system, light or dark). Every token above gets a dark value, and web pages are asked for their dark version too. Dark surfaces use Zen's own dark base (rgb 23, 23, 26) under the space colors, so a space looks as it does in Zen's dark mode.
 
 ## Extensions

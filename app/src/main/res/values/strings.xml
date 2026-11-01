@@ -208,6 +208,7 @@
     <string name="settings_minutes_30">30 min</string>
     <string name="settings_hour_1">1 hour</string>
     <string name="settings_never">Never</string>
+    <string name="settings_show_enso">Show ensō on new tabs</string>
     <string name="settings_sheet_header_swipe">Swipe the sheet’s header to switch spaces</string>
     <string name="settings_hold_to_open">Hold to open</string>
     <string name="settings_hold_ms">%d ms</string>

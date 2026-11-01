@@ -175,6 +175,11 @@ class Settings(context: Context) {
         get() = prefs.getInt(KEY_QUICK_TAB_LIFETIME_HOURS, 24)
         set(value) = prefs.edit { putInt(KEY_QUICK_TAB_LIFETIME_HOURS, value) }
 
+    /** The ensō fidget on the blank start page. */
+    var showEnsoOnNewTabs: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_ENSO_ON_NEW_TABS, true)
+        set(value) = prefs.edit { putBoolean(KEY_SHOW_ENSO_ON_NEW_TABS, value) }
+
     /** How long the app must be away before it reopens on the start screen. 0 means it never does. */
     var startScreenAfterMinutes: Int
         get() = prefs.getInt(KEY_START_SCREEN_AFTER_MINUTES, 30)
@@ -206,6 +211,7 @@ class Settings(context: Context) {
         const val KEY_COVER_STATUS_BAR = "cover_status_bar"
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_TRACKING_PROTECTION = "tracking_protection"
+        const val KEY_SHOW_ENSO_ON_NEW_TABS = "show_enso_on_new_tabs"
         const val KEY_QUICK_TABS_IN_TAB_SHEET = "quick_tabs_in_tab_sheet"
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
         const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"
