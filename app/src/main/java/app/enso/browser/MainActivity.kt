@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Build
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
@@ -2003,10 +2004,14 @@ class MainActivity : ComponentActivity() {
                 .collect { closed -> if (closed) closeExtensionPage() }
         }
         lifecycleScope.launch {
-            // The tinted strip under the status bar takes the top of the space's colors, as the bar takes the bottom.
-            combine(components.spaces.state, snapshotFlow { EnsoColors.dark }) { state, _ -> state.currentSpace.colors().stops.first().toArgb() }
+            // The tinted strip under the status bar runs through all of the space's colors, left to right.
+            combine(components.spaces.state, snapshotFlow { EnsoColors.dark }) { state, _ -> state.currentSpace.colors().stops.map { it.toArgb() } }
                 .distinctUntilChanged()
-                .collect { statusBand.setBackgroundColor(it) }
+                .collect { stops ->
+                    // A gradient needs two colors, so one color runs into itself.
+                    val colors = if (stops.size > 1) stops.toIntArray() else IntArray(2) { stops.first() }
+                    statusBand.background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors)
+                }
         }
         lifecycleScope.launch {
             // An open panel holds the bar in place, with the status bar showing above it.
