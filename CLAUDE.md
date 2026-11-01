@@ -21,12 +21,11 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **10a (done): real favicons** with letter fallbacks: the loaded page's icon, Zen's synced icon for tabs that aren't loaded, AC's icon cache or the site's `/favicon.ico`, then the letter. The user had the neutral circles behind them removed; only mostly white icons get a dark circle.
   - **10b (done): the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
   - **10c (done): dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
-  - **10d (now): settings screens**, built to the sketch the user approved (`settings/`).
+  - **10d (done): settings screens**, built to the sketch the user approved (`settings/`).
     - Settings (the actions sheet on the cover, the ⋮ menu unfolded) opens `SiteSettingsContent` for the page on screen: security, Desktop site (`SiteChoices`, by host, in `enso_sites`; flipping it to what the screen gives forgets the choice), tracking protection (AC's `TrackingProtectionUseCases` exceptions), and clearing the site's data (Gecko clears its base domain), after a confirmation dialog. With no http(s) page it opens All settings.
     - `AllSettingsContent` writes `Settings` and calls `MainActivity.settingChanged`, which applies what it can at once (theme, layout, desktop sites, tracking protection level, extension updates) and bumps `settingsRevision`, which the overlay reads settings through.
     - Cover: `BarPanel.SiteSettings` and `BarPanel.AllSettings` (`BarSettings`). Unfolded: `SettingsCard` over the page card. Sync with Zen moved from the ⋮ menu to the top of All settings.
     - Gecko's Enhanced Tracking Protection is on (`trackingProtection`, Standard by default). Standard blocks trackers' cookies; their scripts only under Strict.
-    - Not yet checked on the Fold: the unfolded card.
 - Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
 - The start screen (board 9) has the ensō fidget (boards F1–F4), which the user asked for as a side piece alongside step 10. So does the app icon.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
@@ -55,6 +54,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - `DesktopSites.kt`: desktop sites while the sidebar layout shows.
   - addons.mozilla.org always gets its mobile version (`alwaysMobile`, by the tab's page when its session starts or the screen changes). The site serves both versions at `/en-US/firefox/` and picks one by user agent; the desktop one lists Firefox's desktop add-ons.
   - AC's Gecko engine has no desktop default for new sessions, so a store middleware switches each session as it's linked (`LinkEngineSessionAction`), before the engine middleware loads its first page. That's why it comes first in the store's middleware list.
+    - It also sets the tab's `desktopMode` in the store itself (`UpdateTabDesktopMode`). AC reports a switch only through the observer it registers while linking, after this, so the store never heard, and site settings showed Desktop site off on pages that had it.
   - Folding or unfolding switches open sessions with `toggleDesktopMode(reload = false)`: by the user's choice, pages keep their version until they next load.
   - Tabs in a split keep mobile sites (`setActive`'s `mobileTabs`) unless `desktopSitesInSplit` is on.
 - `spaces/`: the local spaces model, shaped after Zen so step 5 can sync it.

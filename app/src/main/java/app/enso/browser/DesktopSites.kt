@@ -5,6 +5,7 @@ import android.os.Looper
 import app.enso.browser.settings.SiteChoices
 import app.enso.browser.settings.SiteChoices.Companion.hostOf
 import mozilla.components.browser.state.action.BrowserAction
+import mozilla.components.browser.state.action.ContentAction
 import mozilla.components.browser.state.action.EngineAction
 import mozilla.components.browser.state.selector.findTabOrCustomTab
 import mozilla.components.browser.state.state.BrowserState
@@ -46,6 +47,9 @@ class DesktopSites(private val choices: SiteChoices) {
             } else {
                 main.post { session.toggleDesktopMode(true, reload = false) }
             }
+            // AC only reports a switch to the store through the observer it registers while linking, after this,
+            // so the tab's desktopMode (which site settings show) would stay false.
+            context.dispatch(ContentAction.UpdateTabDesktopMode(action.tabId, true))
         }
         next(action)
     }
