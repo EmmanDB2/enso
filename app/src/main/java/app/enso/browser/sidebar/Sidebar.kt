@@ -149,7 +149,8 @@ interface SidebarActions {
     /** Loads what was typed in the URL field in the current tab. */
     fun submit(input: String)
 
-    fun openZenSync()
+    /** Settings from the ⋮ menu: the site's settings, or All settings when there's no site on screen. */
+    fun openSettings()
 
     /** The Extensions card (step 9). */
     fun openExtensions()
@@ -334,7 +335,7 @@ private fun UrlField(page: PageState, editing: Boolean, accent: androidx.compose
                             ?.setPrimaryClip(ClipData.newPlainText(host, page.url))
                     }
                 }
-                OverflowMenu(onOpenExtensions = actions::openExtensions, onOpenZenSync = actions::openZenSync, buttonSize = ButtonSize)
+                OverflowMenu(onOpenExtensions = actions::openExtensions, onOpenSettings = actions::openSettings, buttonSize = ButtonSize)
             }
         }
     }

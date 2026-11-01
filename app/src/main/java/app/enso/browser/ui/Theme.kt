@@ -40,6 +40,9 @@ object EnsoColors {
     /** Cards and menus over everything else: the sync sheet, prompts, the palette, hold menus. */
     val Card get() = pick(Color.White, Color(0xFF2A292F))
 
+    /** The chosen one of a few options side by side (All settings' choices): raised in light, lit in dark. */
+    val Chosen get() = pick(Color.White, Color.White.copy(alpha = 0.16f))
+
     /** A row lit softly, such as a pinned tab on screen. */
     val SoftHighlight get() = pick(Color.White.copy(alpha = 0.55f), Color.White.copy(alpha = 0.08f))
 

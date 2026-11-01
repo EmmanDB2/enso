@@ -9,6 +9,7 @@ import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -47,6 +48,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -82,6 +84,18 @@ import app.enso.browser.bottombar.BarPanel
 import app.enso.browser.bottombar.BottomBar
 import app.enso.browser.bottombar.BottomBarActions
 import app.enso.browser.bottombar.SearchMode
+import app.enso.browser.settings.AllSettingsActions
+import app.enso.browser.settings.AllSettingsContent
+import app.enso.browser.settings.AllSettingsTitle
+import app.enso.browser.settings.Setting
+import app.enso.browser.settings.SettingsCard
+import app.enso.browser.settings.SettingsHeader
+import app.enso.browser.settings.SettingsPage
+import app.enso.browser.settings.SiteChoices
+import app.enso.browser.settings.SiteSettingsActions
+import app.enso.browser.settings.SiteSettingsContent
+import app.enso.browser.settings.SiteState
+import app.enso.browser.settings.SiteTitle
 import app.enso.browser.sidebar.CardCorner
 import app.enso.browser.sidebar.InnerFrame
 import app.enso.browser.sidebar.MediaCardState
@@ -121,6 +135,7 @@ import app.enso.browser.spaces.toggleFolder
 import app.enso.browser.spaces.unsplit
 import app.enso.browser.split.DraggedTab
 import app.enso.browser.bottombar.BarExtensions
+import app.enso.browser.bottombar.BarSettings
 import app.enso.browser.extensions.ExtensionListActions
 import app.enso.browser.extensions.ExtensionPromptCard
 import app.enso.browser.extensions.Extensions
@@ -182,7 +197,9 @@ import mozilla.components.browser.state.action.WebExtensionAction
 import mozilla.components.browser.state.selector.findCustomTab
 import mozilla.components.browser.state.selector.selectedTab
 import mozilla.components.browser.state.state.createCustomTab
+import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.concept.engine.EngineSession
+import mozilla.components.concept.engine.Engine
 import mozilla.components.concept.engine.HitResult
 import mozilla.components.concept.engine.mediaquery.PreferredColorScheme
 import mozilla.components.browser.thumbnails.BrowserThumbnails
@@ -227,6 +244,12 @@ class MainActivity : ComponentActivity() {
 
     /** The inner screen's Extensions card, from the sidebar's ⋮ menu. */
     private var extensionsCardOpen by mutableStateOf(false)
+
+    /** Unfolded, the settings card from the ⋮ menu, showing the site's settings or All settings (step 10). */
+    private var settingsCard by mutableStateOf<SettingsPage?>(null)
+
+    /** Bumped when All settings changes a preference, so composables that read [Settings] read it again. */
+    private var settingsRevision by mutableIntStateOf(0)
 
     /** Glance or an extension's page covers the pages, which hide behind their blurred captures. */
     private val pagesCovered get() = glance != null || extensionPage != null
@@ -538,7 +561,15 @@ class MainActivity : ComponentActivity() {
         super.onConfigurationChanged(newConfig)
         // Android's dark theme arrives here too: the activity handles uiMode itself.
         applyTheme(newConfig)
-        val nowInner = isInnerScreen(newConfig)
+        applyScreenLayout(newConfig)
+    }
+
+    /**
+     * Switches between the cover's layout and the inner screen's when [config] calls for the other one: folding or
+     * unfolding, rotating the unfolded screen, or the portrait layout setting changing.
+     */
+    private fun applyScreenLayout(config: Configuration) {
+        val nowInner = isInnerScreen(config)
         if (nowInner == inner) return
         inner = nowInner
         updateDesktopSites()
@@ -551,6 +582,7 @@ class MainActivity : ComponentActivity() {
         floatingBackdrop = emptyList()
         closeExtensionPage()
         extensionsCardOpen = false
+        settingsCard = null
         spaceMenuGesture.reset()
         spaceWave.close()
         // Thumbnails capture the cover's page; unfolded, the first page view may show another tab of a split.
@@ -649,7 +681,7 @@ class MainActivity : ComponentActivity() {
         // Anything that expired while we were away goes, even the tab that was on screen.
         components.tabs.clearExpiredQuickTabs(settings.quickTabLifetimeMs, keep = emptyList())
         val away = settings.lastStoppedAt?.let { System.currentTimeMillis() - it }
-        if (away != null && away >= settings.startScreenAfterMs) startScreenRequested = true
+        if (away != null && settings.startScreenAfterMinutes > 0 && away >= settings.startScreenAfterMs) startScreenRequested = true
         windowFeature.start()
         webChannelFeature.start()
         if (!inner) thumbnails.start()
@@ -687,10 +719,15 @@ class MainActivity : ComponentActivity() {
      */
     @Composable
     private fun OverlayContent() {
+        // Read again whenever All settings changes one.
+        val settings = remember(settingsRevision) { components.settings }
         val spaces by components.spaces.state.collectAsState()
         val installedExtensions by components.store.observeAsComposableState { extensionRows(it) }
         val extensionPrompts by components.extensions.prompts.collectAsState()
         val zenStatus by components.zenSync.status.collectAsState()
+        // The site on screen, for its settings; none over the start screen.
+        val siteOnScreen by components.store.observeAsComposableState { siteStateOf(it.selectedTab) }
+        val site = siteOnScreen.takeUnless { startScreenVisible }
         val statusBarInset = with(LocalDensity.current) { statusBarInset.toDp() }
         if (inner) {
             // A plain container, so the rail and sidebar keep their own widths instead of the window's.
@@ -714,7 +751,7 @@ class MainActivity : ComponentActivity() {
                 scrollOffset = { barOffset },
                 statusBarInset = statusBarInset,
                 gestureInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
-                quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
+                quickTabLifetimeMs = settings.quickTabLifetimeMs,
                 thumbnails = components.thumbnailStorage,
                 extensions = BarExtensions(
                     rows = installedExtensions,
@@ -723,6 +760,9 @@ class MainActivity : ComponentActivity() {
                     backdrop = floatingBackdrop,
                     onPageArea = ::placeExtensionPage,
                 ),
+                settings = BarSettings(site, siteSettingsActions) { modifier ->
+                    AllSettingsContent(components.settings, zenStatus, allSettingsActions, modifier)
+                },
                 actions = bottomBarActions,
             )
         }
@@ -743,19 +783,19 @@ class MainActivity : ComponentActivity() {
             BackHandler { tabSheetOpen = false }
             FrostedOver(sheetBackdrop) { TabSheet(
                 spaces = spaces,
-                essentials = spaces.essentialsFor(perContainer = components.settings.essentialsPerContainer),
+                essentials = spaces.essentialsFor(perContainer = settings.essentialsPerContainer),
                 selectedTabId = selectedTabId,
                 statusBarInset = statusBarInset,
                 navigationBarInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
-                quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
-                headerSwitchesSpaces = components.settings.switchSpacesFromSheetHeader,
-                showQuickTabs = components.settings.quickTabsInTabSheet,
+                quickTabLifetimeMs = settings.quickTabLifetimeMs,
+                headerSwitchesSpaces = settings.switchSpacesFromSheetHeader,
+                showQuickTabs = settings.quickTabsInTabSheet,
                 actions = tabSheetActions,
             ) }
         }
         val glanceNow = glance
         val layout = floatingLayout
-        val areaCorner = if (inner && components.settings.innerPageBorder) CardCorner else 0.dp
+        val areaCorner = if (inner && settings.innerPageBorder) CardCorner else 0.dp
         if (glanceNow != null && layout != null) {
             // A plain container, so the overlay's exact window constraints don't stretch Glance's pieces.
             Box(Modifier.fillMaxSize()) {
@@ -799,6 +839,30 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        AnimatedCard(settingsCard.takeIf { inner && pageNow == null }) { page ->
+            Box(Modifier.fillMaxSize()) {
+                val shown = if (page == SettingsPage.Site && site == null) SettingsPage.All else page
+                val back = { settingsCard = SettingsPage.Site }.takeIf { shown == SettingsPage.All && site != null }
+                SettingsCard(
+                    cardRect,
+                    areaCorner,
+                    onBack = back,
+                    onClose = { settingsCard = null },
+                    header = {
+                        SettingsHeader(back) {
+                            if (shown == SettingsPage.Site && site != null) SiteTitle(site) else AllSettingsTitle()
+                        }
+                    },
+                    cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                ) {
+                    if (shown == SettingsPage.Site && site != null) {
+                        SiteSettingsContent(site, siteSettingsActions)
+                    } else {
+                        AllSettingsContent(components.settings, zenStatus, allSettingsActions)
+                    }
+                }
+            }
+        }
         AnimatedVisibility(zenSyncSheetOpen, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
             BackHandler(enabled = zenSyncSheetOpen) { zenSyncSheetOpen = false }
             ZenSyncSheet(
@@ -827,14 +891,15 @@ class MainActivity : ComponentActivity() {
     /** The inner screen (boards 5, 6 and 9c): the frame, the sidebar or rail, and the start screen inside the card. */
     @Composable
     private fun InnerContent(spaces: SpacesState) {
+        val settings = remember(settingsRevision) { components.settings }
         val page by components.store.observeAsComposableState { it.selectedTab?.toPageState() ?: PageState() }
         val playing by components.store.observeAsComposableState { mediaCardFor(it.tabs) }
         val media = playing?.let { card ->
             mutedMedia[card.tabId]?.takeIf { (controller, _) -> controller === card.controller }?.let { card.copy(muted = it.second) } ?: card
         }
         val density = LocalDensity.current
-        val perContainer = components.settings.essentialsPerContainer
-        val border = components.settings.innerPageBorder
+        val perContainer = settings.essentialsPerContainer
+        val border = settings.innerPageBorder
         val corner = if (border) CardCorner else 0.dp
         // Under Glance the pages are hidden, and Glance's see-through hole would show a split's gaps and outline,
         // so the frame draws the page area as one card.
@@ -921,7 +986,7 @@ class MainActivity : ComponentActivity() {
                 target = target,
                 spaces = spaces,
                 selectedTabId = selectedTabId,
-                quickTabLifetimeMs = components.settings.quickTabLifetimeMs,
+                quickTabLifetimeMs = settings.quickTabLifetimeMs,
                 actions = tabSheetActions,
                 onDismiss = { sidebarMenu = null },
             )
@@ -1151,9 +1216,8 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent.createChooser(send, null))
         }
 
-        override fun openZenSync() {
-            barPanel = null
-            zenSyncSheetOpen = true
+        override fun openSettings() {
+            barPanel = if (siteNow() != null) BarPanel.SiteSettings else BarPanel.AllSettings
         }
 
         override fun submit(input: String, mode: SearchMode) {
@@ -1318,6 +1382,85 @@ class MainActivity : ComponentActivity() {
     /** An extension's popup (its engine session) or settings page (a custom tab), with the extension's name. */
     private data class ExtensionPage(val extensionId: String, val title: String, val popup: EngineSession?, val optionsTabId: String?)
 
+    /** The settings of the site on screen (step 10), or null when there's no site: the start screen, an about: page. */
+    private fun siteStateOf(tab: TabSessionState?): SiteState? {
+        val content = tab?.content ?: return null
+        if (!content.url.startsWith("https://") && !content.url.startsWith("http://")) return null
+        val host = SiteChoices.hostOf(content.url) ?: return null
+        val protection = tab.trackingProtection
+        return SiteState(
+            tabId = tab.id,
+            url = content.url,
+            host = host,
+            title = content.title,
+            secure = content.securityInfo.isSecure,
+            issuer = content.securityInfo.issuer.ifEmpty { null },
+            desktop = content.desktopMode,
+            desktopChosen = components.desktopSites.chosen(content.url),
+            trackingProtection = protection.enabled && !protection.ignoredOnTrackingProtection,
+            blockedTrackers = protection.blockedTrackers.size,
+        )
+    }
+
+    private fun siteNow(): SiteState? = siteStateOf(components.store.state.selectedTab).takeUnless { startScreenVisible }
+
+    private val siteSettingsActions = object : SiteSettingsActions {
+        override fun setDesktop(desktop: Boolean) {
+            val site = siteNow() ?: return
+            components.desktopSites.choose(components.store, site.tabId, site.url, desktop)
+        }
+
+        override fun setTrackingProtection(on: Boolean) {
+            val site = siteNow() ?: return
+            // Gecko keeps the sites let off; the page loads again to apply it.
+            if (on) components.trackingProtection.removeException(site.tabId) else components.trackingProtection.addException(site.tabId)
+            components.sessionUseCases.reload(site.tabId)
+        }
+
+        override fun clearSiteData() {
+            val site = siteNow() ?: return
+            // Gecko clears the whole site the host belongs to (its base domain), cookies and sign-ins included.
+            components.engine.clearData(
+                Engine.BrowsingData.select(Engine.BrowsingData.AUTH_SESSIONS, Engine.BrowsingData.ALL_SITE_DATA),
+                host = site.host,
+                onSuccess = { components.sessionUseCases.reload(site.tabId) },
+                onError = { error -> Log.w(TAG, "Couldn't clear the data of ${site.host}", error) },
+            )
+        }
+
+        override fun openAllSettings() {
+            if (inner) settingsCard = SettingsPage.All else barPanel = BarPanel.AllSettings
+        }
+    }
+
+    private val allSettingsActions = object : AllSettingsActions {
+        // The sync sheet opens over All settings, which is still there when it closes.
+        override fun openZenSync() {
+            zenSyncSheetOpen = true
+        }
+
+        override fun changed(setting: Setting) = settingChanged(setting)
+    }
+
+    /** A preference changed in All settings: applied at once where it can be; the rest take effect where they're read. */
+    private fun settingChanged(setting: Setting) {
+        settingsRevision++
+        when (setting) {
+            Setting.Theme -> applyTheme()
+            Setting.CoverStatusBar, Setting.HideStatusBarUnfolded, Setting.PageBorder -> {
+                if (!inner) barHeight = 0
+                ViewCompat.requestApplyInsets(root)
+                updateStatusBar()
+            }
+            Setting.UnfoldedPortrait -> applyScreenLayout(resources.configuration)
+            Setting.DesktopSitesUnfolded, Setting.DesktopSitesInSplit -> updateDesktopSites()
+            Setting.TrackingProtection -> components.engineSettingsUseCases.updateTrackingProtection(components.trackingProtectionPolicy())
+            Setting.UpdateExtensions -> components.extensions.updateSettingChanged()
+            // Page zoom applies after a restart; the rest are read where they're used, the next time they are.
+            else -> Unit
+        }
+    }
+
     private val extensionListActions = object : ExtensionListActions {
         override fun open(id: String) {
             val state = components.store.state
@@ -1443,8 +1586,8 @@ class MainActivity : ComponentActivity() {
 
         override fun submit(input: String) = this@MainActivity.submit(input)
 
-        override fun openZenSync() {
-            zenSyncSheetOpen = true
+        override fun openSettings() {
+            settingsCard = if (siteNow() != null) SettingsPage.Site else SettingsPage.All
         }
 
         override fun openExtensions() {
@@ -2068,6 +2211,7 @@ class MainActivity : ComponentActivity() {
         const val QUICK_TAB_CHECK_INTERVAL_MS = 60_000L
         const val ZEN_SYNC_INTERVAL_MS = 5 * 60_000L
         const val ZEN_SYNC_MIN_INTERVAL_MS = 60_000L
+        const val TAG = "Enso"
         const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
         const val EXTRA_DEBUG_OPEN = "enso_debug_open"
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"

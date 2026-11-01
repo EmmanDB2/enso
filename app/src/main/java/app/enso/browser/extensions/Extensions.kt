@@ -224,6 +224,12 @@ class Extensions(
             }
     }
 
+    /** [Settings.updateExtensions] changed: every extension's daily check starts or stops now. */
+    fun updateSettingChanged() {
+        val ids = store.state.extensions.values.filterNot { it.isBuiltIn }.map { it.id }
+        if (settings.updateExtensions) ids.forEach(updater::registerForFutureUpdates) else ids.forEach(updater::unregisterForFutureUpdates)
+    }
+
     /** For testing: checks every extension for an update now. */
     fun updateNow() = store.state.extensions.values.filterNot { it.isBuiltIn }.forEach { updater.update(it.id) }
 

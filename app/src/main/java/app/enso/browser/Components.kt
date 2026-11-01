@@ -2,6 +2,7 @@ package app.enso.browser
 
 import android.content.Context
 import app.enso.browser.extensions.Extensions
+import app.enso.browser.settings.SiteChoices
 import app.enso.browser.spaces.SpacesStore
 import app.enso.browser.spaces.TabManager
 import app.enso.browser.sync.FetchSyncHttp
@@ -17,8 +18,11 @@ import mozilla.components.browser.storage.sync.PlacesHistoryStorage
 import mozilla.components.browser.thumbnails.ThumbnailsMiddleware
 import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import mozilla.components.concept.engine.DefaultSettings
+import mozilla.components.concept.engine.EngineSession.TrackingProtectionPolicy
 import mozilla.components.feature.session.HistoryDelegate
 import mozilla.components.feature.session.SessionUseCases
+import mozilla.components.feature.session.SettingsUseCases
+import mozilla.components.feature.session.TrackingProtectionUseCases
 import mozilla.components.feature.tabs.TabsUseCases
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
@@ -48,11 +52,28 @@ class Components(private val context: Context) {
     val historyStorage by lazy { PlacesHistoryStorage(context) }
 
     val engine by lazy {
-        val settings = DefaultSettings(historyTrackingDelegate = HistoryDelegate(lazy { historyStorage }))
-        GeckoEngine(context, settings, runtime)
+        val engineSettings = DefaultSettings(
+            historyTrackingDelegate = HistoryDelegate(lazy { historyStorage }),
+            trackingProtectionPolicy = trackingProtectionPolicy(),
+        )
+        GeckoEngine(context, engineSettings, runtime)
     }
+
+    /** Gecko's Enhanced Tracking Protection at the level in [Settings.trackingProtection]. */
+    fun trackingProtectionPolicy(): TrackingProtectionPolicy = when (settings.trackingProtection) {
+        TrackingProtectionLevel.Standard -> TrackingProtectionPolicy.recommended()
+        TrackingProtectionLevel.Strict -> TrackingProtectionPolicy.strict()
+    }
+
+    /** Sites the user let off tracking protection, and changing its level for every tab. */
+    val trackingProtection by lazy { TrackingProtectionUseCases(store, engine) }
+    val engineSettingsUseCases by lazy { SettingsUseCases(engine, store) }
+
+    /** What the user picked for particular sites in site settings. */
+    val siteChoices by lazy { SiteChoices(context) }
+
     /** Desktop sites with the inner screen's sidebar layout; its middleware runs ahead of the engine's. */
-    val desktopSites by lazy { DesktopSites() }
+    val desktopSites by lazy { DesktopSites(siteChoices) }
 
     /** Page thumbnails for the bottom bar's Quick Tabs stack and cards, kept on disk by tab id. */
     val thumbnailStorage by lazy { ThumbnailStorage(context) }

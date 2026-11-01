@@ -78,7 +78,7 @@ import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import kotlin.math.roundToInt
 
 /** The cover's panels, each the bottom bar grown upward (boards B2–B4), and the extensions' (step 9). */
-enum class BarPanel { QuickTabs, Actions, Settings, Search, Extensions, ExtensionPage }
+enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Extensions, ExtensionPage }
 
 /** What bottom search does with what's typed: open it as a new Quick Tab, or load it in the current tab. */
 enum class SearchMode { NewQuickTab, CurrentTab }
@@ -121,7 +121,8 @@ interface BottomBarActions {
 
     fun share()
 
-    fun openZenSync()
+    /** Settings in the actions sheet: the site's settings, or All settings when there's no site on screen. */
+    fun openSettings()
 
     /** Opens what was typed, or a history page: a URL, or a web search. */
     fun submit(input: String, mode: SearchMode)
@@ -160,6 +161,7 @@ fun BottomBar(
     quickTabLifetimeMs: Long,
     thumbnails: ThumbnailStorage,
     extensions: BarExtensions,
+    settings: BarSettings,
     actions: BottomBarActions,
 ) {
     val space = spaces.currentSpace
@@ -179,7 +181,8 @@ fun BottomBar(
     BackHandler(enabled = open) {
         actions.showPanel(
             when (panel) {
-                BarPanel.Settings, BarPanel.Extensions -> BarPanel.Actions
+                BarPanel.SiteSettings, BarPanel.Extensions -> BarPanel.Actions
+                BarPanel.AllSettings -> if (settings.site != null) BarPanel.SiteSettings else BarPanel.Actions
                 BarPanel.ExtensionPage -> BarPanel.Extensions
                 else -> null
             },
@@ -270,7 +273,14 @@ fun BottomBar(
                         actions = actions,
                     )
                     BarPanel.Actions -> ActionsPanel(page, space, quickTabs.firstOrNull { it.id == selectedTabId }, quickTabLifetimeMs, actions)
-                    BarPanel.Settings -> SettingsPanel(actions)
+                    BarPanel.SiteSettings -> settings.site?.let { site ->
+                        SiteSettingsPanel(site, settings.siteActions) { actions.showPanel(BarPanel.Actions) }
+                    } ?: Box(Modifier.fillMaxWidth())
+                    BarPanel.AllSettings -> AllSettingsPanel(
+                        height = maxHeight - statusBarInset - 8.dp - BarMetrics.Handle - BarMetrics.Row - BarMetrics.Below - gestureInset,
+                        onBack = { actions.showPanel(if (settings.site != null) BarPanel.SiteSettings else BarPanel.Actions) },
+                        content = settings.all,
+                    )
                     BarPanel.Search -> SearchSuggestions(spaces, query.text, searchMode, actions)
                     BarPanel.Extensions -> ExtensionsPanel(extensions, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.ExtensionPage -> ExtensionPagePanel(
@@ -298,7 +308,7 @@ fun BottomBar(
 @Composable
 private fun BarRow(panel: BarPanel?, stack: List<Tab>, thumbnails: ThumbnailStorage, actions: BottomBarActions, modifier: Modifier) {
     val quickTabsOpen = panel == BarPanel.QuickTabs
-    val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.Settings, BarPanel.Extensions, BarPanel.ExtensionPage)
+    val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.SiteSettings, BarPanel.AllSettings, BarPanel.Extensions, BarPanel.ExtensionPage)
     Row(
         modifier.fillMaxWidth().height(BarMetrics.Row).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,

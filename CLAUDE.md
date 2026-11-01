@@ -20,8 +20,13 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - Current step: **10, Polish**, in four passes.
   - **10a (done): real favicons** with letter fallbacks: the loaded page's icon, Zen's synced icon for tabs that aren't loaded, AC's icon cache or the site's `/favicon.ico`, then the letter. The user had the neutral circles behind them removed; only mostly white icons get a dark circle.
   - **10b (done): the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
-  - **10c (now): dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
-  - **10d: settings screens.** Settings opens the current site's settings first (security, desktop site remembered per site, tracking protection per site, clear cookies and data), with an All settings button for every preference. Show the user a layout sketch and wording first: no board covers them.
+  - **10c (done): dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
+  - **10d (now): settings screens**, built to the sketch the user approved (`settings/`).
+    - Settings (the actions sheet on the cover, the ⋮ menu unfolded) opens `SiteSettingsContent` for the page on screen: security, Desktop site (`SiteChoices`, by host, in `enso_sites`; flipping it to what the screen gives forgets the choice), tracking protection (AC's `TrackingProtectionUseCases` exceptions), and clearing the site's data (Gecko clears its base domain), after a confirmation dialog. With no http(s) page it opens All settings.
+    - `AllSettingsContent` writes `Settings` and calls `MainActivity.settingChanged`, which applies what it can at once (theme, layout, desktop sites, tracking protection level, extension updates) and bumps `settingsRevision`, which the overlay reads settings through.
+    - Cover: `BarPanel.SiteSettings` and `BarPanel.AllSettings` (`BarSettings`). Unfolded: `SettingsCard` over the page card. Sync with Zen moved from the ⋮ menu to the top of All settings.
+    - Gecko's Enhanced Tracking Protection is on (`trackingProtection`, Standard by default). Standard blocks trackers' cookies; their scripts only under Strict.
+    - Not yet checked on the Fold: the unfolded card.
 - Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
 - The start screen (board 9) stays as it is: the user plans to build a fidget for it.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.

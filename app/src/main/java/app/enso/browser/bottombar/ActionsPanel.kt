@@ -46,7 +46,7 @@ import app.enso.browser.ui.SpaceIcon
 /**
  * The actions sheet (board B3): back, forward, the URL and reload, which is the only place the URL shows on the
  * cover; "Keep in [space]" when the tab on screen is a Quick Tab; then Reader, Find, Copy URL and Share, and
- * Extensions and Settings. Reader and Find are grayed out until they're built.
+ * Extensions and Settings (the site's settings first, step 10). Reader and Find are grayed out until they're built.
  */
 @Composable
 internal fun ActionsPanel(page: PageState, space: Space, quickTab: Tab?, quickTabLifetimeMs: Long, actions: BottomBarActions) {
@@ -69,27 +69,8 @@ internal fun ActionsPanel(page: PageState, space: Space, quickTab: Tab?, quickTa
             WideButton(R.drawable.ic_extensions, R.string.action_extensions, enabled = true, Modifier.weight(1f)) {
                 actions.showPanel(BarPanel.Extensions)
             }
-            WideButton(R.drawable.ic_settings, R.string.action_settings, enabled = true, Modifier.weight(1f)) {
-                actions.showPanel(BarPanel.Settings)
-            }
+            WideButton(R.drawable.ic_settings, R.string.action_settings, enabled = true, Modifier.weight(1f), onClick = actions::openSettings)
         }
-        Spacer(Modifier.height(16.dp))
-        BarDivider()
-    }
-}
-
-/** For now just Sync with Zen; the settings screen comes later. Back returns to the actions sheet. */
-@Composable
-internal fun SettingsPanel(actions: BottomBarActions) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { actions.showPanel(BarPanel.Actions) }) {
-                Icon(painterResource(R.drawable.ic_arrow_left), contentDescription = stringResource(R.string.menu_back), tint = EnsoColors.TextPrimary)
-            }
-            Text(stringResource(R.string.action_settings), style = EnsoType.RowTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.SemiBold))
-        }
-        Spacer(Modifier.height(8.dp))
-        WideButton(R.drawable.ic_sync, R.string.menu_zen_sync, enabled = true, Modifier.fillMaxWidth(), onClick = actions::openZenSync)
         Spacer(Modifier.height(16.dp))
         BarDivider()
     }

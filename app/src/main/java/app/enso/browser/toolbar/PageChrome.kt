@@ -134,9 +134,9 @@ internal fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, size: Dp
     }
 }
 
-/** The inner sidebar's ⋮ menu, where Zen has its site settings button. */
+/** The inner sidebar's ⋮ menu, where Zen has its site settings button: Settings (the site's first) and Extensions. */
 @Composable
-internal fun OverflowMenu(onOpenExtensions: () -> Unit, onOpenZenSync: () -> Unit, buttonSize: Dp = 48.dp) {
+internal fun OverflowMenu(onOpenExtensions: () -> Unit, onOpenSettings: () -> Unit, buttonSize: Dp = 48.dp) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }, modifier = Modifier.size(buttonSize)) {
@@ -157,9 +157,9 @@ internal fun OverflowMenu(onOpenExtensions: () -> Unit, onOpenZenSync: () -> Uni
                 expanded = false
                 onOpenExtensions()
             }
-            MenuRow(R.drawable.ic_sync, R.string.menu_zen_sync) {
+            MenuRow(R.drawable.ic_settings, R.string.action_settings) {
                 expanded = false
-                onOpenZenSync()
+                onOpenSettings()
             }
         }
     }

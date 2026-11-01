@@ -19,6 +19,9 @@ enum class CoverStatusBar {
     TintedStrip,
 }
 
+/** How hard Gecko's Enhanced Tracking Protection blocks (step 10). Each site can be let off in its site settings. */
+enum class TrackingProtectionLevel { Standard, Strict }
+
 /** Whether Ensō is light or dark (step 10). Pages are asked for the same. */
 enum class ThemeMode {
     /** As Android's dark theme is. */
@@ -47,6 +50,13 @@ class Settings(context: Context) {
             ?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } }
             ?: ThemeMode.System
         set(value) = prefs.edit { putString(KEY_THEME_MODE, value.name) }
+
+    /** How hard tracking protection blocks. */
+    var trackingProtection: TrackingProtectionLevel
+        get() = prefs.getString(KEY_TRACKING_PROTECTION, null)
+            ?.let { name -> TrackingProtectionLevel.entries.firstOrNull { it.name == name } }
+            ?: TrackingProtectionLevel.Standard
+        set(value) = prefs.edit { putString(KEY_TRACKING_PROTECTION, value.name) }
 
     /** What the cover does with the status bar while you browse. */
     var coverStatusBar: CoverStatusBar
@@ -165,7 +175,7 @@ class Settings(context: Context) {
         get() = prefs.getInt(KEY_QUICK_TAB_LIFETIME_HOURS, 24)
         set(value) = prefs.edit { putInt(KEY_QUICK_TAB_LIFETIME_HOURS, value) }
 
-    /** How long the app must be away before it reopens on the start screen. */
+    /** How long the app must be away before it reopens on the start screen. 0 means it never does. */
     var startScreenAfterMinutes: Int
         get() = prefs.getInt(KEY_START_SCREEN_AFTER_MINUTES, 30)
         set(value) = prefs.edit { putInt(KEY_START_SCREEN_AFTER_MINUTES, value) }
@@ -195,6 +205,7 @@ class Settings(context: Context) {
         const val KEY_HIDE_STATUS_BAR = "hide_status_bar_with_top_bar"
         const val KEY_COVER_STATUS_BAR = "cover_status_bar"
         const val KEY_THEME_MODE = "theme_mode"
+        const val KEY_TRACKING_PROTECTION = "tracking_protection"
         const val KEY_QUICK_TABS_IN_TAB_SHEET = "quick_tabs_in_tab_sheet"
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
         const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"
