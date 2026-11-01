@@ -1173,6 +1173,11 @@ class MainActivity : ComponentActivity() {
             tabSheetOpen = true
         }
 
+        override fun hideBar() {
+            // Over the start screen there's no page to scroll it back.
+            if (!startScreenVisible) collapseBar()
+        }
+
         override fun select(tabId: String) {
             barPanel = null
             components.tabs.select(tabId)
@@ -2025,6 +2030,13 @@ class MainActivity : ComponentActivity() {
         if (inner) return
         barAnchor.expand()
         statusBand.expand()
+    }
+
+    /** Slides the bottom bar (and the band under the status bar) away, as scrolling down does. */
+    private fun collapseBar() {
+        if (inner) return
+        barAnchor.collapse()
+        statusBand.collapse()
     }
 
     /** Leave back to the system (closing the app) unless we have an edit to cancel or a page to go back to. */

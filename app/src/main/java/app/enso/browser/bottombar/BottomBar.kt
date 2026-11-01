@@ -96,6 +96,9 @@ interface BottomBarActions {
 
     fun openTabSheet()
 
+    /** Slides the bar away, as scrolling down does, until a scroll up brings it back. */
+    fun hideBar()
+
     fun select(tabId: String)
 
     fun close(tabId: String)
@@ -233,11 +236,13 @@ fun BottomBar(
                 .spaceSurface(colors)
                 // Touches on the bar stay on it rather than falling through to the page underneath.
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+                // A swipe down anywhere on the closed bar hides it; its buttons only take taps.
+                .verticalSwipe(onUp = null, onDown = actions::hideBar.takeIf { !open })
                 .padding(bottom = gestureInset),
         ) {
             val swipe = Modifier.verticalSwipe(
                 onUp = actions::openTabSheet.takeIf { !open },
-                onDown = { actions.showPanel(null) }.takeIf { open },
+                onDown = if (open) ({ actions.showPanel(null) }) else actions::hideBar,
             )
             Box(swipe.fillMaxWidth().height(BarMetrics.Handle)) {
                 LoadProgress(page, colors.accent, Modifier.align(Alignment.TopStart))
