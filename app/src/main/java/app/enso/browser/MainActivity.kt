@@ -551,6 +551,7 @@ class MainActivity : ComponentActivity() {
         )
         onBackPressedDispatcher.addCallback(this, backCallback)
         observeState()
+        if (savedInstanceState == null) handleViewIntent(intent)
         handleDebugIntent(intent)
     }
 
@@ -623,7 +624,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        handleViewIntent(intent)
         handleDebugIntent(intent)
+    }
+
+    /** A web link from another app (Ensō as the default browser) opens in a Quick Tab. */
+    private fun handleViewIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val url = intent.dataString?.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: return
+        // Taken once, so the same intent doesn't open it again.
+        intent.action = null
+        components.tabs.openNewTab(url, quick = true)
+        startScreenRequested = false
     }
 
     /**
