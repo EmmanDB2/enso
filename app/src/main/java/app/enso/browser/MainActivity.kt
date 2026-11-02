@@ -172,6 +172,7 @@ import app.enso.browser.tabsheet.TabSheetActions
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.toolbar.PageState
 import app.enso.browser.toolbar.ScrollingBarView
+import app.enso.browser.toolbar.SteadyScrollDeltas
 import app.enso.browser.toolbar.toPageState
 import app.enso.browser.ui.AnimatedCard
 import app.enso.browser.ui.EnsoColors
@@ -375,6 +376,9 @@ class MainActivity : ComponentActivity() {
 
     /** How far the bottom bar has slid down off the screen, in pixels, as the anchor moves with the page. */
     private var barOffset by mutableFloatStateOf(0f)
+
+    /** Whether the touch going on has had two fingers down, so the page's scrolling then is a pinch's. */
+    private var pinching = false
 
     /** The sign-in page's tab, closed once the account is signed in. */
     private var signInTabId: String? = null
@@ -597,6 +601,8 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) focusPageAt(event.x, event.y)
+        // A second finger means a pinch, until the next touch starts.
+        pinching = event.pointerCount > 1 || (pinching && event.actionMasked != MotionEvent.ACTION_DOWN)
         return spaceMenuGesture.onTouchEvent(event) || super.dispatchTouchEvent(event)
     }
 
@@ -2077,17 +2083,19 @@ class MainActivity : ComponentActivity() {
 
         // Follow the page's real scroll offsets. The touch-gesture variant never sees gestures that start mid-page
         // (GeckoView blocks parent interception), so it can hide a bar but not bring it back.
+        // The bars follow the page's scroll position rather than AC's deltas, which miss most of a slow scroll.
+        val scrolling = SteadyScrollDeltas(engineView) { pinching }
         barAnchor.translationY = 0f
         barAnchor.isVisible = true
         barAnchor.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, height).apply {
             gravity = Gravity.BOTTOM
-            behavior = EngineViewScrollingDataBehavior(engineView, barAnchor, DependencyGravity.Bottom)
+            behavior = EngineViewScrollingDataBehavior(scrolling, barAnchor, DependencyGravity.Bottom)
         }
         statusBand.translationY = 0f
         statusBand.isVisible = band > 0
         statusBand.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, band).apply {
             gravity = Gravity.TOP
-            if (band > 0) behavior = EngineViewScrollingDataBehavior(engineView, statusBand, DependencyGravity.Top)
+            if (band > 0) behavior = EngineViewScrollingDataBehavior(scrolling, statusBand, DependencyGravity.Top)
         }
         engineContainer.layoutParams = CoordinatorLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
             behavior = EngineViewClippingBehavior(this@MainActivity, null, engineContainer, band, height)

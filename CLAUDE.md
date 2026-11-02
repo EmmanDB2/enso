@@ -201,6 +201,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **Panels:** `QuickTabsPanel` (B2), `ActionsPanel` and `SettingsPanel` (B3; Settings only has Sync with Zen for now), and `SearchSuggestions` with `SearchRow` (B4). Reader and Find are grayed out until they're built.
     - Bottom search makes the Quick Tab on submit, so Cancel leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
     - Closing the keyboard closes bottom search, as it cancels an edit.
+  - **Swipe down to hide:** a swipe down anywhere on the closed bar (`hideBar`) slides it and the strip away, as scrolling down does, until a scroll up brings them back. Not over the start screen, which has no page to scroll them back.
   - **No frost:** the bar and its panels keep their plain colors. The Fold has no cross-window blur (`ro.surface_flinger.supports_background_blur` is 0), and Compose can't sample GeckoView's surface, so a frosted bar would need page captures that lag while the page scrolls. The user chose to leave it.
   - **Thumbnails:** AC's `BrowserThumbnails` captures the selected tab's page as it loads, and `ThumbnailsMiddleware` keeps it in `thumbnailStorage`; `TabThumbnail` loads it. Capture only runs on the cover, since unfolded the first page view may show another tab of a split.
 - `extensions/`: WebExtensions (step 9), on AC's `WebExtensionSupport`, which keeps installed extensions in the store (`state.extensions`) with their toolbar actions, popup sessions and options pages.
@@ -232,8 +233,9 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - It previews at mobile size (`DesktopSites`' `mobileTabs`), and stays open through a fold, without its backdrop.
 - `MainActivity.kt`: a `CoordinatorLayout` holding the page views, the bottom bar's anchor, the band under the status bar, and one overlay `ComposeView` for everything drawn over the page.
   - **Cover or inner:** a window at least 600 dp wide at its narrowest counts as the inner screen. A rotated cover doesn't count. In portrait, the unfolded screen uses the cover's layout when `unfoldedPortraitLayout` is `Mobile`.
+    - **Default browser:** the activity takes http and https `VIEW` intents and is `singleTask`, so a link from another app reaches the running app (`handleViewIntent`) and opens in a Quick Tab.
     - The activity handles folding itself (`configChanges`), so the page, tab, space and scroll position carry over with no extra work. `onConfigurationChanged` swaps the layout and closes the tab sheet and any edit.
-  - **The cover's bars** (`layoutCoverBars`): the bottom bar's anchor, and with `CoverStatusBar.TintedStrip` a strip of the space's top color under the status bar that slides away with it. `EngineViewClippingBehavior` gets both heights, and GeckoView's dynamic toolbar their sum.
+  - **The cover's bars** (`layoutCoverBars`): the bottom bar's anchor, and with `CoverStatusBar.TintedStrip` a strip under the status bar that slides away with it, running left to right through the space's colors. `EngineViewClippingBehavior` gets both heights, and GeckoView's dynamic toolbar their sum.
     - The cover's root has no top padding: the page runs under the status bar, which `updateStatusBar` hides or shows by `coverStatusBar`. The tab sheet and panels leave `statusBarInset` for it, since it shows over them in every mode. A tap along the bottom edge (`bottomEdge`) brings a hidden bar back.
   - **The inner layout** (`layoutInner`): the cover's bars are hidden, and the engine view becomes the page card beside the sidebar or rail.
     - It resets the cover's hide-on-scroll leftovers: container translation, dynamic toolbar height and vertical clipping. Without that, the page sat a bar's height too low in the card.
@@ -242,6 +244,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **The overlay on the inner screen:** `InnerFrame`, then the sidebar or rail, then the start screen clipped into the card, then the hold menu.
     - The content is wrapped in a full-size `Box`, because the ComposeView's root passes exact window constraints, which stretched the 64 dp rail across the screen.
   - Hide-on-scroll uses AC's `EngineViewScrollingDataBehavior` and `EngineViewClippingBehavior` together with GeckoView's dynamic toolbar height.
+    - The behaviors get the page view through `SteadyScrollDeltas`, not directly. AC's own deltas sit in a `StateFlow`, which drops a value equal to the last, so a slow steady scroll lost nearly all of them: the bars barely moved and snapped back on release. With the strip, which moves the page view, that jittered the page.
+    - With the strip, the page view moves under the finger, so Gecko scrolls about half as far as the finger while the strip closes, and it answers each pixel the view moves with a pixel of scroll back. `SteadyScrollDeltas` holds back turns smaller than 8 px, or the strip stepped back and forth.
   - **Bottom edge:** with gesture navigation (a navigation bar of 32 dp or less), the cover's page runs under the handle; only the keyboard or a cutout pads the root.
     - The tab sheet keeps its search field above the handle (`gestureHandleInset`), and the edge wave's strip stops above it, so a hold doesn't fight the home gesture.
     - A navigation bar of buttons keeps its own space.
@@ -250,6 +254,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
 - `toolbar/`:
   - `PageChrome.kt` holds what the bottom bar and the sidebar share: `PageState`, the URL editor, the loading line and the sidebar's ⋮ menu.
   - `ScrollingBarView` is a `ScrollableToolbar` that AC's behaviors slide with the page: the bottom bar's anchor and the status band.
+  - `SteadyScrollDeltas` wraps the page view for those behaviors: deltas from the scroll position (scrollY × zoom), paused during a pinch, with small reversals held back (see `MainActivity`).
   - `AddressInput` decides between URL and search (Google) and formats the domain.
 - `sidebar/`: the inner screen (boards 5, 6 and 9c).
   - `Sidebar` (its width set by dragging) and `Rail` (52 dp) reuse the tab sheet's rows (`TabRow`, `FolderRow`, `EssentialsGrid`), so holds, swipes and folders behave the same. The current tab is highlighted in place (`RowHighlight.Current`).
