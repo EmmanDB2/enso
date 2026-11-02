@@ -24,6 +24,7 @@ mozilla-concept-storage = { module = "org.mozilla.components:concept-storage", v
 mozilla-concept-sync = { module = "org.mozilla.components:concept-sync", version.ref = "mozilla-components" }
 mozilla-concept-toolbar = { module = "org.mozilla.components:concept-toolbar", version.ref = "mozilla-components" }
 mozilla-feature-addons = { module = "org.mozilla.components:feature-addons", version.ref = "mozilla-components" }
+mozilla-feature-downloads = { module = "org.mozilla.components:feature-downloads", version.ref = "mozilla-components" }
 mozilla-feature-accounts = { module = "org.mozilla.components:feature-accounts", version.ref = "mozilla-components" }
 mozilla-feature-session = { module = "org.mozilla.components:feature-session", version.ref = "mozilla-components" }
 mozilla-feature-tabs = { module = "org.mozilla.components:feature-tabs", version.ref = "mozilla-components" }

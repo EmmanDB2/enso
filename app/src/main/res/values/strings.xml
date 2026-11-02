@@ -121,6 +121,9 @@
     <string name="action_kept">Kept</string>
     <string name="search_quick_tab_tag">Quick Tab</string>
     <string name="search_cancel">Cancel</string>
+    <string name="download_prompt_title">Download this file?</string>
+    <string name="download_prompt_cancel">Cancel</string>
+    <string name="download_prompt_download">Download</string>
     <string name="permission_prompt_camera">%s wants to use your camera</string>
     <string name="permission_prompt_microphone">%s wants to use your microphone</string>
     <string name="permission_prompt_camera_microphone">%s wants to use your camera and microphone</string>

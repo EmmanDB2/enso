@@ -1,5 +1,10 @@
 package app.enso.browser
 
+import mozilla.components.support.utils.DefaultDownloadFileUtils
+import mozilla.components.feature.downloads.DownloadsUseCases
+import mozilla.components.feature.downloads.DownloadMiddleware
+import app.enso.browser.downloads.DownloadService
+import android.os.Environment
 import org.mozilla.geckoview.GeckoSession
 import app.enso.browser.permissions.SitePermission
 import app.enso.browser.permissions.PermissionChoice
@@ -52,6 +57,12 @@ class Components(private val context: Context) {
     /** HTTP through Gecko, for application-services and Zen sync. */
     val fetchClient by lazy { GeckoViewFetchClient(context, runtime) }
     val searchSuggestions by lazy { SearchSuggestions(fetchClient) }
+
+    /** Downloads (step 12) save to the phone's Downloads folder. */
+    val downloadFileUtils by lazy {
+        DefaultDownloadFileUtils(context) { Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).path }
+    }
+    val downloadsUseCases by lazy { DownloadsUseCases(store, downloadFileUtils) }
 
     /**
      * Brings Gecko's own stored answer for [url]'s [permission] in line with the user's choice in site settings. Gecko
@@ -107,7 +118,13 @@ class Components(private val context: Context) {
 
     val store by lazy {
         BrowserStore(
-            middleware = listOf(desktopSites.middleware, ThumbnailsMiddleware(thumbnailStorage)) + EngineMiddleware.create(engine),
+            middleware = listOf(
+                desktopSites.middleware,
+                ThumbnailsMiddleware(thumbnailStorage),
+                // Downloads (step 12): starts the download service and keeps the list of downloads.
+                // Removing a download from the list keeps its file.
+                DownloadMiddleware(context, DownloadService::class.java, deleteFileFromStorage = { false }, downloadFileUtils = downloadFileUtils),
+            ) + EngineMiddleware.create(engine),
         )
     }
     val sessionUseCases by lazy { SessionUseCases(store) }

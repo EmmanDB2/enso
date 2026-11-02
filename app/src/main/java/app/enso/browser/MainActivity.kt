@@ -1,5 +1,15 @@
 package app.enso.browser
 
+import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.app.NotificationManagerCompat
+import mozilla.components.support.base.android.NotificationsDelegate
+import mozilla.components.feature.downloads.manager.FetchDownloadManager
+import mozilla.components.feature.downloads.DownloadsFeature
+import app.enso.browser.downloads.DownloadService
+import app.enso.browser.downloads.DownloadPromptCard
+import app.enso.browser.downloads.DownloadPrompt
 import android.os.Parcelable
 import androidx.core.content.IntentCompat
 import app.enso.browser.permissions.SiteNotifications
@@ -409,6 +419,62 @@ class MainActivity : ComponentActivity() {
             androidPermissionsAnswer = null
         }
 
+    /** A download a site started, waiting on the user (step 12). */
+    private var downloadPrompt by mutableStateOf<DownloadPrompt?>(null)
+
+    /** Downloads (step 12): Android Components' feature, with Ensō's prompt instead of its dialog. */
+    private val downloadsFeature by lazy {
+        DownloadsFeature(
+            applicationContext = applicationContext,
+            store = components.store,
+            useCases = components.downloadsUseCases,
+            onNeedToRequestPermissions = { permissions -> downloadPermissions.launch(permissions) },
+            downloadFileUtils = components.downloadFileUtils,
+            downloadManager = FetchDownloadManager(
+                applicationContext,
+                components.store,
+                DownloadService::class,
+                notificationsDelegate = NotificationsDelegate(NotificationManagerCompat.from(applicationContext)),
+            ),
+            customFirstPartyDownloadDialog = { download, _, positive, negative, _ ->
+                downloadPrompt = DownloadPrompt(
+                    fileName = download.value.fileName ?: download.value.url.substringAfterLast('/'),
+                    size = download.value.contentLength,
+                    onDownload = {
+                        downloadPrompt = null
+                        askForDownloadNotifications()
+                        positive.value(download.value)
+                    },
+                    onCancel = {
+                        downloadPrompt = null
+                        negative.value()
+                    },
+                )
+            },
+        )
+    }
+
+    /**
+     * The first download asks Android once for the notification permission, so its progress can show. Android
+     * Components doesn't ask itself, and downloads without it, silently.
+     */
+    private fun askForDownloadNotifications() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || components.settings.downloadNotificationsAsked) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        components.settings.downloadNotificationsAsked = true
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private val notificationPermission: ActivityResultLauncher<String> =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /** Permissions Android Components' downloads ask for themselves (storage, before Android 10). */
+    private val downloadPermissions: ActivityResultLauncher<Array<String>> =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val grants = results.values.map { if (it) PackageManager.PERMISSION_GRANTED else PackageManager.PERMISSION_DENIED }
+            downloadsFeature.onPermissionsResult(results.keys.toTypedArray(), grants.toIntArray())
+        }
+
     /** Sites' permission requests (step 11): the card, Android's dialog, and each site's remembered answers. */
     private val sitePermissions by lazy {
         SitePermissions(this, components.store, components.siteChoices) { permissions, then ->
@@ -757,6 +823,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() {
+        downloadsFeature.start()
         super.onStart()
         val settings = components.settings
         // Anything that expired while we were away goes, even the tab that was on screen.
@@ -772,6 +839,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        downloadsFeature.stop()
         super.onStop()
         windowFeature.stop()
         webChannelFeature.stop()
@@ -967,6 +1035,17 @@ class MainActivity : ComponentActivity() {
                 onDismiss = { zenSyncSheetOpen = false },
                 cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
             )
+        }
+        // A download a site started, above the cover's bar.
+        AnimatedCard(downloadPrompt) { prompt ->
+            key(prompt) {
+                DownloadPromptCard(
+                    prompt,
+                    ComposeColor(spaces.currentSpace.accent),
+                    bottomInset = if (inner) 0.dp else with(LocalDensity.current) { BarMetrics.height(gestureHandleInset.toDp()) },
+                    cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                )
+            }
         }
         // A site's permission request for the tab on screen, above the cover's bar.
         AnimatedCard(sitePermissions.prompt) { prompt ->

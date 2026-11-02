@@ -26,8 +26,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - `AllSettingsContent` writes `Settings` and calls `MainActivity.settingChanged`, which applies what it can at once (theme, layout, desktop sites, tracking protection level, extension updates) and bumps `settingsRevision`, which the overlay reads settings through.
     - Cover: `BarPanel.SiteSettings` and `BarPanel.AllSettings` (`BarSettings`). Unfolded: `SettingsCard` over the page card. Sync with Zen moved from the ⋮ menu to the top of All settings.
     - Gecko's Enhanced Tracking Protection is on (`trackingProtection`, Standard by default). Standard blocks trackers' cookies; their scripts only under Strict.
-- Current step: **11, site permissions** (`permissions/`), built to the sketch the user approved: Ensō's card for a site's request, Android's own permission when it's missing, each site's answers remembered and shown in Site Settings, and site notifications while the site is open. Not yet checked on the Fold: the Allow path through Android's dialogs (the user's to grant), and a site notification showing.
-- Step 12, **downloads**, comes after step 11 (the user added it). Ensō has no download handling yet, so a download a site starts is dropped.
+- Step 11, **site permissions** (`permissions/`), is done, built to the sketch the user approved: Ensō's card for a site's request, Android's own permission when it's missing, each site's answers remembered and shown in Site Settings, and site notifications while the site is open. Not yet checked on the Fold: the Allow path through Android's dialogs (the user's to grant), and a site notification showing.
+- Current step: **12, downloads** (`downloads/`), function first: the user wants a UI pass on it later. Tested on the Fold: the prompt, saving to Downloads, the notification permission asked once, and the completion notification.
 - The start screen (board 9) has the ensō fidget (boards F1–F4), which the user asked for as a side piece alongside step 10. So does the app icon.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
@@ -227,6 +227,10 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Autoplay without sound is granted and with sound refused (it waits for a tap); everything else Gecko asks (persistent storage, cross-site storage) is refused silently.
   - **Site Settings:** a Permissions group (the four always, protected content once answered), each a chip (Ask, Allowed, Blocked) with a menu. A change also updates Gecko's own stored answer (`Components.syncGeckoPermission`): Gecko keeps location, notification and DRM answers itself and wouldn't ask again. Clear cookies and site data forgets the answers too.
   - **Site notifications:** `SiteNotifications`, registered with the engine by `EnsoApplication`, posts them on the "Site notifications" channel while the site is open (no push service). A tap opens Ensō, which hands it back to Gecko (`handleWebNotificationClick`) and shows the site's tab.
+- `downloads/`: downloads (step 12), on Android Components' `feature-downloads`.
+  - `DownloadMiddleware` (in the store's middleware) starts `DownloadService` and keeps the downloads list; removing one keeps its file (`deleteFileFromStorage`). `DownloadService` is AC's `AbstractFetchDownloadService` with Ensō's store, fetch client and file helpers, a `dataSync` foreground service with Android's progress notification, which opens the file when done.
+  - The activity's `DownloadsFeature` (started and stopped with the activity) watches the selected tab's download and shows `DownloadPromptCard` (`customFirstPartyDownloadDialog`) instead of AC's fragment dialog; Download passes the download back to AC. AC doesn't ask for the notification permission itself (it downloads silently without it), so the first Download asks Android once (`askForDownloadNotifications`, `Settings.downloadNotificationsAsked`); AC's own requests (storage before Android 10) go through `downloadPermissions`.
+  - Files go to the phone's Downloads folder (`Components.downloadFileUtils`). There's no list of past downloads in Ensō yet (an open question in the spec).
 - `extensions/`: WebExtensions (step 9), on AC's `WebExtensionSupport`, which keeps installed extensions in the store (`state.extensions`) with their toolbar actions, popup sessions and options pages.
   - `Extensions` (in `Components`, started by `EnsoApplication`): installs the bundled uBlock Origin once (`bundledExtensionsInstalled`) and answers its own permission prompt (`webExtensionPromptRequest`), and routes the tabs extensions open, close or select through `TabManager`. Extension tabs are Quick Tabs (`openExtensionTab`).
     - The signed package is in `assets/extensions/`. AC refuses `resource:` URLs to install from (GeckoView would take them), so it's copied to the cache dir and installed from a `file:` URL.
@@ -339,7 +343,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `updateExtensions` (default on) checks extensions for updates daily and installs them.
   - `searchSuggestions` (default on) shows Google's suggestions in bottom search, which sends what's typed to Google.
   - `showEnsoOnNewTabs` (default on) shows the ensō fidget on the blank start page.
-  - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) and `bundledExtensionsInstalled` are app state, not preferences.
+  - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) `bundledExtensionsInstalled` and `downloadNotificationsAsked` are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
 
 ## Toolchain (macOS)

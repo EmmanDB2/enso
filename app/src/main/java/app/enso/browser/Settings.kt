@@ -205,6 +205,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_BUNDLED_EXTENSIONS_INSTALLED, false)
         set(value) = prefs.edit { putBoolean(KEY_BUNDLED_EXTENSIONS_INSTALLED, value) }
 
+    /** Whether the first download has asked Android for the notification permission (step 12); it asks only once. */
+    var downloadNotificationsAsked: Boolean
+        get() = prefs.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS_ASKED, false)
+        set(value) = prefs.edit { putBoolean(KEY_DOWNLOAD_NOTIFICATIONS_ASKED, value) }
+
     /** When the app last went to the background. */
     var lastStoppedAt: Long?
         get() = prefs.getLong(KEY_LAST_STOPPED_AT, 0L).takeIf { it > 0 }
@@ -242,5 +247,6 @@ class Settings(context: Context) {
         const val KEY_LAST_STOPPED_AT = "last_stopped_at"
         const val KEY_INNER_SIDEBAR_EXPANDED = "inner_sidebar_expanded"
         const val KEY_BUNDLED_EXTENSIONS_INSTALLED = "bundled_extensions_installed"
+        const val KEY_DOWNLOAD_NOTIFICATIONS_ASKED = "download_notifications_asked"
     }
 }

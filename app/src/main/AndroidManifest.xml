@@ -49,6 +49,11 @@
                 <data android:scheme="https" />
             </intent-filter>
         </activity>
+        <!-- Downloads (step 12): Android Components' download service, which shows progress in a notification. -->
+        <service
+            android:name=".downloads.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 
 </manifest>

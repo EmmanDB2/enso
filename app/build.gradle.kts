@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.mozilla.concept.toolbar)
     implementation(libs.mozilla.feature.accounts)
     implementation(libs.mozilla.feature.addons)
+    implementation(libs.mozilla.feature.downloads)
     implementation(libs.mozilla.feature.session)
     implementation(libs.mozilla.feature.tabs)
     implementation(libs.mozilla.lib.state)
