@@ -57,7 +57,7 @@ internal sealed interface KeepState {
 /**
  * The actions sheet (board B3): back, forward, the domain, copy link and reload, which is the only place the URL
  * shows on the cover; then Reader, Find, Keep and Share, and Extensions and Site Settings (All settings when there's
- * no site on screen). Reader and Find are grayed out until they're built.
+ * no site on screen). Reader is grayed out until it's built.
  */
 @Composable
 internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, actions: BottomBarActions) {
@@ -67,7 +67,7 @@ internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, action
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ActionTile(R.drawable.ic_reader, R.string.action_reader, enabled = false, Modifier.weight(1f)) {}
-            ActionTile(R.drawable.ic_search, R.string.action_find, enabled = false, Modifier.weight(1f)) {}
+            ActionTile(R.drawable.ic_search, R.string.action_find, enabled = hasPage, Modifier.weight(1f)) { actions.showPanel(BarPanel.Find) }
             KeepTile(space, keep, actions, Modifier.weight(1f))
             ActionTile(R.drawable.ic_share, R.string.action_share, enabled = hasPage, Modifier.weight(1f), onClick = actions::share)
         }

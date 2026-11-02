@@ -210,7 +210,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Zooming in selects the tab first (`focus`, which leaves the view open), so the live page is under the card when it lands.
     - The gradient's `Box` has the lowest `zIndex` (−100), under every card.
     - Clear All (`clearQuickTabs`) closes them at once; the toast's Undo (`undoClearQuickTabs`) opens their URLs again as Quick Tabs, without their back history.
-  - **Actions sheet (B3):** `ActionsPanel` with the URL row and the Keep tile (`KeepState`: a Quick Tab keeps, a kept open tab `unkeep`s back to a Quick Tab, which drops `synced` so the next sync takes it out of Zen; pinned tabs and Essentials show "Kept", disabled). Reader and Find are grayed out until they're built.
+  - **Actions sheet (B3):** `ActionsPanel` with the URL row and the Keep tile (`KeepState`: a Quick Tab keeps, a kept open tab `unkeep`s back to a Quick Tab, which drops `synced` so the next sync takes it out of Zen; pinned tabs and Essentials show "Kept", disabled). Reader is grayed out until it's built.
+  - **Find (`FindBar`, `BarPanel.Find`):** the engine session's `findAll`/`findNext`, with the count from the tab's `content.findResults` (the activity clears them before each new search). Like search it has no row and sits on the keyboard, but it leaves the page undimmed. Leaving the panel clears the highlights.
   - **Bottom search (B4):** `SearchSheet`. Before typing, the space's Quick Tabs; while typing, matching tabs, history, then `SearchSuggestions` (Google's, asked privately) in the rows history leaves, while `searchSuggestions` is on. The mic launches `RecognizerIntent` (the manifest's `<queries>` lets the app see it).
     - Bottom search makes the Quick Tab on submit, so ✕ leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
     - Closing the keyboard closes bottom search, as it cancels an edit.

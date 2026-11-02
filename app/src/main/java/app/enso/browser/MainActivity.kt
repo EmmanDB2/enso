@@ -790,6 +790,10 @@ class MainActivity : ComponentActivity() {
             }
             val page by components.store.observeAsComposableState { it.selectedTab?.toPageState() ?: PageState() }
             // Glance covers the whole cover, bar included.
+            // Find's "3/12": the last result Gecko reported for the tab on screen (its ordinal counts from 0).
+            val findMatch by components.store.observeAsComposableState { state ->
+                state.selectedTab?.content?.findResults?.lastOrNull()?.let { (it.activeMatchOrdinal + 1) to it.numberOfMatches }
+            }
             if (glance == null) BottomBar(
                 spaces = spaces,
                 page = if (startScreenVisible) PageState() else page,
@@ -800,6 +804,7 @@ class MainActivity : ComponentActivity() {
                 statusBarInset = statusBarInset,
                 gestureInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
                 pageCapture = quickTabsCapture,
+                findMatch = findMatch,
                 thumbnails = components.thumbnailStorage,
                 extensions = BarExtensions(
                     rows = installedExtensions,
@@ -1205,6 +1210,8 @@ class MainActivity : ComponentActivity() {
                 return
             }
             if (panel == BarPanel.QuickTabs) quickTabsCapture = null
+            // Leaving Find clears its highlights.
+            if (barPanel == BarPanel.Find && panel != BarPanel.Find) find("")
             barPanel = panel
         }
 
@@ -1263,6 +1270,17 @@ class MainActivity : ComponentActivity() {
         override fun keepElsewhere(tabId: String) {
             barPanel = null
             tabSheetActions.addToAnotherSpace(tabId)
+        }
+
+        override fun find(text: String) {
+            val tab = components.store.state.selectedTab ?: return
+            val session = tab.engineState.engineSession ?: return
+            components.store.dispatch(ContentAction.ClearFindResultsAction(tab.id))
+            if (text.isEmpty()) session.clearFindMatches() else session.findAll(text)
+        }
+
+        override fun findNext(forward: Boolean) {
+            components.store.state.selectedTab?.engineState?.engineSession?.findNext(forward)
         }
 
         override fun focus(tabId: String) {

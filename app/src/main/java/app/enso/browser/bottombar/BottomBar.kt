@@ -84,7 +84,7 @@ import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import kotlin.math.roundToInt
 
 /** The cover's panels, each the bottom bar grown upward (boards B2–B4), and the extensions' (step 9). */
-enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Extensions, ExtensionPage }
+enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Find, Extensions, ExtensionPage }
 
 /** What bottom search does with what's typed: open it as a new Quick Tab, or load it in the current tab. */
 enum class SearchMode { NewQuickTab, CurrentTab }
@@ -142,6 +142,12 @@ interface BottomBarActions {
     /** Settings in the actions sheet: the site's settings, or All settings when there's no site on screen. */
     fun openSettings()
 
+    /** Find in page: highlights [text]'s matches, or clears them when it's empty. */
+    fun find(text: String)
+
+    /** The next (or previous) match of the find. */
+    fun findNext(forward: Boolean)
+
     /** Opens what was typed, or a history page: a URL, or a web search. */
     fun submit(input: String, mode: SearchMode)
 
@@ -193,6 +199,7 @@ fun BottomBar(
     statusBarInset: Dp,
     gestureInset: Dp,
     pageCapture: Pair<ImageBitmap, Rect>?,
+    findMatch: Pair<Int, Int>?,
     thumbnails: ThumbnailStorage,
     extensions: BarExtensions,
     settings: BarSettings,
@@ -217,6 +224,8 @@ fun BottomBar(
         quickTabs.sortedWith(compareByDescending<Tab> { it.id == selectedTabId }.thenByDescending { it.quick?.lastViewedAt })
     }
     val searching = panel == BarPanel.Search
+    // Search and Find have no row: their field sits at the top of the sheet, on the keyboard.
+    val typing = searching || panel == BarPanel.Find
     var query by remember(searching, searchMode) {
         val text = if (searching && searchMode == SearchMode.CurrentTab) page.url else ""
         mutableStateOf(TextFieldValue(text, TextRange(0, text.length)))
@@ -256,7 +265,8 @@ fun BottomBar(
         val maxHeight = maxHeight
         // The pages behind an extension's page are hidden; their blurred captures stand in under the dim.
         if (panel == BarPanel.ExtensionPage) extensions.backdrop.forEach { (image, bounds) -> BlurredPage(image, bounds) }
-        AnimatedVisibility(open, enter = fadeIn(), exit = fadeOut()) {
+        // Find leaves the page undimmed, so its matches show.
+        AnimatedVisibility(open && panel != BarPanel.Find, enter = fadeIn(), exit = fadeOut()) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -279,7 +289,7 @@ fun BottomBar(
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
                 // A swipe down anywhere on the closed bar hides it; its buttons only take taps.
                 .verticalSwipe(onUp = null, onDown = actions::hideBar.takeIf { !open })
-                .padding(bottom = if (searching) 0.dp else gestureInset),
+                .padding(bottom = if (typing) 0.dp else gestureInset),
         ) {
             val swipe = Modifier.verticalSwipe(
                 onUp = actions::openTabSheet.takeIf { !open },
@@ -318,6 +328,7 @@ fun BottomBar(
                         onBack = { actions.showPanel(if (settings.site != null) BarPanel.SiteSettings else BarPanel.Actions) },
                         content = settings.all,
                     )
+                    BarPanel.Find -> FindBar(findMatch, colors.accent, actions)
                     BarPanel.Search -> SearchSheet(spaces, stack, query, { query = it }, searchMode, colors.accent, actions)
                     BarPanel.Extensions -> ExtensionsPanel(extensions, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.ExtensionPage -> ExtensionPagePanel(
@@ -331,8 +342,7 @@ fun BottomBar(
                     )
                 }
             }
-            // Search has no row: its field is at the top of the sheet, which sits on the keyboard.
-            if (!searching) {
+            if (!typing) {
                 BarRow(sheet, stack, thumbnails, actions, swipe)
                 Spacer(Modifier.height(BarMetrics.below(gestureInset)))
             }

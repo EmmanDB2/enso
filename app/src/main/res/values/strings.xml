@@ -121,6 +121,10 @@
     <string name="action_kept">Kept</string>
     <string name="search_quick_tab_tag">Quick Tab</string>
     <string name="search_cancel">Cancel</string>
+    <string name="find_placeholder">Find in page</string>
+    <string name="find_count">%1$d/%2$d</string>
+    <string name="find_previous">Previous match</string>
+    <string name="find_next">Next match</string>
     <string name="search_placeholder">Search or enter address</string>
     <string name="search_open_tabs">Open tabs</string>
     <string name="search_history">History</string>
