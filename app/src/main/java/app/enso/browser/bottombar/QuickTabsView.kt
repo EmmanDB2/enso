@@ -273,7 +273,7 @@ internal fun QuickTabsView(
             }
             if (focusedCard) rect = rect.translate(0f, lift.value)
             val behind = (-d).coerceAtLeast(0f)
-            val corner = with(density) { (28.dp.toPx() * if (growing) z else 1f).toDp() }
+            val corner = with(density) { (CardCorner.toPx() * if (growing) z else 1f).toDp() }
             val shape = RoundedCornerShape(corner)
             val alpha = when {
                 growing -> 1f
@@ -390,6 +390,9 @@ internal fun QuickTabsView(
         }
     }
 }
+
+/** The cards' corners. */
+private val CardCorner = 10.dp
 
 /** How quickly a fling slows (Compose's decay ×): high, so a fling carries one card, and only a fast one two. */
 private const val FLING_FRICTION = 2.5f

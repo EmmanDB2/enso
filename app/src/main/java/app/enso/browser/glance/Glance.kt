@@ -209,7 +209,7 @@ private fun Modifier.placed(rect: Rect, density: Density): Modifier = this
     .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
     .size(with(density) { rect.width.toDp() }, with(density) { rect.height.toDp() })
 
-private val Corner = 24.dp
+private val Corner = 10.dp
 private val Header = 48.dp
 private val ButtonSize = 56.dp
 private val ButtonGap = 24.dp

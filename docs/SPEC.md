@@ -52,7 +52,7 @@ Behavior:
 
 **Quick Tabs (B2):** a full-screen view in the style of Arc Search, with no sheet.
 
-- **Opening:** tapping the launcher zooms out. The current page shrinks into the focused card (about 70% of the screen's width, 28 dp corners) while the background fades to the space's gradient and the neighbouring cards slide in from the sides, over about 300 ms on a spring with no overshoot. The bar dissolves into the floating buttons.
+- **Opening:** tapping the launcher zooms out. The current page shrinks into the focused card (about 70% of the screen's width, 10 dp corners) while the background fades to the space's gradient and the neighbouring cards slide in from the sides, over about 300 ms on a spring with no overshoot. The bar dissolves into the floating buttons.
 - **Cards:** real page screenshots, plain white, no borders. The focused card is centered. Older Quick Tabs stack behind it to the left, and newer ones lie on top of older ones, so a card coming in slides over the stack. The next one peeks in from the right edge. Each card's favicon sits just above its top-left corner and moves with it, stepping slightly higher the further back it sits; the focused card's title sits beside its favicon. Cards show their own page's thumbnail (the page on screen as the view opens).
 - **Gestures:** swipe left or right to move through the tabs as one smooth strip that follows the finger; on release it glides onto a card. A flick moves on at least one card, and only a fast one two. Tap a card to zoom back into it (the opening animation reversed). Swipe a card up to close it, and the next one slides into its place. Back zooms into the focused card.
 - **Floating buttons**, left to right:
