@@ -318,6 +318,7 @@ Build the browser core first, then sync, then the signature interactions. Each s
 9. **Extensions:** bundled uBlock Origin and the add-ons UI.
 10. **Polish:** real favicons with letter fallbacks, blur snapshot for the tab sheet, animations, dark mode, and the settings screens (site settings, then All settings).
 11. **Site permissions:** prompts when a site asks for the camera, microphone, location or notifications, Android's own permission when it's needed, and each site's choices in its site settings. Until then, sites' requests are refused without a prompt.
+12. **Downloads:** when a site starts a download, an Ensō-style prompt with the file's name and size and Download or Cancel. Files save to the phone's Downloads folder through Android Components' downloads feature, with Android's notification for progress (tapping it opens the file), and the notification permission asked for once. Until then, downloads are dropped without a word.
 
 ## Open questions and naming
 
@@ -326,5 +327,6 @@ Build the browser core first, then sync, then the signature interactions. Each s
 - [ ] Exact format of Zen's synced Spaces data (to confirm while building sync).
 - [x] Does dark mode follow the system, or a per-space setting? It follows the system, with a setting to override it, and web pages are asked for their dark version too.
 - [ ] Check the Play Store for the name "Ensō" before publishing.
+- [ ] Downloads: a list of past downloads in Ensō (in the actions sheet or All settings), or only Android's notification and the Files app?
 
 Naming and trademarks: Zen's code is MPL 2.0, which allows forking but grants no rights to the Zen name or logo. The same applies to "Firefox." Ensō should not use either name or logo, and can say it "syncs with Zen Browser" in its description. Ask the Zen team before using their name in any other way. This is not legal advice.

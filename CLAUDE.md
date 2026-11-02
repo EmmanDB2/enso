@@ -27,6 +27,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Cover: `BarPanel.SiteSettings` and `BarPanel.AllSettings` (`BarSettings`). Unfolded: `SettingsCard` over the page card. Sync with Zen moved from the ⋮ menu to the top of All settings.
     - Gecko's Enhanced Tracking Protection is on (`trackingProtection`, Standard by default). Standard blocks trackers' cookies; their scripts only under Strict.
 - Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
+- Step 12, **downloads**, comes after step 11 (the user added it). Ensō has no download handling yet, so a download a site starts is dropped.
 - The start screen (board 9) has the ensō fidget (boards F1–F4), which the user asked for as a side piece alongside step 10. So does the app icon.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
