@@ -1,5 +1,12 @@
 package app.enso.browser
 
+import android.os.Parcelable
+import androidx.core.content.IntentCompat
+import app.enso.browser.permissions.SiteNotifications
+import app.enso.browser.permissions.SitePermissions
+import app.enso.browser.permissions.SitePermission
+import app.enso.browser.permissions.PermissionPromptCard
+import app.enso.browser.permissions.PermissionChoice
 import mozilla.components.support.ktx.util.URLStringUtils
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -393,6 +400,23 @@ class MainActivity : ComponentActivity() {
     private fun voiceSearchIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
         .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
 
+    /** Android's own permission dialog, for a site's request the user allowed; gets whether it was granted. */
+    private var androidPermissionsAnswer: ((Boolean) -> Unit)? = null
+    private val androidPermissions: ActivityResultLauncher<Array<String>> =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            // Approximate location alone is enough for a site, so any grant counts.
+            androidPermissionsAnswer?.invoke(results.values.any { it })
+            androidPermissionsAnswer = null
+        }
+
+    /** Sites' permission requests (step 11): the card, Android's dialog, and each site's remembered answers. */
+    private val sitePermissions by lazy {
+        SitePermissions(this, components.store, components.siteChoices) { permissions, then ->
+            androidPermissionsAnswer = then
+            androidPermissions.launch(permissions.toTypedArray())
+        }
+    }
+
     /** The page the Quick Tabs view zooms out of, captured as it opens. */
     private var quickTabsCapture by mutableStateOf<Pair<ImageBitmap, Rect>?>(null)
 
@@ -578,6 +602,7 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, backCallback)
         observeState()
         if (savedInstanceState == null) handleViewIntent(intent)
+        if (savedInstanceState == null) handleWebNotificationClick(intent)
         handleDebugIntent(intent)
     }
 
@@ -653,7 +678,22 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleViewIntent(intent)
+        handleWebNotificationClick(intent)
         handleDebugIntent(intent)
+    }
+
+    /** A site's notification was tapped: the page hears of it, and its tab shows if it's still open. */
+    private fun handleWebNotificationClick(intent: Intent?) {
+        if (intent?.action != SiteNotifications.ACTION_WEB_NOTIFICATION) return
+        intent.action = null
+        IntentCompat.getParcelableExtra(intent, SiteNotifications.EXTRA_WEB_NOTIFICATION, Parcelable::class.java)?.let {
+            components.engine.handleWebNotificationClick(it, null)
+        }
+        val host = SiteChoices.hostOf(intent.getStringExtra(SiteNotifications.EXTRA_WEB_NOTIFICATION_URL)) ?: return
+        components.store.state.tabs.firstOrNull { SiteChoices.hostOf(it.content.url) == host }?.let {
+            components.tabs.select(it.id)
+            startScreenRequested = false
+        }
     }
 
     /** A web link from another app (Ensō as the default browser) opens in a Quick Tab. */
@@ -927,6 +967,19 @@ class MainActivity : ComponentActivity() {
                 onDismiss = { zenSyncSheetOpen = false },
                 cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
             )
+        }
+        // A site's permission request for the tab on screen, above the cover's bar.
+        AnimatedCard(sitePermissions.prompt) { prompt ->
+            key(prompt) {
+                PermissionPromptCard(
+                    prompt,
+                    ComposeColor(spaces.currentSpace.accent),
+                    bottomInset = if (inner) 0.dp else with(LocalDensity.current) { BarMetrics.height(gestureHandleInset.toDp()) },
+                    onAnswer = sitePermissions::answer,
+                    onDismiss = sitePermissions::dismiss,
+                    cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                )
+            }
         }
         // Gecko's questions about extensions go over everything, one at a time.
         AnimatedCard(extensionPrompts.firstOrNull()) { prompt ->
@@ -1529,8 +1582,19 @@ class MainActivity : ComponentActivity() {
             components.sessionUseCases.reload(site.tabId)
         }
 
+        override fun permissions(host: String) = sitePermissions.choicesFor(host)
+
+        override val permissionsRevision get() = sitePermissions.revision
+
+        override fun setPermission(permission: SitePermission, choice: PermissionChoice) {
+            val site = siteNow() ?: return
+            sitePermissions.setChoice(site.host, permission, choice)
+            components.syncGeckoPermission(site.url, permission, choice)
+        }
+
         override fun clearSiteData() {
             val site = siteNow() ?: return
+            sitePermissions.forget(site.host)
             // Gecko clears the whole site the host belongs to (its base domain), cookies and sign-ins included.
             components.engine.clearData(
                 Engine.BrowsingData.select(Engine.BrowsingData.AUTH_SESSIONS, Engine.BrowsingData.ALL_SITE_DATA),
@@ -2004,6 +2068,10 @@ class MainActivity : ComponentActivity() {
                 .map { it.selectedTabId }
                 .distinctUntilChanged()
                 .collect { selectedTabId = it }
+        }
+        lifecycleScope.launch {
+            // Sites' permission requests, for the tab on screen.
+            components.store.flow(this@MainActivity).collect { sitePermissions.onState(it) }
         }
         lifecycleScope.launch {
             // Which pages show: the selected tab, or its whole split on the inner screen.

@@ -1,5 +1,11 @@
 package app.enso.browser.settings
 
+import app.enso.browser.permissions.labelOf
+import app.enso.browser.permissions.iconOf
+import app.enso.browser.permissions.SitePermission
+import app.enso.browser.permissions.PermissionChoice
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -59,8 +65,15 @@ interface SiteSettingsActions {
 
     fun setTrackingProtection(on: Boolean)
 
-    /** Signs the user out of the site and forgets what it stored, then reloads it. */
+    /** Signs the user out of the site and forgets what it stored and its permission answers, then reloads it. */
     fun clearSiteData()
+
+    /** The site's permission answers for its Permissions group (step 11), read again when [permissionsRevision] changes. */
+    fun permissions(host: String): List<Pair<SitePermission, PermissionChoice>>
+
+    val permissionsRevision: Int
+
+    fun setPermission(permission: SitePermission, choice: PermissionChoice)
 
     fun openAllSettings()
 }
@@ -110,6 +123,10 @@ fun SiteSettingsContent(site: SiteState, actions: SiteSettingsActions, modifier:
             },
             icon = R.drawable.ic_shield,
         )
+        val permissions = remember(site.host, actions.permissionsRevision) { actions.permissions(site.host) }
+        SettingsGroup(stringResource(R.string.site_settings_permissions))
+        permissions.forEach { (permission, choice) -> PermissionRow(permission, choice) { actions.setPermission(permission, it) } }
+        Spacer(Modifier.height(4.dp))
         SettingRow(
             stringResource(R.string.site_settings_clear),
             icon = R.drawable.ic_trash,
@@ -123,6 +140,48 @@ fun SiteSettingsContent(site: SiteState, actions: SiteSettingsActions, modifier:
         ConfirmClear(site.host, onDismiss = { confirmClear = false }) {
             confirmClear = false
             actions.clearSiteData()
+        }
+    }
+}
+
+/** A permission and the site's answer as a chip; tapping it picks Ask, Allow or Block. */
+@Composable
+private fun PermissionRow(permission: SitePermission, choice: PermissionChoice, onChoose: (PermissionChoice) -> Unit) {
+    var choosing by remember { mutableStateOf(false) }
+    SettingRow(stringResource(labelOf(permission)), icon = iconOf(permission), onClick = { choosing = true }) {
+        Box {
+            val (fill, text, label) = when (choice) {
+                PermissionChoice.Allow -> Triple(EnsoColors.TextPrimary, EnsoColors.OnTextPrimary, R.string.permission_allowed)
+                PermissionChoice.Block -> Triple(EnsoColors.CloseMenuText.copy(alpha = 0.14f), EnsoColors.CloseMenuText, R.string.permission_blocked)
+                PermissionChoice.Ask -> Triple(EnsoColors.FieldFill, EnsoColors.TextSecondary, R.string.permission_ask)
+            }
+            Text(
+                stringResource(label),
+                style = EnsoType.Secondary.copy(fontSize = 13.sp, color = text),
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(fill).padding(horizontal = 12.dp, vertical = 5.dp),
+            )
+            DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
+                PermissionChoice.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    when (option) {
+                                        PermissionChoice.Ask -> R.string.permission_ask
+                                        PermissionChoice.Allow -> R.string.permission_prompt_allow
+                                        PermissionChoice.Block -> R.string.permission_blocked
+                                    },
+                                ),
+                                style = EnsoType.Row,
+                            )
+                        },
+                        onClick = {
+                            choosing = false
+                            if (option != choice) onChoose(option)
+                        },
+                    )
+                }
+            }
         }
     }
 }

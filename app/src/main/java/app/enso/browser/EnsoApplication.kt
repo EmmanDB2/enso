@@ -1,5 +1,6 @@
 package app.enso.browser
 
+import app.enso.browser.permissions.SiteNotifications
 import android.app.ActivityManager
 import android.app.Application
 import android.content.pm.ApplicationInfo
@@ -28,6 +29,8 @@ class EnsoApplication : Application() {
         components.extensions.start(components.tabs)
         // Pages tell the store their icons through the module's own built-in extension.
         components.icons.install(components.engine, components.store)
+        // Sites' notifications (step 11), for the sites the user allowed.
+        components.engine.registerWebNotificationDelegate(SiteNotifications(this))
     }
 
     private fun isMainProcess(): Boolean {

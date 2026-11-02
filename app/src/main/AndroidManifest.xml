@@ -4,6 +4,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The ensō fidget's haptics (VibrationEffect compositions). -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Sites' camera, microphone, location and notifications (step 11), asked for when the user allows a site. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <queries>
         <!-- Bottom search's mic: Android's voice recognizer. -->

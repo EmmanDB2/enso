@@ -1,5 +1,8 @@
 package app.enso.browser
 
+import org.mozilla.geckoview.GeckoSession
+import app.enso.browser.permissions.SitePermission
+import app.enso.browser.permissions.PermissionChoice
 import android.content.Context
 import app.enso.browser.extensions.Extensions
 import app.enso.browser.settings.SiteChoices
@@ -49,6 +52,28 @@ class Components(private val context: Context) {
     /** HTTP through Gecko, for application-services and Zen sync. */
     val fetchClient by lazy { GeckoViewFetchClient(context, runtime) }
     val searchSuggestions by lazy { SearchSuggestions(fetchClient) }
+
+    /**
+     * Brings Gecko's own stored answer for [url]'s [permission] in line with the user's choice in site settings. Gecko
+     * keeps the answers to location, notification and protected-content requests itself, and wouldn't ask again.
+     * Camera and microphone answers live only in [siteChoices].
+     */
+    fun syncGeckoPermission(url: String, permission: SitePermission, choice: PermissionChoice) {
+        val gecko = when (permission) {
+            SitePermission.Location -> GeckoSession.PermissionDelegate.PERMISSION_GEOLOCATION
+            SitePermission.Notifications -> GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION
+            SitePermission.ProtectedContent -> GeckoSession.PermissionDelegate.PERMISSION_MEDIA_KEY_SYSTEM_ACCESS
+            else -> return
+        }
+        val value = when (choice) {
+            PermissionChoice.Ask -> GeckoSession.PermissionDelegate.ContentPermission.VALUE_PROMPT
+            PermissionChoice.Allow -> GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW
+            PermissionChoice.Block -> GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY
+        }
+        runtime.storageController.getPermissions(url, false).accept { stored ->
+            stored.orEmpty().filter { it.permission == gecko }.forEach { runtime.storageController.setPermission(it, value) }
+        }
+    }
 
     /** Firefox's Places database; the search palette reads it and step 5 syncs it. */
     val historyStorage by lazy { PlacesHistoryStorage(context) }

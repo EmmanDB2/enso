@@ -17,7 +17,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **8b (done): splits sync both ways with Zen.**
   - **8c (done): Glance** (board 8), on both screens.
 - Step 9, **Extensions**, is done: bundled uBlock Origin, the Extensions list, popups and settings pages in a sheet (9a), and installs from addons.mozilla.org with an Ensō-style prompt and daily updates (9b). The user dropped the recommended extensions list for a "Find more add-ons here" link.
-- Current step: **10, Polish**, in four passes.
+- Step 10, **Polish**, is done, in four passes:
   - **10a (done): real favicons** with letter fallbacks: the loaded page's icon, Zen's synced icon for tabs that aren't loaded, AC's icon cache or the site's `/favicon.ico`, then the letter. The user had the neutral circles behind them removed; only mostly white icons get a dark circle.
   - **10b (done): the tab sheet's blurred snapshot, and animations** (rows sliding as tabs open, close or move; folders opening smoothly; the start screen cross-fading with pages; cards fading in; favicons fading in).
   - **10c (done): dark mode.** It follows the system, with a `themeMode` setting (System, Light, Dark) to override it, and pages are asked for their dark version too.
@@ -26,7 +26,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - `AllSettingsContent` writes `Settings` and calls `MainActivity.settingChanged`, which applies what it can at once (theme, layout, desktop sites, tracking protection level, extension updates) and bumps `settingsRevision`, which the overlay reads settings through.
     - Cover: `BarPanel.SiteSettings` and `BarPanel.AllSettings` (`BarSettings`). Unfolded: `SettingsCard` over the page card. Sync with Zen moved from the ⋮ menu to the top of All settings.
     - Gecko's Enhanced Tracking Protection is on (`trackingProtection`, Standard by default). Standard blocks trackers' cookies; their scripts only under Strict.
-- Step 11 (site permissions) comes after. Don't build permission prompts in step 10.
+- Current step: **11, site permissions** (`permissions/`), built to the sketch the user approved: Ensō's card for a site's request, Android's own permission when it's missing, each site's answers remembered and shown in Site Settings, and site notifications while the site is open. Not yet checked on the Fold: the Allow path through Android's dialogs (the user's to grant), and a site notification showing.
 - Step 12, **downloads**, comes after step 11 (the user added it). Ensō has no download handling yet, so a download a site starts is dropped.
 - The start screen (board 9) has the ensō fidget (boards F1–F4), which the user asked for as a side piece alongside step 10. So does the app icon.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
@@ -219,6 +219,14 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - **Swipe down to hide:** a swipe down anywhere on the closed bar (`hideBar`) slides it and the strip away, as scrolling down does, until a scroll up brings them back. Not over the start screen, which has no page to scroll them back.
   - **No frost:** the bar and its panels keep their plain colors. The Fold has no cross-window blur (`ro.surface_flinger.supports_background_blur` is 0), and Compose can't sample GeckoView's surface, so a frosted bar would need page captures that lag while the page scrolls. The user chose to leave it.
   - **Thumbnails:** AC's `BrowserThumbnails` captures the selected tab's page as it loads, and `ThumbnailsMiddleware` keeps it in `thumbnailStorage`; `TabThumbnail` loads it. Capture only runs on the cover, since unfolded the first page view may show another tab of a split.
+- `permissions/`: site permissions (step 11).
+  - `SitePermissions` (owned by the activity, fed every store update) answers the tab on screen's requests: the store's `appPermissionRequestsList` (Gecko asks for an Android permission Ensō lacks, before the site's own request) and `permissionRequestsList`. Each is consumed (`Consume(App)PermissionsRequest`) once answered.
+    - Camera, microphone, location, notifications and protected content (DRM) are asked about (`PermissionPromptCard`, above the cover's bar) and remembered per host in `SiteChoices` (`permission:<kind>:<host>`). A stored Allow or Block answers at once; Allow asks Android for what's missing (`requestAndroid`, the activity's `RequestMultiplePermissions`), and a refusal there refuses the site.
+    - Back or a tap outside refuses once without remembering. Gecko follows a refused app request with the site's own request for the same thing, so `dismissed` refuses that one too rather than asking again.
+    - `answered` keeps the last requests answered: a store update from before the answer can bring one back, and Gecko mustn't be answered twice.
+    - Autoplay without sound is granted and with sound refused (it waits for a tap); everything else Gecko asks (persistent storage, cross-site storage) is refused silently.
+  - **Site Settings:** a Permissions group (the four always, protected content once answered), each a chip (Ask, Allowed, Blocked) with a menu. A change also updates Gecko's own stored answer (`Components.syncGeckoPermission`): Gecko keeps location, notification and DRM answers itself and wouldn't ask again. Clear cookies and site data forgets the answers too.
+  - **Site notifications:** `SiteNotifications`, registered with the engine by `EnsoApplication`, posts them on the "Site notifications" channel while the site is open (no push service). A tap opens Ensō, which hands it back to Gecko (`handleWebNotificationClick`) and shows the site's tab.
 - `extensions/`: WebExtensions (step 9), on AC's `WebExtensionSupport`, which keeps installed extensions in the store (`state.extensions`) with their toolbar actions, popup sessions and options pages.
   - `Extensions` (in `Components`, started by `EnsoApplication`): installs the bundled uBlock Origin once (`bundledExtensionsInstalled`) and answers its own permission prompt (`webExtensionPromptRequest`), and routes the tabs extensions open, close or select through `TabManager`. Extension tabs are Quick Tabs (`openExtensionTab`).
     - The signed package is in `assets/extensions/`. AC refuses `resource:` URLs to install from (GeckoView would take them), so it's copied to the cache dir and installed from a `file:` URL.

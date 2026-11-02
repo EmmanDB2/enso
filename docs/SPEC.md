@@ -301,7 +301,17 @@ No board covers these screens, so their layout and wording get agreed before the
   - **Clear cookies and site data** for this site, after a confirmation.
   - **All settings**, a button at the bottom.
 - **All settings** holds every preference, grouped: appearance, layout, tabs, the space menu, sync (with Sync with Zen at the top) and extensions. With no page on screen (the start screen), Settings opens it directly.
-- Site permissions join site settings in step 11.
+- **Permissions** (step 11): a group in site settings with Camera, Microphone, Location and Notifications (and Protected content once the site has asked), each showing Ask, Allowed or Blocked; tapping one picks another. Clearing the site's data forgets them too.
+
+## Site permissions (step 11)
+
+No board covers these; the user approved a sketch.
+
+- **The prompt:** when a site asks for the camera, microphone, location or notifications, or to play protected (DRM) content, an Ensō card shows over the page, above the cover's bar: the permission's icon, "[site] wants to use your camera" (camera and microphone together get one card), "Your choice is remembered for this site. Change it in Site Settings.", and Don't allow / Allow.
+- **Remembered:** every answer is kept for the site, which is then answered without asking. A blocked site is refused silently. Back or a tap outside refuses that once, without remembering.
+- **Android's permission:** allowing a site asks Android for its own permission when Ensō lacks it (camera, microphone, location, notifications). If Android says no, the site is refused.
+- **Site notifications** show as Android notifications, while the site is open in a tab; tapping one opens its tab. Notifications from closed sites would need a push service and aren't supported.
+- **Without asking:** autoplay with sound waits for a tap, muted video plays, and persistent storage and cross-site storage access are refused, as in Firefox.
 
 ## Build order
 
