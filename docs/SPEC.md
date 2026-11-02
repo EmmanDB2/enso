@@ -35,37 +35,45 @@ Synced Spaces flow from Zen through the Mozilla account into a local store that 
 
 The cover screen shows the page and one bar at the bottom, in the style of Arc Search. There's no top bar: the page runs to the top edge, and the URL only shows in the actions sheet. (Boards 1 and 2 show the earlier top bar.)
 
-**The bar (B1):** one full-width frosted surface along the bottom edge, with rounded top corners (about 26 dp), the space's tint, a soft upward shadow, a small grab handle at the top, and room for the gesture handle below. Its one row holds:
+**The bar (B1):** one full-width surface along the bottom edge, 90 dp tall with the gesture handle's room, with rounded top corners (about 26 dp), the space's tint, a soft upward shadow and a small grab handle at the top. There's no divider line above its row, in any state. The row (about 56 dp) holds:
 
-- **The Quick Tabs stack:** the current space's Quick Tabs as two small stacked cards with gold edges and a count badge. The front card shows the latest Quick Tab's page thumbnail, or its favicon until it has one. Kept tabs never show here. Tap it for the Quick Tabs view (B2). With no Quick Tabs it's dimmed.
+- **The Quick Tabs launcher:** two small live thumbnails of the current space's Quick Tabs, as in Arc Search. The tab before the current one sits behind, tilted about −9°, and the current one sits on top, tilted about 5°, each with a soft drop shadow. No outline and no count. A card shows its tab's favicon until the page has a thumbnail. Kept tabs never show here. Tap it for the Quick Tabs view (B2). With no Quick Tabs it's dimmed.
 - **The "+" pill:** bottom search (B4), for a new Quick Tab.
 - **The chevron:** the actions sheet (B3).
 
 Behavior:
 
 - **Load progress:** a 2 px line in the space's accent along the bar's top edge.
-- **Scrolling:** the bar slides off the bottom edge when scrolling down, and returns on scroll up, when a page starts loading, or on a tap along the bottom edge.
-- **Status bar:** hidden while you browse, so the page reaches the top edge. It shows over the tab sheet, the start screen and the bar's panels, and with a swipe down from the top. A setting can instead keep it showing over the page, or put it over a strip of the space's color that slides away with the bar.
+- **Scrolling:** the bar slides off the bottom edge when scrolling down, and returns on scroll up, when a page starts loading, or on a tap along the bottom edge. A swipe down on the bar hides it too.
+- **Status bar:** hidden while you browse, so the page reaches the top edge. It shows over the tab sheet, the start screen and the bar's panels, and with a swipe down from the top. A setting can instead keep it showing over the page, or put it over a strip of the space's colors that slides away with the bar.
 - **Tab sheet:** swipe up on the bar or its handle.
 
-**Panels:** each panel is the bar's surface growing upward, with the bar's row pinned at its bottom; there are no separate floating sheets. The page behind dims. Back, a swipe down on the handle, or a tap on the dimmed page closes a panel.
+**Panels:** the actions sheet and bottom search are the bar's surface growing upward; there are no separate floating sheets. The page behind dims. Back, a swipe down on the handle, or a tap on the dimmed page closes a panel.
 
-**Quick Tabs (B2):** "Quick Tabs" with how many are open, then the current space's Quick Tabs as cards to swipe through, starting on the one on screen (or the latest).
+**Quick Tabs (B2):** a full-screen view in the style of Arc Search, with no sheet.
 
-- Each card has the tab's favicon and title, its page thumbnail and "Clears in 9 hours". The focused card has a ✕.
-- Tap a card to open it, or swipe it up to close it.
-- "Keep in [current space]" under the focused card keeps it there. Holding it picks another space on the space wave.
-- Dots below show which card is focused.
-- The bar's row: the stack shows as active, "Clear Quick Tabs" (closes every Quick Tab in the current space) replaces the "+", and the chevron stays the normal up chevron. Tap the stack again, or swipe down, to close it.
+- **Opening:** tapping the launcher zooms out. The current page shrinks into the focused card (about 70% of the screen's width, 28 dp corners) while the background fades to the space's gradient and the neighbouring cards slide in from the sides, over about 300 ms on a spring with no overshoot. The bar dissolves into the floating buttons.
+- **Cards:** real page screenshots, plain white, no borders. The focused card is centered. Older Quick Tabs stack behind it to the left, and newer ones lie on top of older ones, so a card coming in slides over the stack. The next one peeks in from the right edge. Each card's favicon sits just above its top-left corner and moves with it, stepping slightly higher the further back it sits; the focused card's title sits beside its favicon. Cards show their own page's thumbnail (the page on screen as the view opens).
+- **Gestures:** swipe left or right to move through the tabs as one smooth strip that follows the finger; on release it glides onto a card. A flick moves on at least one card, and only a fast one two. Tap a card to zoom back into it (the opening animation reversed). Swipe a card up to close it, and the next one slides into its place. Back zooms into the focused card.
+- **Floating buttons**, left to right:
+  - **Clear All** (small and lighter, with an archive icon) closes every Quick Tab in the space, then shows "3 Quick Tabs cleared · Undo" for about 5 seconds. Undo opens their pages again.
+  - **[space icon] Save**, the big solid white button in the middle, keeps the centered tab in the current space and zooms into it. Holding it picks another space on the space wave.
+  - **The chevron (up)** opens the actions sheet for the centered tab.
+- No expiry times show here.
 
 **Actions sheet (B3):**
 
-- Back, forward, the URL and reload (stop while loading). This is the only place the URL appears. Tapping it opens bottom search on the URL, which then loads in the current tab.
-- "Keep in [space]" with "Quick Tab · clears in 9 hours", when the tab on screen is a Quick Tab. Holding it picks another space.
-- Reader, Find, Copy URL and Share; then Extensions (where uBlock Origin will live) and Settings. Reader, Find and Extensions are grayed out until they're built. Settings opens a short list on the same surface; for now it holds Sync with Zen.
-- The bar's row: the stack, "+", and the chevron as a dark ↓ that closes the sheet.
+- The URL row: back and forward on the left, the domain centered, then copy link and reload (stop while loading) on the right. This is the only place the URL appears. Tapping the domain opens bottom search on the URL, which then loads in the current tab.
+- Reader, Find, Keep and Share. Keep shows the current space's icon: on a Quick Tab it keeps the tab in that space (holding it picks another space); on a kept tab it shows "Kept", and tapping it makes the tab a Quick Tab again, which takes it out of the space (in Zen too). Pinned tabs and Essentials show "Kept", grayed out. Reader and Find are grayed out until they're built.
+- Extensions and Site Settings (a standard gear). Site Settings opens the site's settings, or All settings when there's no site on screen.
+- The bar's row: the launcher, "+", and the chevron as a dark ↓ that closes the sheet.
 
-**Bottom search (B4):** the keyboard pushes the surface up, and the bar's row becomes the search field (with a small "Quick Tab" tag) and Cancel. Suggestions sit above it, the most relevant closest to the thumb: "Search the web" (or "Go to [site]") just above the field, then open tabs with "Switch to Tab", then history. Before typing, the history rows are the latest pages. The Quick Tab is made when the search is submitted, so Cancel leaves nothing behind.
+**Bottom search (B4)**, in the style of Safari: the sheet sits directly on the keyboard, with no bar row.
+
+- At the top, the search field: a search icon, "Search or enter address", and a mic inside it (Android's voice typing, when a recognizer is installed; what's said is searched). A ✕ button beside it closes search.
+- Before typing, "Open tabs" lists the space's open Quick Tabs, latest first, at most 4, each with its favicon, title and "Switch to Tab".
+- While typing: matching open tabs (at most 4), then matching history, then Google's search suggestions. Suggestions take the rows history leaves, so they take over as the history thins out. A setting turns the suggestions off, since they send what's typed to Google.
+- The Quick Tab is made when the search is submitted, so ✕ leaves nothing behind.
 
 ## Cover screen: space menu (board 3)
 

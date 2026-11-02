@@ -1,5 +1,8 @@
 package app.enso.browser
 
+import mozilla.components.support.ktx.util.URLStringUtils
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import android.animation.ValueAnimator
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -11,6 +14,7 @@ import android.os.Build
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
+import android.speech.RecognizerIntent
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -81,6 +85,7 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import app.enso.browser.bottombar.BarMetrics
 import app.enso.browser.bottombar.BarPanel
 import app.enso.browser.bottombar.BottomBar
 import app.enso.browser.bottombar.BottomBarActions
@@ -119,6 +124,8 @@ import app.enso.browser.spacemenu.SpaceWaveState
 import app.enso.browser.spacemenu.WaveSpace
 import app.enso.browser.spaces.Space
 import app.enso.browser.spaces.SpacesState
+import app.enso.browser.spaces.updateTab
+import app.enso.browser.spaces.QuickTab
 import app.enso.browser.spaces.Split
 import app.enso.browser.spaces.SplitLayout
 import app.enso.browser.spaces.TabPlace
@@ -376,6 +383,21 @@ class MainActivity : ComponentActivity() {
 
     /** How far the bottom bar has slid down off the screen, in pixels, as the anchor moves with the page. */
     private var barOffset by mutableFloatStateOf(0f)
+
+    /** Bottom search's mic: the recognizer's best match is searched as if typed. */
+    private val voiceSearchLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val said = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.takeIf { it.isNotBlank() }
+        if (result.resultCode == RESULT_OK && said != null) bottomBarActions.submit(said, searchMode)
+    }
+
+    private fun voiceSearchIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_WEB_SEARCH)
+
+    /** The page the Quick Tabs view zooms out of, captured as it opens. */
+    private var quickTabsCapture by mutableStateOf<Pair<ImageBitmap, Rect>?>(null)
+
+    /** The pages the last Clear All closed, for its undo. */
+    private var clearedQuickTabs = emptyList<String>()
 
     /** Whether the touch going on has had two fingers down, so the page's scrolling then is a pinch's. */
     private var pinching = false
@@ -777,7 +799,7 @@ class MainActivity : ComponentActivity() {
                 scrollOffset = { barOffset },
                 statusBarInset = statusBarInset,
                 gestureInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
-                quickTabLifetimeMs = settings.quickTabLifetimeMs,
+                pageCapture = quickTabsCapture,
                 thumbnails = components.thumbnailStorage,
                 extensions = BarExtensions(
                     rows = installedExtensions,
@@ -1174,6 +1196,15 @@ class MainActivity : ComponentActivity() {
         override fun showPanel(panel: BarPanel?) {
             // Leaving an extension's page closes it.
             if (barPanel == BarPanel.ExtensionPage && panel != BarPanel.ExtensionPage) closeExtensionPage()
+            if (panel == BarPanel.QuickTabs && barPanel != BarPanel.QuickTabs && !startScreenVisible) {
+                // The Quick Tabs view zooms out of the page, so it opens once the page is captured.
+                captureBackdrop { captures ->
+                    quickTabsCapture = captures.firstOrNull()
+                    barPanel = BarPanel.QuickTabs
+                }
+                return
+            }
+            if (panel == BarPanel.QuickTabs) quickTabsCapture = null
             barPanel = panel
         }
 
@@ -1207,8 +1238,25 @@ class MainActivity : ComponentActivity() {
             components.tabs.close(tabId)
         }
 
+        override suspend fun searchSuggestions(query: String): List<String> =
+            if (!components.settings.searchSuggestions || URLStringUtils.isURLLike(query)) emptyList() else components.searchSuggestions.fetch(query)
+
+        override val voiceSearchAvailable by lazy { voiceSearchIntent().resolveActivity(packageManager) != null }
+
+        override fun voiceSearch() {
+            runCatching { voiceSearchLauncher.launch(voiceSearchIntent()) }
+        }
+
         override fun keep(tabId: String) {
             components.spaces.update { it.keepQuickTab(tabId) }
+            components.zenSync.localEdited()
+        }
+
+        override fun unkeep(tabId: String) {
+            // Back to a Quick Tab: phone-only, so the next sync takes it out of the space in Zen too.
+            components.spaces.update { state ->
+                state.updateTab(tabId) { it.copy(quick = QuickTab(lastViewedAt = System.currentTimeMillis()), synced = false, zenUrl = null) }
+            }
             components.zenSync.localEdited()
         }
 
@@ -1217,9 +1265,24 @@ class MainActivity : ComponentActivity() {
             tabSheetActions.addToAnotherSpace(tabId)
         }
 
-        override fun clearQuickTabs() {
+        override fun focus(tabId: String) {
+            components.tabs.select(tabId)
+            startScreenRequested = false
+        }
+
+        override fun clearQuickTabs(): Int {
             barPanel = null
-            components.spaces.state.value.currentSpace.tabs.filter { it.quick != null }.forEach { components.tabs.close(it.id) }
+            val cleared = components.spaces.state.value.currentSpace.tabs.filter { it.quick != null }
+            clearedQuickTabs = cleared.map { it.url }
+            cleared.forEach { components.tabs.close(it.id) }
+            return cleared.size
+        }
+
+        override fun undoClearQuickTabs() {
+            // Their pages open again, though not their back history.
+            clearedQuickTabs.forEach { components.tabs.openNewTab(it, quick = true) }
+            clearedQuickTabs = emptyList()
+            startScreenRequested = false
         }
 
         override fun back() = components.sessionUseCases.goBack()
@@ -2073,7 +2136,8 @@ class MainActivity : ComponentActivity() {
      * Runs again when the insets change, for example when folding, unfolding or showing the keyboard.
      */
     private fun layoutCoverBars(statusTop: Int) {
-        val height = resources.getDimensionPixelSize(R.dimen.bottom_bar_height) + gestureHandleInset
+        val density = resources.displayMetrics.density
+        val height = (BarMetrics.height((gestureHandleInset / density).dp).value * density).roundToInt()
         val band = if (components.settings.coverStatusBar == CoverStatusBar.TintedStrip) statusTop else 0
         if (height == barHeight && statusTop == statusBarInset && band == bandHeight) return
         barHeight = height

@@ -175,6 +175,11 @@ class Settings(context: Context) {
         get() = prefs.getInt(KEY_QUICK_TAB_LIFETIME_HOURS, 24)
         set(value) = prefs.edit { putInt(KEY_QUICK_TAB_LIFETIME_HOURS, value) }
 
+    /** Google's suggestions in bottom search, which sends what's typed to Google as you type. */
+    var searchSuggestions: Boolean
+        get() = prefs.getBoolean(KEY_SEARCH_SUGGESTIONS, true)
+        set(value) = prefs.edit { putBoolean(KEY_SEARCH_SUGGESTIONS, value) }
+
     /** The ensō fidget on the blank start page. */
     var showEnsoOnNewTabs: Boolean
         get() = prefs.getBoolean(KEY_SHOW_ENSO_ON_NEW_TABS, true)
@@ -212,6 +217,7 @@ class Settings(context: Context) {
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_TRACKING_PROTECTION = "tracking_protection"
         const val KEY_SHOW_ENSO_ON_NEW_TABS = "show_enso_on_new_tabs"
+        const val KEY_SEARCH_SUGGESTIONS = "search_suggestions"
         const val KEY_QUICK_TABS_IN_TAB_SHEET = "quick_tabs_in_tab_sheet"
         const val KEY_SWITCH_SPACES_FROM_SHEET_HEADER = "switch_spaces_from_sheet_header"
         const val KEY_SPACE_MENU_HOLD_MS = "space_menu_hold_ms"

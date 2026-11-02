@@ -194,12 +194,25 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - The rail's tiles sit in Android's left-edge back-gesture zone. A real held thumb cancels the back gesture, but scripted `input motionevent` touches don't count as held, so start scripted drags there at x ≥ 105 px.
   - **Sync:** both ways with Zen (see `sync/`). Ending a split from Zen adds it to `endedSplits` until the deletion reaches Zen.
 - `bottombar/`: the cover's bottom bar (boards B1–B4), in the style of Arc Search. The inner screen doesn't get it.
-  - `BottomBar` draws the bar and its panels in the overlay, over the start screen and under the tab sheet. A panel (`BarPanel`) is the same surface growing upward: an `AnimatedContent` with a `SizeTransform` above the bar's row, anchored at the bottom.
+  - `BottomBar` draws the bar and its panels in the overlay, over the start screen and under the tab sheet. A panel (`BarPanel`) is the same surface growing upward: an `AnimatedContent` with a `SizeTransform` above the bar's row, anchored at the bottom. Bottom search has no row: its sheet sits on the keyboard.
+  - **Size:** `BarMetrics.height` is 90 dp with the gesture handle's room (a 12 dp handle strip, the 56 dp row, the rest below), or more when the gesture handle is taller.
   - **Hide-on-scroll:** an invisible `ScrollingBarView` anchor (`barAnchor`) sits at the bottom with AC's scrolling behavior. The activity copies its `translationY` into `barOffset` before each draw, and the Compose bar offsets by it.
-    - Its height is `R.dimen.bottom_bar_height` plus the gesture handle, and `BarMetrics` must add up to the same.
+    - Its height is `BarMetrics.height`, which `layoutCoverBars` reads too.
     - The surface catches every touch on it, or touches on its padding would fall through to the page.
-  - **Panels:** `QuickTabsPanel` (B2), `ActionsPanel` and `SettingsPanel` (B3; Settings only has Sync with Zen for now), and `SearchSuggestions` with `SearchRow` (B4). Reader and Find are grayed out until they're built.
-    - Bottom search makes the Quick Tab on submit, so Cancel leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
+  - **Launcher:** `QuickTabStack` shows the latest two Quick Tabs' thumbnails as tilted cards with shadows (−9° behind, 5° in front).
+  - **Quick Tabs view (B2):** `QuickTabsView`, drawn by `BottomBar` over everything when `panel` is `QuickTabs` (the bar's own surface stays at rest under it).
+    - The activity captures the page (`captureBackdrop`) before it sets the panel (`quickTabsCapture`), so the view can shrink that capture into the focused card. A tab that isn't the one on screen uses its thumbnail.
+    - `zoom` (0 is the page, 1 the cards) drives the card's rect and corners, the gradient's fade, the neighbours' slide and the floating buttons. `position` is the strip as a card index with fractions; `cardRect` lays the cards out from it.
+    - The finger sets `position` directly; a release glides it (`glideTo`, a soft spring with no overshoot) onto the card a decay reaches (`FLING_FRICTION`), or one card on past `FLICK_SPEED`. The user found the first, lighter settings too sensitive.
+    - Only the captured tab's own card draws the capture (`captureTabId`); drawn on whichever card was focused, it showed on every tab after a swipe.
+    - Cards stack by their index (newer on top), so a card coming in slides over the one going back into the stack. Each card's favicon rides its own top-left corner.
+    - The strip is taken once as the view opens, so Save (which keeps the tab) doesn't pull its card out mid-zoom.
+    - Zooming in selects the tab first (`focus`, which leaves the view open), so the live page is under the card when it lands.
+    - The gradient's `Box` has the lowest `zIndex` (−100), under every card.
+    - Clear All (`clearQuickTabs`) closes them at once; the toast's Undo (`undoClearQuickTabs`) opens their URLs again as Quick Tabs, without their back history.
+  - **Actions sheet (B3):** `ActionsPanel` with the URL row and the Keep tile (`KeepState`: a Quick Tab keeps, a kept open tab `unkeep`s back to a Quick Tab, which drops `synced` so the next sync takes it out of Zen; pinned tabs and Essentials show "Kept", disabled). Reader and Find are grayed out until they're built.
+  - **Bottom search (B4):** `SearchSheet`. Before typing, the space's Quick Tabs; while typing, matching tabs, history, then `SearchSuggestions` (Google's, asked privately) in the rows history leaves, while `searchSuggestions` is on. The mic launches `RecognizerIntent` (the manifest's `<queries>` lets the app see it).
+    - Bottom search makes the Quick Tab on submit, so ✕ leaves no tab. `SearchMode.CurrentTab` (from the URL in B3) loads in the current tab instead.
     - Closing the keyboard closes bottom search, as it cancels an edit.
   - **Swipe down to hide:** a swipe down anywhere on the closed bar (`hideBar`) slides it and the strip away, as scrolling down does, until a scroll up brings them back. Not over the start screen, which has no page to scroll them back.
   - **No frost:** the bar and its panels keep their plain colors. The Fold has no cross-window blur (`ro.surface_flinger.supports_background_blur` is 0), and Compose can't sample GeckoView's surface, so a frosted bar would need page captures that lag while the page scrolls. The user chose to leave it.
@@ -314,6 +327,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `zenSyncDryRun` (default off) logs what sync would upload without uploading. It's for testing.
   - `themeMode` (default `System`) picks light or dark, or follows Android's dark theme. `MainActivity.applyTheme` applies it at start and on every configuration change (the activity handles `uiMode` itself): `EnsoColors.dark`, the system bars' icons, the views that took a color once (window, root, page containers), and Gecko's `preferredColorScheme` for pages, which follows the system by itself under `System`.
   - `updateExtensions` (default on) checks extensions for updates daily and installs them.
+  - `searchSuggestions` (default on) shows Google's suggestions in bottom search, which sends what's typed to Google.
   - `showEnsoOnNewTabs` (default on) shows the ensō fidget on the blank start page.
   - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) and `bundledExtensionsInstalled` are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.

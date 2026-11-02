@@ -10,6 +10,7 @@ import app.enso.browser.sync.MozillaAccount
 import app.enso.browser.sync.ZenSync
 import app.enso.browser.ui.FaviconSource
 import mozilla.components.browser.engine.gecko.GeckoEngine
+import app.enso.browser.toolbar.SearchSuggestions
 import mozilla.components.browser.engine.gecko.fetch.GeckoViewFetchClient
 import mozilla.components.browser.icons.BrowserIcons
 import mozilla.components.browser.state.engine.EngineMiddleware
@@ -47,6 +48,7 @@ class Components(private val context: Context) {
 
     /** HTTP through Gecko, for application-services and Zen sync. */
     val fetchClient by lazy { GeckoViewFetchClient(context, runtime) }
+    val searchSuggestions by lazy { SearchSuggestions(fetchClient) }
 
     /** Firefox's Places database; the search palette reads it and step 5 syncs it. */
     val historyStorage by lazy { PlacesHistoryStorage(context) }

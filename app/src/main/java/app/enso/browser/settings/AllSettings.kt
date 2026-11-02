@@ -27,7 +27,7 @@ enum class Setting {
     UnfoldedPortrait, DesktopSitesUnfolded, DesktopSitesInSplit,
     QuickTabLifetime, QuickTabsInSheet, StartScreenAfter, ShowEnso, SheetHeaderSwipe,
     HoldTime, LeftHanded, EdgeStrip,
-    TrackingProtection,
+    TrackingProtection, SearchSuggestions,
     UpdateExtensions,
 }
 
@@ -223,6 +223,12 @@ fun AllSettingsContent(settings: Settings, zenStatus: ZenSyncStatus, actions: Al
             values.trackingProtection,
             { level -> change(Setting.TrackingProtection) { trackingProtection = level } },
         )
+        SwitchRow(
+            stringResource(R.string.settings_search_suggestions),
+            values.searchSuggestions,
+            { on -> change(Setting.SearchSuggestions) { searchSuggestions = on } },
+            stringResource(R.string.settings_search_suggestions_detail),
+        )
 
         SettingsGroup(stringResource(R.string.extensions_title))
         SwitchRow(
@@ -256,6 +262,7 @@ private data class SettingsValues(
     val spaceMenuLeftHanded: Boolean,
     val spaceMenuStripHeight: Float,
     val trackingProtection: TrackingProtectionLevel,
+    val searchSuggestions: Boolean,
     val updateExtensions: Boolean,
 ) {
     companion object {
@@ -266,7 +273,7 @@ private data class SettingsValues(
                 unfoldedPortraitLayout, desktopSitesUnfolded, desktopSitesInSplit,
                 quickTabLifetimeHours, quickTabsInTabSheet, startScreenAfterMinutes, showEnsoOnNewTabs, switchSpacesFromSheetHeader,
                 spaceMenuHoldMs.toInt(), spaceMenuLeftHanded, spaceMenuStripHeight,
-                trackingProtection,
+                trackingProtection, searchSuggestions,
                 updateExtensions,
             )
         }

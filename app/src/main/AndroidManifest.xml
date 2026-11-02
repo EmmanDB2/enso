@@ -5,6 +5,13 @@
     <!-- The ensō fidget's haptics (VibrationEffect compositions). -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <queries>
+        <!-- Bottom search's mic: Android's voice recognizer. -->
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
     <application
         android:name=".EnsoApplication"
         android:icon="@mipmap/ic_launcher"

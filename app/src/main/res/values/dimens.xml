@@ -4,7 +4,6 @@
     The cover's bottom bar at rest (board B1), above the gesture handle: 20dp for the grab handle, the 52dp row,
     and 12dp below it. The Compose bar uses the same numbers (BarMetrics).
     -->
-    <dimen name="bottom_bar_height">84dp</dimen>
     <!-- Tap target at the bottom edge that brings a hidden bar back. -->
     <dimen name="bottom_edge_min_height">24dp</dimen>
 </resources>

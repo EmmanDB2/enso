@@ -1,5 +1,9 @@
 package app.enso.browser.bottombar
 
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.delay
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -60,10 +64,12 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.max
 import androidx.compose.ui.unit.sp
 import app.enso.browser.R
 import app.enso.browser.spacemenu.BlockSpaceMenu
 import app.enso.browser.spacemenu.BlurredPage
+import app.enso.browser.spaces.Space
 import app.enso.browser.spaces.SpacesState
 import app.enso.browser.spaces.Tab
 import app.enso.browser.start.HistoryMatch
@@ -106,11 +112,20 @@ interface BottomBarActions {
     /** Keeps a Quick Tab in the current space. */
     fun keep(tabId: String)
 
+    /** Makes a kept tab of the current space a Quick Tab again (Keep, tapped on a kept tab). */
+    fun unkeep(tabId: String)
+
     /** Keeps a Quick Tab in another space, picked on the space wave. */
     fun keepElsewhere(tabId: String)
 
-    /** Closes every Quick Tab in the current space. */
-    fun clearQuickTabs()
+    /** Selects [tabId] under the Quick Tabs view, which stays open (it zooms into the tab, or opens the actions sheet). */
+    fun focus(tabId: String)
+
+    /** Closes every Quick Tab in the current space, and says how many. */
+    fun clearQuickTabs(): Int
+
+    /** Opens the Quick Tabs the last Clear All closed again. */
+    fun undoClearQuickTabs()
 
     fun back()
 
@@ -132,16 +147,32 @@ interface BottomBarActions {
 
     /** History matching [query], or the latest pages while it's blank. */
     suspend fun history(query: String, limit: Int): List<HistoryMatch>
+
+    /** Search suggestions for [query], or none when they're turned off or it looks like an address. */
+    suspend fun searchSuggestions(query: String): List<String>
+
+    /** Whether a voice recognizer is installed for the search field's mic. */
+    val voiceSearchAvailable: Boolean
+
+    /** The search field's mic: what's said is searched, as if typed and submitted. */
+    fun voiceSearch()
 }
 
-/** The bar at rest (board B1), above the gesture handle: the grab handle's strip, the row and the space below it. */
+/**
+ * The bar at rest (board B1): the grab handle's strip, the row and the space below it, 90 dp tall with the gesture
+ * handle's room. The page's scrolling behaviors slide an anchor of the same [height].
+ */
 object BarMetrics {
-    val Handle = 20.dp
-    val Row = 52.dp
-    val Below = 12.dp
+    val Handle = 12.dp
+    val Row = 56.dp
+    private val Total = 90.dp
+    private val MinBelow = 4.dp
 
-    /** Keep in step with `R.dimen.bottom_bar_height`, which the page's scrolling behaviors use. */
-    val Rest = Handle + Row + Below
+    /** The bar's height above the screen's bottom edge, the gesture handle's room included. */
+    fun height(gestureInset: Dp): Dp = max(Total, Handle + Row + MinBelow + gestureInset)
+
+    /** The space between the row and the gesture handle's room. */
+    fun below(gestureInset: Dp): Dp = height(gestureInset) - Handle - Row - gestureInset
 }
 
 /**
@@ -161,7 +192,7 @@ fun BottomBar(
     scrollOffset: () -> Float,
     statusBarInset: Dp,
     gestureInset: Dp,
-    quickTabLifetimeMs: Long,
+    pageCapture: Pair<ImageBitmap, Rect>?,
     thumbnails: ThumbnailStorage,
     extensions: BarExtensions,
     settings: BarSettings,
@@ -169,7 +200,17 @@ fun BottomBar(
 ) {
     val space = spaces.currentSpace
     val colors = space.colors()
-    val open = panel != null
+    // The Quick Tabs view covers the whole screen; the sheet underneath stays at rest.
+    val sheet = panel.takeUnless { it == BarPanel.QuickTabs }
+    val open = sheet != null
+    // How many Quick Tabs Clear All just closed, for its undo toast.
+    var cleared by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(cleared) {
+        if (cleared != null) {
+            delay(5_000)
+            cleared = null
+        }
+    }
     val quickTabs = remember(space) { space.tabs.filter { it.quick != null } }
     // The stack shows the latest first: the Quick Tab on screen, then the most recently viewed.
     val stack = remember(quickTabs, selectedTabId) {
@@ -238,7 +279,7 @@ fun BottomBar(
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
                 // A swipe down anywhere on the closed bar hides it; its buttons only take taps.
                 .verticalSwipe(onUp = null, onDown = actions::hideBar.takeIf { !open })
-                .padding(bottom = gestureInset),
+                .padding(bottom = if (searching) 0.dp else gestureInset),
         ) {
             val swipe = Modifier.verticalSwipe(
                 onUp = actions::openTabSheet.takeIf { !open },
@@ -249,13 +290,13 @@ fun BottomBar(
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = 9.dp)
+                        .padding(top = 5.dp)
                         .size(width = 32.dp, height = 4.dp)
                         .background(EnsoColors.TextSecondary.copy(alpha = 0.35f), CircleShape),
                 )
             }
             AnimatedContent(
-                targetState = panel,
+                targetState = sheet,
                 transitionSpec = {
                     fadeIn(tween(200, delayMillis = 80)) togetherWith fadeOut(tween(100)) using
                         SizeTransform(clip = true) { _, _ -> spring(dampingRatio = 0.9f, stiffness = 500f) }
@@ -267,26 +308,17 @@ fun BottomBar(
             ) { shownPanel ->
                 when (shownPanel) {
                     null -> Box(Modifier.fillMaxWidth())
-                    BarPanel.QuickTabs -> QuickTabsPanel(
-                        tabs = quickTabs,
-                        space = space,
-                        selectedTabId = selectedTabId,
-                        // Up to just below the status bar.
-                        height = maxHeight - statusBarInset - 8.dp - BarMetrics.Handle - BarMetrics.Row - BarMetrics.Below - gestureInset,
-                        quickTabLifetimeMs = quickTabLifetimeMs,
-                        thumbnails = thumbnails,
-                        actions = actions,
-                    )
-                    BarPanel.Actions -> ActionsPanel(page, space, quickTabs.firstOrNull { it.id == selectedTabId }, quickTabLifetimeMs, actions)
+                    BarPanel.QuickTabs -> Box(Modifier.fillMaxWidth())
+                    BarPanel.Actions -> ActionsPanel(page, space, keepState(space, selectedTabId, page), actions)
                     BarPanel.SiteSettings -> settings.site?.let { site ->
                         SiteSettingsPanel(site, settings.siteActions) { actions.showPanel(BarPanel.Actions) }
                     } ?: Box(Modifier.fillMaxWidth())
                     BarPanel.AllSettings -> AllSettingsPanel(
-                        height = maxHeight - statusBarInset - 8.dp - BarMetrics.Handle - BarMetrics.Row - BarMetrics.Below - gestureInset,
+                        height = maxHeight - statusBarInset - 8.dp - BarMetrics.height(gestureInset),
                         onBack = { actions.showPanel(if (settings.site != null) BarPanel.SiteSettings else BarPanel.Actions) },
                         content = settings.all,
                     )
-                    BarPanel.Search -> SearchSuggestions(spaces, query.text, searchMode, actions)
+                    BarPanel.Search -> SearchSheet(spaces, stack, query, { query = it }, searchMode, colors.accent, actions)
                     BarPanel.Extensions -> ExtensionsPanel(extensions, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.ExtensionPage -> ExtensionPagePanel(
                         title = extensions.pageTitle.orEmpty(),
@@ -299,44 +331,70 @@ fun BottomBar(
                     )
                 }
             }
-            if (searching) {
-                SearchRow(query, { query = it }, searchMode, colors.accent, actions, swipe)
-            } else {
-                BarRow(panel, stack, thumbnails, actions, swipe)
+            // Search has no row: its field is at the top of the sheet, which sits on the keyboard.
+            if (!searching) {
+                BarRow(sheet, stack, thumbnails, actions, swipe)
+                Spacer(Modifier.height(BarMetrics.below(gestureInset)))
             }
-            Spacer(Modifier.height(BarMetrics.Below))
+        }
+        cleared?.let { count ->
+            ClearedToast(count, Modifier.align(Alignment.BottomCenter).padding(bottom = BarMetrics.height(gestureInset) + 12.dp)) {
+                actions.undoClearQuickTabs()
+                cleared = null
+            }
+        }
+        if (panel == BarPanel.QuickTabs) {
+            QuickTabsView(quickTabs, space, selectedTabId, pageCapture, gestureInset, thumbnails, actions) { cleared = it }
         }
     }
 }
 
-/** The bar's row: the Quick Tabs stack, "+" (or Clear Quick Tabs over the stack) and the chevron. */
+/** "3 Quick Tabs cleared · Undo", for a few seconds after Clear All. */
+@Composable
+private fun ClearedToast(count: Int, modifier: Modifier, onUndo: () -> Unit) {
+    val style = EnsoType.Row.copy(fontSize = 15.sp, color = EnsoColors.OnTextPrimary)
+    Row(
+        modifier
+            .shadow(10.dp, CircleShape)
+            .clip(CircleShape)
+            .background(EnsoColors.TextPrimary)
+            .height(44.dp)
+            .padding(start = 18.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(pluralStringResource(R.plurals.bar_quick_tabs_cleared, count, count) + " ·", style = style)
+        Text(
+            stringResource(R.string.bar_undo),
+            style = style.copy(fontWeight = FontWeight.SemiBold),
+            modifier = Modifier.clip(CircleShape).clickable(onClick = onUndo).padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+    }
+}
+
+/** What the Keep tile does for the tab on screen: a tab of [space]'s own list is a Quick Tab or kept; anything else is pinned or an Essential. */
+private fun keepState(space: Space, selectedTabId: String?, page: PageState): KeepState {
+    if (selectedTabId == null || page.url.isEmpty()) return KeepState.None
+    val tab = space.tabs.firstOrNull { it.id == selectedTabId } ?: return KeepState.Fixed
+    return if (tab.quick != null) KeepState.Quick(tab.id) else KeepState.Kept(tab.id)
+}
+
+/** The bar's row: the Quick Tabs launcher, "+" and the chevron. */
 @Composable
 private fun BarRow(panel: BarPanel?, stack: List<Tab>, thumbnails: ThumbnailStorage, actions: BottomBarActions, modifier: Modifier) {
-    val quickTabsOpen = panel == BarPanel.QuickTabs
     val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.SiteSettings, BarPanel.AllSettings, BarPanel.Extensions, BarPanel.ExtensionPage)
     Row(
         modifier.fillMaxWidth().height(BarMetrics.Row).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        QuickTabStack(stack, active = quickTabsOpen, thumbnails) {
-            actions.showPanel(if (quickTabsOpen) null else BarPanel.QuickTabs)
-        }
+        QuickTabStack(stack, thumbnails) { actions.showPanel(BarPanel.QuickTabs) }
         Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-            if (quickTabsOpen) {
-                Pill(onClick = actions::clearQuickTabs, modifier = Modifier.fillMaxWidth()) {
-                    Icon(painterResource(R.drawable.ic_archive), contentDescription = null, Modifier.size(22.dp), tint = EnsoColors.TextPrimary)
-                    Spacer(Modifier.width(12.dp))
-                    Text(stringResource(R.string.bar_clear_quick_tabs), style = EnsoType.RowTitle.copy(fontSize = 17.sp))
-                }
-            } else {
-                Pill(onClick = actions::newSearch, modifier = Modifier.width(148.dp)) {
-                    Icon(
-                        painterResource(R.drawable.ic_plus),
-                        contentDescription = stringResource(R.string.bar_new_search),
-                        Modifier.size(26.dp),
-                        tint = EnsoColors.TextPrimary,
-                    )
-                }
+            Pill(onClick = actions::newSearch, modifier = Modifier.width(148.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_plus),
+                    contentDescription = stringResource(R.string.bar_new_search),
+                    Modifier.size(26.dp),
+                    tint = EnsoColors.TextPrimary,
+                )
             }
         }
         Chevron(down = actionsOpen) { actions.showPanel(if (actionsOpen) null else BarPanel.Actions) }
@@ -378,54 +436,39 @@ private fun Chevron(down: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * The Quick Tabs stack (board B1): the latest two Quick Tabs as small cards with gold edges, and a count badge.
- * Kept tabs never show here. Dimmed when there are none.
+ * The Quick Tabs launcher (board B1): the latest two Quick Tabs' pages as small tilted cards, as Arc Search shows
+ * them. The one before sits behind, the current one on top, each with a soft shadow. Kept tabs never show here.
+ * Dimmed when there are none.
  */
 @Composable
-private fun QuickTabStack(tabs: List<Tab>, active: Boolean, thumbnails: ThumbnailStorage, onClick: () -> Unit) {
+private fun QuickTabStack(tabs: List<Tab>, thumbnails: ThumbnailStorage, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(50.dp)
+            .size(52.dp)
             .clip(RoundedCornerShape(14.dp))
-            .then(if (active) Modifier.background(EnsoColors.QuickTabOutline.copy(alpha = 0.2f)) else Modifier)
             .clickable(enabled = tabs.isNotEmpty(), onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         val alpha = if (tabs.isEmpty()) 0.35f else 1f
-        MiniCard(Modifier.offset((-4).dp, 2.dp).rotate(-10f).alpha(alpha)) {}
-        MiniCard(Modifier.offset(2.dp, (-1).dp).rotate(4f).alpha(alpha)) {
-            tabs.firstOrNull()?.let { tab ->
-                TabThumbnail(tab.id, thumbnails, Modifier.fillMaxSize(), ContentScale.Crop) {
-                    Favicon(tab, size = 18.dp)
-                }
-            }
-        }
-        if (tabs.isNotEmpty()) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 4.dp, y = (-4).dp)
-                    .size(22.dp)
-                    .background(EnsoColors.QuickTabOutline, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(tabs.size.toString(), style = EnsoType.Row.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
-            }
-        }
+        MiniCard(tabs.getOrNull(1), thumbnails, Modifier.offset((-5).dp, 1.dp).rotate(-9f).alpha(alpha))
+        MiniCard(tabs.firstOrNull(), thumbnails, Modifier.offset(4.dp, (-1).dp).rotate(5f).alpha(alpha))
     }
 }
 
+/** One of the launcher's cards: [tab]'s page, or its favicon until there's a capture. */
 @Composable
-private fun MiniCard(modifier: Modifier, content: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(7.dp)
+private fun MiniCard(tab: Tab?, thumbnails: ThumbnailStorage, modifier: Modifier) {
+    val shape = RoundedCornerShape(6.dp)
     Box(
         modifier
-            .size(width = 28.dp, height = 36.dp)
+            .size(width = 26.dp, height = 34.dp)
+            .shadow(5.dp, shape)
             .background(EnsoColors.QuickTabCard, shape)
-            .border(2.dp, EnsoColors.QuickTabOutline, shape)
             .clip(shape),
         contentAlignment = Alignment.Center,
-    ) { content() }
+    ) {
+        tab?.let { TabThumbnail(it.id, thumbnails, Modifier.fillMaxSize(), ContentScale.Crop) { Favicon(it, size = 16.dp) } }
+    }
 }
 
 /** A vertical swipe: [onUp] or [onDown] when it travels far enough. */
@@ -446,12 +489,6 @@ private fun Modifier.verticalSwipe(onUp: (() -> Unit)?, onDown: (() -> Unit)?): 
         )
     },
 )
-
-/** A thin line across a panel, above its row. */
-@Composable
-internal fun BarDivider() {
-    Box(Modifier.padding(horizontal = 24.dp).fillMaxWidth().height(1.dp).background(EnsoColors.TextSecondary.copy(alpha = 0.2f)))
-}
 
 private val Corner = 26.dp
 private val Scrim = Color.Black.copy(alpha = 0.22f)

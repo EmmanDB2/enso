@@ -101,6 +101,13 @@
     <string name="bar_actions">More actions</string>
     <string name="bar_close">Close</string>
     <string name="bar_clear_quick_tabs">Clear Quick Tabs</string>
+    <string name="bar_clear_all">Clear All</string>
+    <string name="bar_save">Save</string>
+    <string name="bar_undo">Undo</string>
+    <plurals name="bar_quick_tabs_cleared">
+        <item quantity="one">%d Quick Tab cleared</item>
+        <item quantity="other">%d Quick Tabs cleared</item>
+    </plurals>
     <string name="bar_keep_in">Keep in %s</string>
     <string name="quick_tab_clears_in">Clears in %s</string>
     <string name="action_reader">Reader</string>
@@ -109,8 +116,18 @@
     <string name="action_share">Share</string>
     <string name="action_extensions">Extensions</string>
     <string name="action_settings">Settings</string>
+    <string name="action_site_settings">Site Settings</string>
+    <string name="action_keep">Keep</string>
+    <string name="action_kept">Kept</string>
     <string name="search_quick_tab_tag">Quick Tab</string>
     <string name="search_cancel">Cancel</string>
+    <string name="search_placeholder">Search or enter address</string>
+    <string name="search_open_tabs">Open tabs</string>
+    <string name="search_history">History</string>
+    <string name="search_suggestions">Search</string>
+    <string name="search_voice">Search by voice</string>
+    <string name="settings_search_suggestions">Search suggestions</string>
+    <string name="settings_search_suggestions_detail">Sends what you type in search to Google</string>
 
     <!-- Extensions (step 9) -->
     <string name="extensions_title">Extensions</string>

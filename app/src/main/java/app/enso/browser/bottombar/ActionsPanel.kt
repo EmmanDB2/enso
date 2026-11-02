@@ -4,7 +4,6 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,40 +27,48 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.enso.browser.R
 import app.enso.browser.spaces.Space
-import app.enso.browser.spaces.Tab
-import app.enso.browser.tabsheet.clearsIn
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.toolbar.PageState
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.SpaceIcon
 
+/** What the Keep tile can do for the tab on screen. */
+internal sealed interface KeepState {
+    /** No page on screen. */
+    data object None : KeepState
+
+    /** A Quick Tab: Keep keeps it in the space, and holding Keep picks another space. */
+    data class Quick(val tabId: String) : KeepState
+
+    /** A normal open tab of the space: "Kept", and tapping makes it a Quick Tab again. */
+    data class Kept(val tabId: String) : KeepState
+
+    /** A pinned tab or an Essential: "Kept", but they're changed from the tab sheet. */
+    data object Fixed : KeepState
+}
+
 /**
- * The actions sheet (board B3): back, forward, the URL and reload, which is the only place the URL shows on the
- * cover; "Keep in [space]" when the tab on screen is a Quick Tab; then Reader, Find, Copy URL and Share, and
- * Extensions and Settings (the site's settings first, step 10). Reader and Find are grayed out until they're built.
+ * The actions sheet (board B3): back, forward, the domain, copy link and reload, which is the only place the URL
+ * shows on the cover; then Reader, Find, Keep and Share, and Extensions and Site Settings (All settings when there's
+ * no site on screen). Reader and Find are grayed out until they're built.
  */
 @Composable
-internal fun ActionsPanel(page: PageState, space: Space, quickTab: Tab?, quickTabLifetimeMs: Long, actions: BottomBarActions) {
+internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, actions: BottomBarActions) {
     val hasPage = page.url.isNotEmpty()
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         NavigationPill(page, actions)
-        quickTab?.let { tab ->
-            Spacer(Modifier.height(12.dp))
-            KeepRow(space, remainingMs(tab, tab.id, quickTabLifetimeMs), { actions.keep(tab.id) }, { actions.keepElsewhere(tab.id) })
-        }
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ActionTile(R.drawable.ic_reader, R.string.action_reader, enabled = false, Modifier.weight(1f)) {}
             ActionTile(R.drawable.ic_search, R.string.action_find, enabled = false, Modifier.weight(1f)) {}
-            ActionTile(R.drawable.ic_link, R.string.action_copy_url, enabled = hasPage, Modifier.weight(1f), onClick = actions::copyUrl)
+            KeepTile(space, keep, actions, Modifier.weight(1f))
             ActionTile(R.drawable.ic_share, R.string.action_share, enabled = hasPage, Modifier.weight(1f), onClick = actions::share)
         }
         Spacer(Modifier.height(10.dp))
@@ -69,14 +76,13 @@ internal fun ActionsPanel(page: PageState, space: Space, quickTab: Tab?, quickTa
             WideButton(R.drawable.ic_extensions, R.string.action_extensions, enabled = true, Modifier.weight(1f)) {
                 actions.showPanel(BarPanel.Extensions)
             }
-            WideButton(R.drawable.ic_settings, R.string.action_settings, enabled = true, Modifier.weight(1f), onClick = actions::openSettings)
+            WideButton(R.drawable.ic_settings, R.string.action_site_settings, enabled = true, Modifier.weight(1f), onClick = actions::openSettings)
         }
         Spacer(Modifier.height(16.dp))
-        BarDivider()
     }
 }
 
-/** Back, forward, the domain (tap it to edit the URL) and reload or stop. */
+/** Back and forward, the domain (tap it to edit the URL) centered, then copy link and reload or stop. */
 @Composable
 private fun NavigationPill(page: PageState, actions: BottomBarActions) {
     val host = AddressInput.displayHost(page.url)
@@ -98,6 +104,7 @@ private fun NavigationPill(page: PageState, actions: BottomBarActions) {
                 .clickable { if (host.isEmpty()) actions.newSearch() else actions.editUrl() }
                 .padding(vertical = 12.dp),
         )
+        NavButton(R.drawable.ic_link, R.string.action_copy_url, page.url.isNotEmpty(), actions::copyUrl)
         if (page.loading) {
             NavButton(R.drawable.ic_close, R.string.action_stop, enabled = true, actions::stop)
         } else {
@@ -118,28 +125,35 @@ private fun NavButton(@DrawableRes icon: Int, @StringRes label: Int, enabled: Bo
     }
 }
 
-/** "Keep in [space]" for the Quick Tab on screen, with how long it has left. Holding it picks another space. */
+/** Keep, with the space's icon: keeps a Quick Tab in the space (hold for another), or shows "Kept". */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun KeepRow(space: Space, remainingMs: Long, onKeep: () -> Unit, onKeepElsewhere: () -> Unit) {
-    val shape = RoundedCornerShape(20.dp)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(EnsoColors.CurrentTab, shape)
-            .border(2.dp, EnsoColors.QuickTabOutline, shape)
-            .combinedClickable(onClick = onKeep, onLongClick = onKeepElsewhere)
-            .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun KeepTile(space: Space, keep: KeepState, actions: BottomBarActions, modifier: Modifier) {
+    val enabled = keep is KeepState.Quick || keep is KeepState.Kept
+    val kept = keep is KeepState.Kept || keep is KeepState.Fixed
+    Column(
+        modifier
+            .height(84.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(PillFill)
+            .combinedClickable(
+                enabled = enabled,
+                onClick = {
+                    when (keep) {
+                        is KeepState.Quick -> actions.keep(keep.tabId)
+                        is KeepState.Kept -> actions.unkeep(keep.tabId)
+                        else -> {}
+                    }
+                },
+                onLongClick = (keep as? KeepState.Quick)?.let { quick -> { actions.keepElsewhere(quick.tabId) } },
+            )
+            .alpha(if (enabled) 1f else 0.38f),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         SpaceIcon(space.icon, size = 26.dp, tint = Color(space.accent), fallbackName = space.name)
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(stringResource(R.string.bar_keep_in, space.name), style = EnsoType.RowTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.SemiBold))
-            Text(stringResource(R.string.quick_tab_header, clearsIn(remainingMs)), style = EnsoType.Secondary)
-        }
-        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, Modifier.size(22.dp), tint = EnsoColors.TextSecondary)
+        Spacer(Modifier.height(8.dp))
+        Text(stringResource(if (kept) R.string.action_kept else R.string.action_keep), style = EnsoType.Row.copy(fontSize = 15.sp), maxLines = 1)
     }
 }
 

@@ -34,7 +34,6 @@ internal fun SiteSettingsPanel(site: SiteState, actions: SiteSettingsActions, on
         SettingsHeader(onBack) { SiteTitle(site) }
         SiteSettingsContent(site, actions)
         Spacer(Modifier.height(16.dp))
-        BarDivider()
     }
 }
 
@@ -44,6 +43,5 @@ internal fun AllSettingsPanel(height: Dp, onBack: () -> Unit, content: @Composab
     Column(Modifier.fillMaxWidth().height(height)) {
         SettingsHeader(onBack) { AllSettingsTitle() }
         content(Modifier.weight(1f).verticalScroll(rememberScrollState()))
-        BarDivider()
     }
 }

@@ -64,7 +64,6 @@ internal fun ExtensionsPanel(extensions: BarExtensions, maxHeight: Dp, onBack: (
         PanelHeader(stringResource(R.string.extensions_title), onBack)
         ExtensionsList(extensions.rows, extensions.actions, Modifier.heightIn(max = maxHeight).verticalScroll(rememberScrollState()))
         Spacer(Modifier.height(16.dp))
-        BarDivider()
     }
 }
 
@@ -94,7 +93,6 @@ internal fun ExtensionPagePanel(title: String, height: Dp, onBack: () -> Unit, o
                 .onGloballyPositioned { area = it.boundsInWindow() },
         )
         Spacer(Modifier.height(16.dp))
-        BarDivider()
     }
 }
 

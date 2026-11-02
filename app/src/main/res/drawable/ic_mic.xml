@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Thin-line icon, 1.8 stroke on a 24 grid (spec: Visual style). Microphone: voice search. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,3a3,3 0 0 1 3,3v5a3,3 0 0 1 -6,0v-5a3,3 0 0 1 3,-3z"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FF26232B"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M5.5,11a6.5,6.5 0 0 0 13,0M12,17.5v3.5"
+        android:strokeWidth="1.8"
+        android:strokeColor="#FF26232B"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

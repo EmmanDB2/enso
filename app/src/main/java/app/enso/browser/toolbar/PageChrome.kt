@@ -79,6 +79,7 @@ internal fun UrlEditor(
     onSubmit: (String) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    @StringRes placeholder: Int = R.string.address_placeholder,
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -107,7 +108,7 @@ internal fun UrlEditor(
         decorationBox = { innerTextField ->
             if (value.text.isEmpty()) {
                 Text(
-                    stringResource(R.string.address_placeholder),
+                    stringResource(placeholder),
                     style = EnsoType.Row.copy(color = EnsoColors.TextSecondary),
                     maxLines = 1,
                 )
