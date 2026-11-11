@@ -64,7 +64,7 @@ Behavior:
 **Actions sheet (B3):**
 
 - The URL row: back and forward on the left, the domain centered, then copy link and reload (stop while loading) on the right. This is the only place the URL appears. Tapping the domain opens bottom search on the URL, which then loads in the current tab.
-- Reader, Find, Keep and Share. Keep shows the current space's icon: on a Quick Tab it keeps the tab in that space (holding it picks another space); on a kept tab it shows "Kept", and tapping it makes the tab a Quick Tab again, which takes it out of the space (in Zen too). Pinned tabs and Essentials show "Kept", grayed out. Reader is grayed out until it's built. Find opens a find bar on the keyboard: the field, which match is showing ("3/12"), previous and next, and ✕, which clears the highlights. The page stays undimmed, so the matches show.
+- Reader, Find, Keep and Share. Keep shows the current space's icon: on a Quick Tab it keeps the tab in that space (holding it picks another space); on a kept tab it shows "Kept", and tapping it makes the tab a Quick Tab again, which takes it out of the space (in Zen too). Pinned tabs and Essentials show "Kept", grayed out. Reader is grayed out on pages that aren't articles (see Reader). Find opens a find bar on the keyboard: the field, which match is showing ("3/12"), previous and next, and ✕, which clears the highlights. The page stays undimmed, so the matches show.
 - Extensions and Site Settings (a standard gear). Site Settings opens the site's settings, or All settings when there's no site on screen.
 - The bar's row: the launcher, "+", and the chevron as a dark ↓ that closes the sheet.
 
@@ -302,6 +302,13 @@ No board covers these screens, so their layout and wording get agreed before the
   - **All settings**, a button at the bottom.
 - **All settings** holds every preference, grouped: appearance, layout, tabs, the space menu, sync (with Sync with Zen at the top) and extensions. With no page on screen (the start screen), Settings opens it directly.
 - **Permissions** (step 11): a group in site settings with Camera, Microphone, Location and Notifications (and Protected content once the site has asked), each showing Ask, Allowed or Blocked; tapping one picks another. Clearing the site's data forgets them too.
+
+## Reader (polish pass)
+
+- **On an article,** the actions sheet's Reader tile lights up (it's grayed out elsewhere). Tapping it shows the page as an article, through Android Components' reader view (Firefox's own extractor): the article's text, headings, photos and figures, without menus, ads or sidebars. A site's root page (its home page) never counts as an article.
+- **While reading,** the tile is outlined, and tapping it opens the Reader panel in the sheet: Sans or Serif, smaller or larger text, Light, Sepia or Dark, and Exit Reader. Going back a page also leaves Reader.
+- **Colors** follow Ensō's light or dark theme until the user picks one in the panel; after that Reader keeps the user's choice, as it keeps the font and size.
+- **Unfolded,** the ⋮ menu gets Reader on articles: it shows the page as one, or while reading opens the same controls in a card.
 
 ## Downloads (step 12, and the polish pass)
 

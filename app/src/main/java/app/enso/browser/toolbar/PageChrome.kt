@@ -137,7 +137,13 @@ internal fun FieldButton(@DrawableRes icon: Int, @StringRes label: Int, size: Dp
 
 /** The inner sidebar's ⋮ menu, where Zen has its site settings button: Settings (the site's first) and Extensions. */
 @Composable
-internal fun OverflowMenu(onOpenExtensions: () -> Unit, onOpenSettings: () -> Unit, buttonSize: Dp = 48.dp, onOpenDownloads: (() -> Unit)? = null) {
+internal fun OverflowMenu(
+    onOpenExtensions: () -> Unit,
+    onOpenSettings: () -> Unit,
+    buttonSize: Dp = 48.dp,
+    onOpenDownloads: (() -> Unit)? = null,
+    onOpenReader: (() -> Unit)? = null,
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }, modifier = Modifier.size(buttonSize)) {
@@ -154,6 +160,13 @@ internal fun OverflowMenu(onOpenExtensions: () -> Unit, onOpenSettings: () -> Un
             containerColor = EnsoColors.Card,
             shadowElevation = 8.dp,
         ) {
+            // Reader, on article pages: it shows the page as one, or while reading opens Reader's controls.
+            onOpenReader?.let { open ->
+                MenuRow(R.drawable.ic_reader, R.string.action_reader) {
+                    expanded = false
+                    open()
+                }
+            }
             // Downloads, only once something was downloaded recently or still is.
             onOpenDownloads?.let { open ->
                 MenuRow(R.drawable.ic_download, R.string.downloads_title) {

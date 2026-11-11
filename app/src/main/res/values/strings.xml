@@ -123,6 +123,15 @@
     <string name="search_cancel">Cancel</string>
     <string name="download_prompt_title">Download this file?</string>
     <string name="downloads_title">Downloads</string>
+    <string name="reader_title">Reader</string>
+    <string name="reader_exit">Exit Reader</string>
+    <string name="reader_sans">Sans</string>
+    <string name="reader_serif">Serif</string>
+    <string name="reader_smaller">Smaller text</string>
+    <string name="reader_larger">Larger text</string>
+    <string name="reader_light">Light</string>
+    <string name="reader_sepia">Sepia</string>
+    <string name="reader_dark">Dark</string>
     <string name="downloads_empty">Nothing downloaded yet</string>
     <string name="downloads_open_folder">Open Downloads folder</string>
     <string name="download_running">Downloading</string>

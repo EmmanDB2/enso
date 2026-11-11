@@ -85,7 +85,7 @@ import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import kotlin.math.roundToInt
 
 /** The cover's panels, each the bottom bar grown upward (boards B2–B4), and the extensions' (step 9). */
-enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Find, Extensions, ExtensionPage, Downloads }
+enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Find, Extensions, ExtensionPage, Downloads, Reader }
 
 /** What bottom search does with what's typed: open it as a new Quick Tab, or load it in the current tab. */
 enum class SearchMode { NewQuickTab, CurrentTab }
@@ -142,6 +142,9 @@ interface BottomBarActions {
 
     /** Settings in the actions sheet: the site's settings, or All settings when there's no site on screen. */
     fun openSettings()
+
+    /** Reader: shows the page on screen as an article, and closes the sheet. */
+    fun showReader()
 
     /** Find in page: highlights [text]'s matches, or clears them when it's empty. */
     fun find(text: String)
@@ -202,6 +205,7 @@ fun BottomBar(
     pageCapture: Pair<ImageBitmap, Rect>?,
     findMatch: Pair<Int, Int>?,
     downloads: BarDownloads,
+    reader: BarReader,
     thumbnails: ThumbnailStorage,
     extensions: BarExtensions,
     settings: BarSettings,
@@ -321,7 +325,8 @@ fun BottomBar(
                 when (shownPanel) {
                     null -> Box(Modifier.fillMaxWidth())
                     BarPanel.QuickTabs -> Box(Modifier.fillMaxWidth())
-                    BarPanel.Actions -> ActionsPanel(page, space, keepState(space, selectedTabId, page), downloads.recent, actions)
+                    BarPanel.Actions -> ActionsPanel(page, space, keepState(space, selectedTabId, page), downloads.recent, reader, actions)
+                    BarPanel.Reader -> ReaderPanel(reader) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.Downloads -> DownloadsPanel(downloads, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.SiteSettings -> settings.site?.let { site ->
                         SiteSettingsPanel(site, settings.siteActions) { actions.showPanel(BarPanel.Actions) }
@@ -402,7 +407,7 @@ private fun BarRow(
     actions: BottomBarActions,
     modifier: Modifier,
 ) {
-    val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.SiteSettings, BarPanel.AllSettings, BarPanel.Extensions, BarPanel.ExtensionPage, BarPanel.Downloads)
+    val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.SiteSettings, BarPanel.AllSettings, BarPanel.Extensions, BarPanel.ExtensionPage, BarPanel.Downloads, BarPanel.Reader)
     Row(
         modifier.fillMaxWidth().height(BarMetrics.Row).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,

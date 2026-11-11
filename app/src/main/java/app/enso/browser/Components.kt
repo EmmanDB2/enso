@@ -1,5 +1,6 @@
 package app.enso.browser
 
+import mozilla.components.feature.readerview.ReaderViewMiddleware
 import mozilla.components.support.utils.DefaultDownloadFileUtils
 import mozilla.components.feature.downloads.DownloadsUseCases
 import mozilla.components.feature.downloads.DownloadMiddleware
@@ -121,6 +122,8 @@ class Components(private val context: Context) {
             middleware = listOf(
                 desktopSites.middleware,
                 ThumbnailsMiddleware(thumbnailStorage),
+                // Reader (polish pass): keeps each tab's reader state.
+                ReaderViewMiddleware(),
                 // Downloads (step 12): starts the download service and keeps the list of downloads.
                 // Removing a download from the list keeps its file.
                 DownloadMiddleware(context, DownloadService::class.java, deleteFileFromStorage = { false }, downloadFileUtils = downloadFileUtils),

@@ -31,6 +31,8 @@ import app.enso.browser.R
 import app.enso.browser.downloads.DownloadItem
 import app.enso.browser.downloads.DownloadListActions
 import app.enso.browser.downloads.DownloadsList
+import app.enso.browser.reader.ReaderControls
+import app.enso.browser.reader.ReaderControlsContent
 
 /**
  * What the bottom bar shows of downloads (polish pass): the Downloads page's [items], and what the chevron does.
@@ -46,6 +48,28 @@ class BarDownloads(
     val progress: Float?,
     val recent: Boolean,
 )
+
+/**
+ * What the bar shows of Reader (polish pass): whether the page on screen can be read as an article ([available]),
+ * whether it's showing as one ([active]), and the appearance controls, which [onExit] and [onColorsChosen] go with.
+ */
+class BarReader(
+    val available: Boolean,
+    val active: Boolean,
+    val controls: ReaderControls,
+    val onExit: () -> Unit,
+    val onColorsChosen: () -> Unit,
+)
+
+/** The Reader panel, from the Reader tile while reading: the appearance controls and Exit Reader. */
+@Composable
+internal fun ReaderPanel(reader: BarReader, onBack: () -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.padding(horizontal = 16.dp)) { PanelHeader(stringResource(R.string.reader_title), onBack) }
+        ReaderControlsContent(reader.controls, reader.onExit, reader.onColorsChosen)
+        Spacer(Modifier.height(10.dp))
+    }
+}
 
 /** The Downloads page, from the chevron as a download starts or the actions sheet's Downloads button. */
 @Composable

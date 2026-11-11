@@ -161,6 +161,12 @@ interface SidebarActions {
     /** The Downloads card. */
     fun openDownloads()
 
+    /** Whether the page on screen is an article, or showing as one, which puts Reader in the ⋮ menu. */
+    val readerAvailable: Boolean
+
+    /** Reader: shows the page as an article, or while reading opens Reader's card. */
+    fun openReader()
+
     /**
      * Mutes or unmutes [media]. Gecko doesn't report its mute state back, so the app keeps its own record of
      * what it set.
@@ -346,6 +352,7 @@ private fun UrlField(page: PageState, editing: Boolean, accent: androidx.compose
                     onOpenSettings = actions::openSettings,
                     buttonSize = ButtonSize,
                     onOpenDownloads = actions::openDownloads.takeIf { actions.recentDownloads },
+                    onOpenReader = actions::openReader.takeIf { actions.readerAvailable },
                 )
             }
         }

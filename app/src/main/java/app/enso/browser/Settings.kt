@@ -210,6 +210,11 @@ class Settings(context: Context) {
         get() = prefs.getInt(KEY_RECENT_DOWNLOADS_HOURS, 24)
         set(value) = prefs.edit { putInt(KEY_RECENT_DOWNLOADS_HOURS, value) }
 
+    /** Whether the user has picked Reader's colors; until then Reader follows Ensō's light or dark theme. */
+    var readerColorsChosen: Boolean
+        get() = prefs.getBoolean(KEY_READER_COLORS_CHOSEN, false)
+        set(value) = prefs.edit { putBoolean(KEY_READER_COLORS_CHOSEN, value) }
+
     /** Whether the first download has asked Android for the notification permission (step 12); it asks only once. */
     var downloadNotificationsAsked: Boolean
         get() = prefs.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS_ASKED, false)
@@ -254,5 +259,6 @@ class Settings(context: Context) {
         const val KEY_BUNDLED_EXTENSIONS_INSTALLED = "bundled_extensions_installed"
         const val KEY_DOWNLOAD_NOTIFICATIONS_ASKED = "download_notifications_asked"
         const val KEY_RECENT_DOWNLOADS_HOURS = "recent_downloads_hours"
+        const val KEY_READER_COLORS_CHOSEN = "reader_colors_chosen"
     }
 }

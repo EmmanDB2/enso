@@ -1,5 +1,13 @@
 package app.enso.browser
 
+import mozilla.components.browser.state.selector.findTab
+import mozilla.components.browser.state.action.ReaderAction
+import mozilla.components.feature.readerview.ReaderViewFeature.ColorScheme
+import mozilla.components.feature.readerview.ReaderViewFeature
+import app.enso.browser.reader.ReaderTitle
+import app.enso.browser.reader.ReaderControlsContent
+import app.enso.browser.reader.ReaderControls
+import app.enso.browser.bottombar.BarReader
 import app.enso.browser.downloads.DownloadsTitle
 import kotlinx.coroutines.Job
 import androidx.core.content.FileProvider
@@ -444,6 +452,44 @@ class MainActivity : ComponentActivity() {
 
     /** The unfolded Downloads card, from the ⋮ menu. */
     private var downloadsCardOpen by mutableStateOf(false)
+
+    /** Reader (polish pass): whether the page on screen is an article, and whether it's showing as one. */
+    private var readerAvailable by mutableStateOf(false)
+    private var readerActive by mutableStateOf(false)
+
+    /** The unfolded Reader card, from the ⋮ menu while reading. */
+    private var readerCardOpen by mutableStateOf(false)
+
+    private val readerControls by lazy { ReaderControls(this) }
+
+    /** Android Components' reader view, with Ensō's own controls ([readerControls]). */
+    private val readerFeature by lazy {
+        ReaderViewFeature(this, components.engine, components.store, readerControls) { available, active ->
+            readerAvailable = available
+            readerActive = active
+            // Leaving Reader (Exit, or back to the page) takes its controls with it.
+            if (!active) {
+                if (barPanel == BarPanel.Reader) barPanel = null
+                readerCardOpen = false
+            }
+        }
+    }
+
+    /** Shows the page on screen as an article. Until the user picks Reader's colors, they follow Ensō's theme. */
+    private fun showReader() {
+        val tab = components.store.state.selectedTab ?: return
+        if (!components.settings.readerColorsChosen) readerControls.chooseColors(if (EnsoColors.dark) ColorScheme.DARK else ColorScheme.LIGHT)
+        readerFeature.showReaderView(tab)
+    }
+
+    private fun exitReader() {
+        components.store.state.selectedTab?.let { readerFeature.hideReaderView(it) }
+        if (barPanel == BarPanel.Reader) barPanel = null
+        readerCardOpen = false
+    }
+
+    /** Reader's current settings into its controls, before they show. */
+    private fun refreshReaderControls() = readerFeature.showControls()
 
     /** Whether something was downloaded within [Settings.recentDownloadsHours], or still is. */
     private val recentDownloads: Boolean
@@ -907,6 +953,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         downloadsFeature.start()
+        readerFeature.start()
         super.onStart()
         val settings = components.settings
         // Anything that expired while we were away goes, even the tab that was on screen.
@@ -923,6 +970,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         downloadsFeature.stop()
+        readerFeature.stop()
         super.onStop()
         windowFeature.stop()
         webChannelFeature.stop()
@@ -1004,6 +1052,13 @@ class MainActivity : ComponentActivity() {
                     progress = downloadItems.firstOrNull { it.status == DownloadItem.Status.Running }?.progress,
                     recent = recentDownloads,
                 ),
+                reader = BarReader(
+                    available = readerAvailable,
+                    active = readerActive,
+                    controls = readerControls,
+                    onExit = ::exitReader,
+                    onColorsChosen = { components.settings.readerColorsChosen = true },
+                ),
                 thumbnails = components.thumbnailStorage,
                 extensions = BarExtensions(
                     rows = installedExtensions,
@@ -1077,6 +1132,20 @@ class MainActivity : ComponentActivity() {
                     buttons = listOf(GlanceButton(R.drawable.ic_close, R.string.glance_close) { closeExtensionPage() }),
                     onClose = { closeExtensionPage() },
                 )
+            }
+        }
+        AnimatedVisibility(inner && readerCardOpen && pageNow == null, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
+            Box(Modifier.fillMaxSize()) {
+                SettingsCard(
+                    cardRect,
+                    areaCorner,
+                    onBack = null,
+                    onClose = { readerCardOpen = false },
+                    header = { SettingsHeader(null) { ReaderTitle() } },
+                    cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                ) {
+                    ReaderControlsContent(readerControls, onExit = ::exitReader, onColorsChosen = { components.settings.readerColorsChosen = true })
+                }
             }
         }
         AnimatedVisibility(inner && downloadsCardOpen && pageNow == null, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
@@ -1449,6 +1518,7 @@ class MainActivity : ComponentActivity() {
                 return
             }
             if (panel == BarPanel.QuickTabs) quickTabsCapture = null
+            if (panel == BarPanel.Reader) refreshReaderControls()
             // Leaving Find clears its highlights.
             if (barPanel == BarPanel.Find && panel != BarPanel.Find) find("")
             barPanel = panel
@@ -1509,6 +1579,11 @@ class MainActivity : ComponentActivity() {
         override fun keepElsewhere(tabId: String) {
             barPanel = null
             tabSheetActions.addToAnotherSpace(tabId)
+        }
+
+        override fun showReader() {
+            barPanel = null
+            this@MainActivity.showReader()
         }
 
         override fun find(text: String) {
@@ -1962,6 +2037,17 @@ class MainActivity : ComponentActivity() {
             downloadsCardOpen = true
         }
 
+        override val readerAvailable get() = this@MainActivity.readerAvailable || readerActive
+
+        override fun openReader() {
+            if (readerActive) {
+                refreshReaderControls()
+                readerCardOpen = true
+            } else {
+                showReader()
+            }
+        }
+
         override fun setMuted(media: MediaCardState, muted: Boolean) {
             media.controller.muteAudio(muted)
             mutedMedia[media.tabId] = media.controller to muted
@@ -2280,6 +2366,22 @@ class MainActivity : ComponentActivity() {
                             delay(2_000)
                             downloadJustStarted = false
                         }
+                    }
+                }
+        }
+        lifecycleScope.launch {
+            // AC's reader view only connects to a tab (and asks its page whether it's an article) when the tab's
+            // session is linked or it's selected. A tab a page opens arrives with Gecko's session already in place
+            // and selected as it's added, so neither happens and Reader never lit up there. Each newly shown tab
+            // with a session is marked as needing the connection; AC drops the mark once it has connected.
+            components.store.flow(this@MainActivity)
+                .map { state -> state.selectedTab?.takeIf { it.engineState.engineSession != null }?.let { it.id to System.identityHashCode(it.engineState.engineSession) } }
+                .distinctUntilChanged()
+                .collect { shown ->
+                    val tabId = shown?.first ?: return@collect
+                    val tab = components.store.state.findTab(tabId) ?: return@collect
+                    if (!tab.readerState.connectRequired && !tab.readerState.active) {
+                        components.store.dispatch(ReaderAction.UpdateReaderConnectRequiredAction(tabId, true))
                     }
                 }
         }

@@ -1,5 +1,6 @@
 package app.enso.browser.bottombar
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
@@ -58,16 +59,25 @@ internal sealed interface KeepState {
 /**
  * The actions sheet (board B3): back, forward, the domain, copy link and reload, which is the only place the URL
  * shows on the cover; then Reader, Find, Keep and Share, and Extensions and Site Settings (All settings when there's
- * no site on screen). Reader is grayed out until it's built.
+ * no site on screen). Reader is grayed out on pages that aren't articles.
  */
 @Composable
-internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, showDownloads: Boolean, actions: BottomBarActions) {
+internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, showDownloads: Boolean, reader: BarReader, actions: BottomBarActions) {
     val hasPage = page.url.isNotEmpty()
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         NavigationPill(page, actions)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            ActionTile(R.drawable.ic_reader, R.string.action_reader, enabled = false, Modifier.weight(1f)) {}
+            // Reader: on an article it shows the page as one; while reading it opens Reader's panel.
+            ActionTile(
+                R.drawable.ic_reader,
+                R.string.action_reader,
+                enabled = reader.available || reader.active,
+                Modifier.weight(1f),
+                highlighted = reader.active,
+            ) {
+                if (reader.active) actions.showPanel(BarPanel.Reader) else actions.showReader()
+            }
             ActionTile(R.drawable.ic_search, R.string.action_find, enabled = hasPage, Modifier.weight(1f)) { actions.showPanel(BarPanel.Find) }
             KeepTile(space, keep, actions, Modifier.weight(1f))
             ActionTile(R.drawable.ic_share, R.string.action_share, enabled = hasPage, Modifier.weight(1f), onClick = actions::share)
@@ -172,12 +182,20 @@ private fun KeepTile(space: Space, keep: KeepState, actions: BottomBarActions, m
 }
 
 @Composable
-private fun ActionTile(@DrawableRes icon: Int, @StringRes label: Int, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun ActionTile(
+    @DrawableRes icon: Int,
+    @StringRes label: Int,
+    enabled: Boolean,
+    modifier: Modifier,
+    highlighted: Boolean = false,
+    onClick: () -> Unit,
+) {
     Column(
         modifier
             .height(84.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(PillFill)
+            .then(if (highlighted) Modifier.border(1.5.dp, EnsoColors.TextPrimary.copy(alpha = 0.6f), RoundedCornerShape(18.dp)) else Modifier)
             .clickable(enabled = enabled, onClick = onClick)
             .alpha(if (enabled) 1f else 0.38f),
         horizontalAlignment = Alignment.CenterHorizontally,
