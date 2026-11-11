@@ -205,6 +205,11 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_BUNDLED_EXTENSIONS_INSTALLED, false)
         set(value) = prefs.edit { putBoolean(KEY_BUNDLED_EXTENSIONS_INSTALLED, value) }
 
+    /** How long after a download the actions sheet (and the ⋮ menu unfolded) keeps its Downloads button. */
+    var recentDownloadsHours: Int
+        get() = prefs.getInt(KEY_RECENT_DOWNLOADS_HOURS, 24)
+        set(value) = prefs.edit { putInt(KEY_RECENT_DOWNLOADS_HOURS, value) }
+
     /** Whether the first download has asked Android for the notification permission (step 12); it asks only once. */
     var downloadNotificationsAsked: Boolean
         get() = prefs.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS_ASKED, false)
@@ -248,5 +253,6 @@ class Settings(context: Context) {
         const val KEY_INNER_SIDEBAR_EXPANDED = "inner_sidebar_expanded"
         const val KEY_BUNDLED_EXTENSIONS_INSTALLED = "bundled_extensions_installed"
         const val KEY_DOWNLOAD_NOTIFICATIONS_ASKED = "download_notifications_asked"
+        const val KEY_RECENT_DOWNLOADS_HOURS = "recent_downloads_hours"
     }
 }

@@ -1,5 +1,18 @@
 package app.enso.browser
 
+import app.enso.browser.downloads.DownloadsTitle
+import kotlinx.coroutines.Job
+import androidx.core.content.FileProvider
+import android.webkit.MimeTypeMap
+import android.app.DownloadManager
+import java.util.UUID
+import java.io.File
+import mozilla.components.browser.state.state.content.DownloadState
+import mozilla.components.browser.state.action.DownloadAction
+import app.enso.browser.downloads.DownloadsList
+import app.enso.browser.downloads.DownloadListActions
+import app.enso.browser.downloads.DownloadItem
+import app.enso.browser.bottombar.BarDownloads
 import androidx.core.content.ContextCompat
 import android.Manifest
 import android.content.pm.PackageManager
@@ -422,6 +435,61 @@ class MainActivity : ComponentActivity() {
     /** A download a site started, waiting on the user (step 12). */
     private var downloadPrompt by mutableStateOf<DownloadPrompt?>(null)
 
+    /** Every download, newest first, for the Downloads page (polish pass). */
+    private var downloadItems by mutableStateOf(emptyList<DownloadItem>())
+
+    /** A download has just started: the chevron is a download button for a couple of seconds. */
+    private var downloadJustStarted by mutableStateOf(false)
+    private var downloadFlash: Job? = null
+
+    /** The unfolded Downloads card, from the ⋮ menu. */
+    private var downloadsCardOpen by mutableStateOf(false)
+
+    /** Whether something was downloaded within [Settings.recentDownloadsHours], or still is. */
+    private val recentDownloads: Boolean
+        get() {
+            val since = System.currentTimeMillis() - components.settings.recentDownloadsHours * 3_600_000L
+            return downloadItems.any { it.status == DownloadItem.Status.Running || it.createdAt >= since }
+        }
+
+    private val downloadListActions = object : DownloadListActions {
+        override fun open(id: String) {
+            val download = components.store.state.downloads[id] ?: return
+            val file = File(download.filePath)
+            val opened = runCatching {
+                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.feature.downloads.fileprovider", file)
+                val type = download.contentType?.takeIf { it.isNotBlank() && it != "application/octet-stream" }
+                    ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
+                    ?: "*/*"
+                startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            }.isSuccess
+            // Nothing opens it (or it's gone): the Downloads folder instead.
+            if (!opened) openFolder()
+        }
+
+        override fun retry(id: String) {
+            val download = components.store.state.downloads[id] ?: return
+            components.downloadsUseCases.removeDownload(id)
+            components.store.dispatch(
+                DownloadAction.AddDownloadAction(
+                    download.copy(
+                        id = UUID.randomUUID().toString(),
+                        status = DownloadState.Status.INITIATED,
+                        currentBytesCopied = 0,
+                        createdTime = System.currentTimeMillis(),
+                        notificationId = null,
+                    ),
+                ),
+            )
+        }
+
+        override fun remove(id: String) = components.downloadsUseCases.removeDownload(id)
+
+        override fun openFolder() {
+            runCatching { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)) }
+        }
+    }
+
     /** Downloads (step 12): Android Components' feature, with Ensō's prompt instead of its dialog. */
     private val downloadsFeature by lazy {
         DownloadsFeature(
@@ -748,6 +816,21 @@ class MainActivity : ComponentActivity() {
         handleDebugIntent(intent)
     }
 
+    private fun downloadItemOf(download: DownloadState) = DownloadItem(
+        id = download.id,
+        fileName = download.fileName ?: download.url.substringAfterLast('/'),
+        size = download.contentLength,
+        createdAt = download.createdTime,
+        status = when (download.status) {
+            DownloadState.Status.INITIATED, DownloadState.Status.DOWNLOADING -> DownloadItem.Status.Running
+            DownloadState.Status.PAUSED -> DownloadItem.Status.Paused
+            DownloadState.Status.FAILED -> DownloadItem.Status.Failed
+            DownloadState.Status.CANCELLED -> DownloadItem.Status.Cancelled
+            DownloadState.Status.COMPLETED -> DownloadItem.Status.Done
+        },
+        progress = download.contentLength?.takeIf { it > 0 }?.let { (download.currentBytesCopied.toFloat() / it).coerceIn(0f, 1f) },
+    )
+
     /** A site's notification was tapped: the page hears of it, and its tab shows if it's still open. */
     private fun handleWebNotificationClick(intent: Intent?) {
         if (intent?.action != SiteNotifications.ACTION_WEB_NOTIFICATION) return
@@ -913,6 +996,14 @@ class MainActivity : ComponentActivity() {
                 gestureInset = with(LocalDensity.current) { gestureHandleInset.toDp() },
                 pageCapture = quickTabsCapture,
                 findMatch = findMatch,
+                downloads = BarDownloads(
+                    items = downloadItems,
+                    actions = downloadListActions,
+                    justStarted = downloadJustStarted,
+                    running = downloadItems.any { it.status == DownloadItem.Status.Running },
+                    progress = downloadItems.firstOrNull { it.status == DownloadItem.Status.Running }?.progress,
+                    recent = recentDownloads,
+                ),
                 thumbnails = components.thumbnailStorage,
                 extensions = BarExtensions(
                     rows = installedExtensions,
@@ -986,6 +1077,22 @@ class MainActivity : ComponentActivity() {
                     buttons = listOf(GlanceButton(R.drawable.ic_close, R.string.glance_close) { closeExtensionPage() }),
                     onClose = { closeExtensionPage() },
                 )
+            }
+        }
+        AnimatedVisibility(inner && downloadsCardOpen && pageNow == null, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
+            Box(Modifier.fillMaxSize()) {
+                SettingsCard(
+                    cardRect,
+                    areaCorner,
+                    onBack = null,
+                    onClose = { downloadsCardOpen = false },
+                    header = {
+                        SettingsHeader(null) { DownloadsTitle() }
+                    },
+                    cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                ) {
+                    DownloadsList(downloadItems, downloadListActions)
+                }
             }
         }
         AnimatedVisibility(inner && extensionsCardOpen && pageNow == null, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
@@ -1849,6 +1956,12 @@ class MainActivity : ComponentActivity() {
             extensionsCardOpen = true
         }
 
+        override val recentDownloads get() = this@MainActivity.recentDownloads
+
+        override fun openDownloads() {
+            downloadsCardOpen = true
+        }
+
         override fun setMuted(media: MediaCardState, muted: Boolean) {
             media.controller.muteAudio(muted)
             mutedMedia[media.tabId] = media.controller to muted
@@ -2147,6 +2260,28 @@ class MainActivity : ComponentActivity() {
                 .map { it.selectedTabId }
                 .distinctUntilChanged()
                 .collect { selectedTabId = it }
+        }
+        lifecycleScope.launch {
+            // The Downloads page's list, and the chevron's download button when one starts.
+            var known: Set<String>? = null
+            components.store.flow(this@MainActivity)
+                .map { it.downloads }
+                .distinctUntilChanged()
+                .collect { downloads ->
+                    downloadItems = downloads.values.filterNot { it.private }.sortedByDescending { it.createdTime }.map(::downloadItemOf)
+                    val running = downloads.filterValues { it.status == DownloadState.Status.INITIATED || it.status == DownloadState.Status.DOWNLOADING }.keys
+                    val before = known
+                    known = (before ?: emptySet()) + running
+                    // The first look only takes in what's already there, such as downloads restored from last time.
+                    if (before != null && (running - before).isNotEmpty()) {
+                        downloadJustStarted = true
+                        downloadFlash?.cancel()
+                        downloadFlash = lifecycleScope.launch {
+                            delay(2_000)
+                            downloadJustStarted = false
+                        }
+                    }
+                }
         }
         lifecycleScope.launch {
             // Sites' permission requests, for the tab on screen.

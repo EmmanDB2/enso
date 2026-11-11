@@ -97,7 +97,7 @@ internal fun ExtensionPagePanel(title: String, height: Dp, onBack: () -> Unit, o
 }
 
 @Composable
-private fun PanelHeader(title: String, onBack: () -> Unit) {
+internal fun PanelHeader(title: String, onBack: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) {
             Icon(painterResource(R.drawable.ic_arrow_left), contentDescription = stringResource(R.string.menu_back), tint = EnsoColors.TextPrimary)

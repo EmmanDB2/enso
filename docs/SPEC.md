@@ -303,6 +303,14 @@ No board covers these screens, so their layout and wording get agreed before the
 - **All settings** holds every preference, grouped: appearance, layout, tabs, the space menu, sync (with Sync with Zen at the top) and extensions. With no page on screen (the start screen), Settings opens it directly.
 - **Permissions** (step 11): a group in site settings with Camera, Microphone, Location and Notifications (and Protected content once the site has asked), each showing Ask, Allowed or Blocked; tapping one picks another. Clearing the site's data forgets them too.
 
+## Downloads (step 12, and the polish pass)
+
+- **The prompt:** when a site starts a download, a card above the bar shows the file's name and size, with Cancel and Download. (Its look gets a later pass.)
+- **The chevron:** for about 2 seconds after a download starts, the bar's ^ button turns into a download button in the space's accent; tapping it then opens the Downloads page. After that, while the download runs, a ring around the ^ fills as it goes (an arc goes round when the size is unknown).
+- **The actions sheet:** a small Downloads button to the left of Extensions, shown only while a download runs or for a day after one (`recentDownloadsHours`). Unfolded, the ⋮ menu gets Downloads under the same rule, and it opens as a card over the page.
+- **The Downloads page:** every download, newest first, with its type, size and day, or how it's going. Tapping a finished one opens it in another app; a failed or cancelled one starts again. A swipe takes one off the list and keeps the file. "Open Downloads folder" ends it.
+- Files save to the phone's Downloads folder, Android's notification shows progress too, and the first download asks once for the notification permission.
+
 ## Site permissions (step 11)
 
 No board covers these; the user approved a sketch.
@@ -332,11 +340,11 @@ Build the browser core first, then sync, then the signature interactions. Each s
 
 ## Open questions and naming
 
-- [ ] Quick Tab expiry: 12 hours, 24 hours, or user-set?
-- [ ] How long away before the app reopens on the start screen instead of the last tab?
-- [ ] Exact format of Zen's synced Spaces data (to confirm while building sync).
+- [x] Quick Tab expiry: 12 hours, 24 hours, or user-set? User-set in All settings (12 hours, 1 day, 3 days or 1 week), 1 day by default, counted since the tab was last viewed.
+- [x] How long away before the app reopens on the start screen instead of the last tab? User-set in All settings (15 or 30 minutes, 1 hour, or never), 30 minutes by default.
+- [x] Exact format of Zen's synced Spaces data (to confirm while building sync). Confirmed in step 5: Zen's `spaces` collection, version 3, with space, folder, tab, split, container and layout records.
 - [x] Does dark mode follow the system, or a per-space setting? It follows the system, with a setting to override it, and web pages are asked for their dark version too.
 - [ ] Check the Play Store for the name "Ensō" before publishing.
-- [ ] Downloads: a list of past downloads in Ensō (in the actions sheet or All settings), or only Android's notification and the Files app?
+- [x] Downloads: a list of past downloads in Ensō (in the actions sheet or All settings), or only Android's notification and the Files app? A Downloads page in Ensō, reached from the chevron as a download starts and from a small button in the actions sheet (the ⋮ menu unfolded) while there's a recent download (see Downloads).
 
 Naming and trademarks: Zen's code is MPL 2.0, which allows forking but grants no rights to the Zen name or logo. The same applies to "Firefox." Ensō should not use either name or logo, and can say it "syncs with Zen Browser" in its description. Ask the Zen team before using their name in any other way. This is not legal advice.

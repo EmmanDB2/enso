@@ -122,6 +122,14 @@
     <string name="search_quick_tab_tag">Quick Tab</string>
     <string name="search_cancel">Cancel</string>
     <string name="download_prompt_title">Download this file?</string>
+    <string name="downloads_title">Downloads</string>
+    <string name="downloads_empty">Nothing downloaded yet</string>
+    <string name="downloads_open_folder">Open Downloads folder</string>
+    <string name="download_running">Downloading</string>
+    <string name="download_running_percent">Downloading · %d%%</string>
+    <string name="download_paused">Paused</string>
+    <string name="download_failed">Failed · Tap to try again</string>
+    <string name="download_cancelled">Cancelled · Tap to try again</string>
     <string name="download_prompt_cancel">Cancel</string>
     <string name="download_prompt_download">Download</string>
     <string name="permission_prompt_camera">%s wants to use your camera</string>

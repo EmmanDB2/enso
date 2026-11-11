@@ -1,5 +1,6 @@
 package app.enso.browser.bottombar
 
+import androidx.compose.foundation.layout.Box
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -60,7 +61,7 @@ internal sealed interface KeepState {
  * no site on screen). Reader is grayed out until it's built.
  */
 @Composable
-internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, actions: BottomBarActions) {
+internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, showDownloads: Boolean, actions: BottomBarActions) {
     val hasPage = page.url.isNotEmpty()
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         NavigationPill(page, actions)
@@ -73,6 +74,19 @@ internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, action
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Downloads, a small button, only once something was downloaded recently or still is.
+            if (showDownloads) {
+                Box(
+                    Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(PillFill)
+                        .clickable { actions.showPanel(BarPanel.Downloads) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(painterResource(R.drawable.ic_download), contentDescription = stringResource(R.string.downloads_title), Modifier.size(22.dp), tint = EnsoColors.TextPrimary)
+                }
+            }
             WideButton(R.drawable.ic_extensions, R.string.action_extensions, enabled = true, Modifier.weight(1f)) {
                 actions.showPanel(BarPanel.Extensions)
             }

@@ -31,6 +31,8 @@ class EnsoApplication : Application() {
         components.icons.install(components.engine, components.store)
         // Sites' notifications (step 11), for the sites the user allowed.
         components.engine.registerWebNotificationDelegate(SiteNotifications(this))
+        // The downloads list from earlier runs, for the Downloads page.
+        components.downloadsUseCases.restoreDownloads()
     }
 
     private fun isMainProcess(): Boolean {

@@ -1,5 +1,6 @@
 package app.enso.browser.bottombar
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.delay
 import androidx.compose.ui.res.pluralStringResource
@@ -84,7 +85,7 @@ import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import kotlin.math.roundToInt
 
 /** The cover's panels, each the bottom bar grown upward (boards B2–B4), and the extensions' (step 9). */
-enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Find, Extensions, ExtensionPage }
+enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Find, Extensions, ExtensionPage, Downloads }
 
 /** What bottom search does with what's typed: open it as a new Quick Tab, or load it in the current tab. */
 enum class SearchMode { NewQuickTab, CurrentTab }
@@ -200,6 +201,7 @@ fun BottomBar(
     gestureInset: Dp,
     pageCapture: Pair<ImageBitmap, Rect>?,
     findMatch: Pair<Int, Int>?,
+    downloads: BarDownloads,
     thumbnails: ThumbnailStorage,
     extensions: BarExtensions,
     settings: BarSettings,
@@ -319,7 +321,8 @@ fun BottomBar(
                 when (shownPanel) {
                     null -> Box(Modifier.fillMaxWidth())
                     BarPanel.QuickTabs -> Box(Modifier.fillMaxWidth())
-                    BarPanel.Actions -> ActionsPanel(page, space, keepState(space, selectedTabId, page), actions)
+                    BarPanel.Actions -> ActionsPanel(page, space, keepState(space, selectedTabId, page), downloads.recent, actions)
+                    BarPanel.Downloads -> DownloadsPanel(downloads, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.SiteSettings -> settings.site?.let { site ->
                         SiteSettingsPanel(site, settings.siteActions) { actions.showPanel(BarPanel.Actions) }
                     } ?: Box(Modifier.fillMaxWidth())
@@ -343,7 +346,7 @@ fun BottomBar(
                 }
             }
             if (!typing) {
-                BarRow(sheet, stack, thumbnails, actions, swipe)
+                BarRow(sheet, stack, thumbnails, downloads, colors.accent, actions, swipe)
                 Spacer(Modifier.height(BarMetrics.below(gestureInset)))
             }
         }
@@ -390,8 +393,16 @@ private fun keepState(space: Space, selectedTabId: String?, page: PageState): Ke
 
 /** The bar's row: the Quick Tabs launcher, "+" and the chevron. */
 @Composable
-private fun BarRow(panel: BarPanel?, stack: List<Tab>, thumbnails: ThumbnailStorage, actions: BottomBarActions, modifier: Modifier) {
-    val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.SiteSettings, BarPanel.AllSettings, BarPanel.Extensions, BarPanel.ExtensionPage)
+private fun BarRow(
+    panel: BarPanel?,
+    stack: List<Tab>,
+    thumbnails: ThumbnailStorage,
+    downloads: BarDownloads,
+    accent: Color,
+    actions: BottomBarActions,
+    modifier: Modifier,
+) {
+    val actionsOpen = panel in setOf(BarPanel.Actions, BarPanel.SiteSettings, BarPanel.AllSettings, BarPanel.Extensions, BarPanel.ExtensionPage, BarPanel.Downloads)
     Row(
         modifier.fillMaxWidth().height(BarMetrics.Row).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -407,7 +418,13 @@ private fun BarRow(panel: BarPanel?, stack: List<Tab>, thumbnails: ThumbnailStor
                 )
             }
         }
-        Chevron(down = actionsOpen) { actions.showPanel(if (actionsOpen) null else BarPanel.Actions) }
+        Chevron(
+            down = actionsOpen,
+            downloads = downloads,
+            accent = accent,
+            onClick = { actions.showPanel(if (actionsOpen) null else BarPanel.Actions) },
+            onDownloads = { actions.showPanel(BarPanel.Downloads) },
+        )
     }
 }
 
@@ -425,23 +442,43 @@ private fun Pill(onClick: () -> Unit, modifier: Modifier = Modifier, content: @C
     ) { content() }
 }
 
-/** The chevron that opens the actions sheet, and closes it as a dark ↓ while it's open (board B3). */
+/**
+ * The chevron that opens the actions sheet, and closes it as a dark ↓ while it's open (board B3). For a couple of
+ * seconds after a download starts it's a download button in the space's accent that opens the Downloads page; then,
+ * while the download runs, a ring around it shows how far it has got.
+ */
 @Composable
-private fun Chevron(down: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(50.dp)
-            .clip(CircleShape)
-            .background(if (down) EnsoColors.TextPrimary else EnsoColors.TextPrimary.copy(alpha = 0.08f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painterResource(if (down) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up),
-            contentDescription = stringResource(if (down) R.string.bar_close else R.string.bar_actions),
-            Modifier.size(24.dp),
-            tint = if (down) EnsoColors.OnTextPrimary else EnsoColors.TextPrimary,
-        )
+private fun Chevron(down: Boolean, downloads: BarDownloads, accent: Color, onClick: () -> Unit, onDownloads: () -> Unit) {
+    val flash = downloads.justStarted && !down
+    Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
+        if (downloads.running && !flash && !down) DownloadRing(downloads.progress, accent, Modifier.matchParentSize())
+        Box(
+            Modifier
+                .size(50.dp)
+                .clip(CircleShape)
+                .background(
+                    when {
+                        down -> EnsoColors.TextPrimary
+                        flash -> accent
+                        else -> EnsoColors.TextPrimary.copy(alpha = 0.08f)
+                    },
+                )
+                .clickable(onClick = if (flash) onDownloads else onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Crossfade(targetState = flash, label = "chevronDownload") { showDownload ->
+                if (showDownload) {
+                    Icon(painterResource(R.drawable.ic_download), contentDescription = stringResource(R.string.downloads_title), Modifier.size(24.dp), tint = Color.White)
+                } else {
+                    Icon(
+                        painterResource(if (down) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up),
+                        contentDescription = stringResource(if (down) R.string.bar_close else R.string.bar_actions),
+                        Modifier.size(24.dp),
+                        tint = if (down) EnsoColors.OnTextPrimary else EnsoColors.TextPrimary,
+                    )
+                }
+            }
+        }
     }
 }
 

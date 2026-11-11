@@ -155,6 +155,12 @@ interface SidebarActions {
     /** The Extensions card (step 9). */
     fun openExtensions()
 
+    /** Whether something was downloaded recently or still is, which puts Downloads in the ⋮ menu. */
+    val recentDownloads: Boolean
+
+    /** The Downloads card. */
+    fun openDownloads()
+
     /**
      * Mutes or unmutes [media]. Gecko doesn't report its mute state back, so the app keeps its own record of
      * what it set.
@@ -335,7 +341,12 @@ private fun UrlField(page: PageState, editing: Boolean, accent: androidx.compose
                             ?.setPrimaryClip(ClipData.newPlainText(host, page.url))
                     }
                 }
-                OverflowMenu(onOpenExtensions = actions::openExtensions, onOpenSettings = actions::openSettings, buttonSize = ButtonSize)
+                OverflowMenu(
+                    onOpenExtensions = actions::openExtensions,
+                    onOpenSettings = actions::openSettings,
+                    buttonSize = ButtonSize,
+                    onOpenDownloads = actions::openDownloads.takeIf { actions.recentDownloads },
+                )
             }
         }
     }
