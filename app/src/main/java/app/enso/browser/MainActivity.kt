@@ -478,9 +478,11 @@ class MainActivity : ComponentActivity() {
     /** Shows the page on screen as an article. Until the user picks Reader's colors, they follow Ensō's theme. */
     private fun showReader() {
         val tab = components.store.state.selectedTab ?: return
-        if (!components.settings.readerColorsChosen) readerControls.chooseColors(if (EnsoColors.dark) ColorScheme.DARK else ColorScheme.LIGHT)
+        if (!components.settings.readerColorsChosen) readerControls.chooseColors(themeReaderColors())
         readerFeature.showReaderView(tab)
     }
+
+    private fun themeReaderColors() = if (EnsoColors.dark) ColorScheme.DARK else ColorScheme.LIGHT
 
     private fun exitReader() {
         components.store.state.selectedTab?.let { readerFeature.hideReaderView(it) }
@@ -1220,6 +1222,7 @@ class MainActivity : ComponentActivity() {
                     ComposeColor(spaces.currentSpace.accent),
                     bottomInset = if (inner) 0.dp else with(LocalDensity.current) { BarMetrics.height(gestureHandleInset.toDp()) },
                     cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                    area = cardRect.takeIf { inner },
                 )
             }
         }
@@ -1233,6 +1236,7 @@ class MainActivity : ComponentActivity() {
                     onAnswer = sitePermissions::answer,
                     onDismiss = sitePermissions::dismiss,
                     cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                    area = cardRect.takeIf { inner },
                 )
             }
         }

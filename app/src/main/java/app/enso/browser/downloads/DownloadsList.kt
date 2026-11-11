@@ -92,7 +92,7 @@ fun DownloadsList(items: List<DownloadItem>, actions: DownloadListActions, modif
                 .fillMaxWidth()
                 .height(46.dp)
                 .clip(RoundedCornerShape(23.dp))
-                .background(EnsoColors.PillFill)
+                .background(EnsoColors.FieldFill)
                 .clickable(onClick = actions::openFolder),
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,

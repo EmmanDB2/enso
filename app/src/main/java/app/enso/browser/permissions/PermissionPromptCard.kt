@@ -1,5 +1,10 @@
 package app.enso.browser.permissions
 
+import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.geometry.Rect
 import androidx.activity.compose.BackHandler
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
@@ -41,7 +46,7 @@ import app.enso.browser.ui.EnsoType
 
 /**
  * A site's permission request (step 11), in a card near the bottom of the screen, above the cover's bar
- * ([bottomInset]): what the site wants, that the answer is remembered, and Don't allow or Allow. Back or a tap
+ * ([bottomInset]), or of the page card unfolded ([area]): what the site wants, that the answer is remembered, and Don't allow or Allow. Back or a tap
  * outside refuses this time without remembering it.
  */
 @Composable
@@ -52,6 +57,7 @@ fun PermissionPromptCard(
     onAnswer: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     cardModifier: Modifier = Modifier,
+    area: Rect? = null,
 ) {
     BackHandler(onBack = onDismiss)
     BlockSpaceMenu()
@@ -60,36 +66,56 @@ fun PermissionPromptCard(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.22f))
             .pointerInput(prompt) { detectTapGestures { onDismiss() } },
-        contentAlignment = Alignment.BottomCenter,
     ) {
-        val shape = RoundedCornerShape(20.dp)
-        Column(
-            cardModifier
-                .padding(start = 12.dp, end = 12.dp, bottom = bottomInset + 12.dp)
-                .widthIn(max = 460.dp)
-                .fillMaxWidth()
-                .shadow(16.dp, shape)
-                .background(EnsoColors.Card, shape)
-                .clip(shape)
-                // Taps inside the card shouldn't reach the dim layer and close it.
-                .pointerInput(Unit) { detectTapGestures { } }
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(36.dp).background(accent.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(painterResource(iconOf(prompt.permissions.first())), contentDescription = null, Modifier.size(20.dp), tint = EnsoColors.TextPrimary)
+        PromptArea(area) {
+            val shape = RoundedCornerShape(20.dp)
+            Column(
+                cardModifier
+                    .padding(start = 12.dp, end = 12.dp, bottom = bottomInset + 12.dp)
+                    .widthIn(max = 460.dp)
+                    .fillMaxWidth()
+                    .shadow(16.dp, shape)
+                    .background(EnsoColors.Card, shape)
+                    .clip(shape)
+                    // Taps inside the card shouldn't reach the dim layer and close it.
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(36.dp).background(accent.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
+                        Icon(painterResource(iconOf(prompt.permissions.first())), contentDescription = null, Modifier.size(20.dp), tint = EnsoColors.TextPrimary)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(stringResource(titleOf(prompt.permissions), prompt.host), style = EnsoType.RowTitle.copy(fontSize = 17.sp), modifier = Modifier.weight(1f))
                 }
-                Spacer(Modifier.width(12.dp))
-                Text(stringResource(titleOf(prompt.permissions), prompt.host), style = EnsoType.RowTitle.copy(fontSize = 17.sp), modifier = Modifier.weight(1f))
-            }
-            Text(stringResource(R.string.permission_prompt_remembered), style = EnsoType.Secondary)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PromptButton(R.string.permission_prompt_deny, accent, primary = false, Modifier.weight(1f)) { onAnswer(false) }
-                PromptButton(R.string.permission_prompt_allow, accent, primary = true, Modifier.weight(1f)) { onAnswer(true) }
+                Text(stringResource(R.string.permission_prompt_remembered), style = EnsoType.Secondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PromptButton(R.string.permission_prompt_deny, accent, primary = false, Modifier.weight(1f)) { onAnswer(false) }
+                    PromptButton(R.string.permission_prompt_allow, accent, primary = true, Modifier.weight(1f)) { onAnswer(true) }
+                }
             }
         }
     }
+}
+
+/**
+ * Where a prompt card sits: along the bottom of [area] (window pixels), the page card unfolded, so it stays over the
+ * page rather than the sidebar; or along the bottom of the screen on the cover.
+ */
+@Composable
+fun PromptArea(area: Rect?, content: @Composable () -> Unit) {
+    val density = LocalDensity.current
+    Box(
+        if (area == null) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier
+                .offset { IntOffset(area.left.roundToInt(), area.top.roundToInt()) }
+                .size(with(density) { area.width.toDp() }, with(density) { area.height.toDp() })
+        },
+        contentAlignment = Alignment.BottomCenter,
+    ) { content() }
 }
 
 @Composable

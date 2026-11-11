@@ -143,7 +143,7 @@ fun ReaderControlsContent(controls: ReaderControls, onExit: () -> Unit, onColors
                 .fillMaxWidth()
                 .height(46.dp)
                 .clip(RoundedCornerShape(23.dp))
-                .background(EnsoColors.PillFill)
+                .background(EnsoColors.FieldFill)
                 .clickable(onClick = onExit),
             contentAlignment = Alignment.Center,
         ) {
@@ -168,7 +168,8 @@ private fun Choice(
         modifier
             .height(44.dp)
             .clip(shape)
-            .background(if (chosen) EnsoColors.Chosen else EnsoColors.PillFill, shape)
+            // Field gray, not the bar's pill color, so the buttons show on the white unfolded card too.
+            .background(if (chosen) EnsoColors.Chosen else EnsoColors.FieldFill, shape)
             .then(if (chosen) Modifier.border(1.5.dp, EnsoColors.TextPrimary.copy(alpha = 0.5f), shape) else Modifier)
             .clickable(onClick = onClick)
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier),

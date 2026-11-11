@@ -1,5 +1,7 @@
 package app.enso.browser.downloads
 
+import app.enso.browser.permissions.PromptArea
+import androidx.compose.ui.geometry.Rect
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -42,7 +44,7 @@ class DownloadPrompt(val fileName: String, val size: Long?, val onDownload: () -
  * ([bottomInset]). Back or a tap outside cancels. A plain first version; its look comes in a later UI pass.
  */
 @Composable
-fun DownloadPromptCard(prompt: DownloadPrompt, accent: Color, bottomInset: Dp, cardModifier: Modifier = Modifier) {
+fun DownloadPromptCard(prompt: DownloadPrompt, accent: Color, bottomInset: Dp, cardModifier: Modifier = Modifier, area: Rect? = null) {
     BackHandler(onBack = prompt.onCancel)
     BlockSpaceMenu()
     Box(
@@ -50,27 +52,28 @@ fun DownloadPromptCard(prompt: DownloadPrompt, accent: Color, bottomInset: Dp, c
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.22f))
             .pointerInput(prompt) { detectTapGestures { prompt.onCancel() } },
-        contentAlignment = Alignment.BottomCenter,
     ) {
-        val shape = RoundedCornerShape(20.dp)
-        Column(
-            cardModifier
-                .padding(start = 12.dp, end = 12.dp, bottom = bottomInset + 12.dp)
-                .widthIn(max = 460.dp)
-                .fillMaxWidth()
-                .shadow(16.dp, shape)
-                .background(EnsoColors.Card, shape)
-                .clip(shape)
-                .pointerInput(Unit) { detectTapGestures { } }
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(stringResource(R.string.download_prompt_title), style = EnsoType.RowTitle.copy(fontSize = 17.sp))
-            Text(prompt.fileName, style = EnsoType.Row, maxLines = 2, overflow = TextOverflow.MiddleEllipsis)
-            prompt.size?.takeIf { it > 0 }?.let { Text(Formatter.formatShortFileSize(LocalContext.current, it), style = EnsoType.Secondary) }
-            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(stringResource(R.string.download_prompt_cancel), EnsoColors.FieldFill, EnsoColors.TextPrimary, Modifier.weight(1f), prompt.onCancel)
-                Button(stringResource(R.string.download_prompt_download), accent, Color.White, Modifier.weight(1f), prompt.onDownload)
+        PromptArea(area) {
+            val shape = RoundedCornerShape(20.dp)
+            Column(
+                cardModifier
+                    .padding(start = 12.dp, end = 12.dp, bottom = bottomInset + 12.dp)
+                    .widthIn(max = 460.dp)
+                    .fillMaxWidth()
+                    .shadow(16.dp, shape)
+                    .background(EnsoColors.Card, shape)
+                    .clip(shape)
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(stringResource(R.string.download_prompt_title), style = EnsoType.RowTitle.copy(fontSize = 17.sp))
+                Text(prompt.fileName, style = EnsoType.Row, maxLines = 2, overflow = TextOverflow.MiddleEllipsis)
+                prompt.size?.takeIf { it > 0 }?.let { Text(Formatter.formatShortFileSize(LocalContext.current, it), style = EnsoType.Secondary) }
+                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(stringResource(R.string.download_prompt_cancel), EnsoColors.FieldFill, EnsoColors.TextPrimary, Modifier.weight(1f), prompt.onCancel)
+                    Button(stringResource(R.string.download_prompt_download), accent, Color.White, Modifier.weight(1f), prompt.onDownload)
+                }
             }
         }
     }
