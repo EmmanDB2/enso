@@ -1,5 +1,11 @@
 package app.enso.browser
 
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.layout.fillMaxWidth
+import app.enso.browser.ui.spaceSurface
+import androidx.compose.foundation.layout.widthIn
+import app.enso.browser.permissions.PromptArea
+import app.enso.browser.bottombar.FindBar
 import mozilla.components.browser.state.selector.findTab
 import mozilla.components.browser.state.action.ReaderAction
 import mozilla.components.feature.readerview.ReaderViewFeature.ColorScheme
@@ -457,6 +463,14 @@ class MainActivity : ComponentActivity() {
     private var readerAvailable by mutableStateOf(false)
     private var readerActive by mutableStateOf(false)
 
+    /** Find unfolded, from the ⋮ menu: the find bar along the top of the page card. */
+    private var innerFindOpen by mutableStateOf(false)
+
+    private fun closeInnerFind() {
+        innerFindOpen = false
+        bottomBarActions.find("")
+    }
+
     /** The unfolded Reader card, from the ⋮ menu while reading. */
     private var readerCardOpen by mutableStateOf(false)
 
@@ -810,6 +824,9 @@ class MainActivity : ComponentActivity() {
         updateDesktopSites()
         editing = false
         tabSheetOpen = false
+        // Find closes with the layout it was opened in, and takes its highlights along.
+        if (innerFindOpen || barPanel == BarPanel.Find) bottomBarActions.find("")
+        innerFindOpen = false
         barPanel = null
         sidebarMenu = null
         // An open Glance stays and fits itself to the new screen; its backdrop was captured on the old one. An
@@ -1134,6 +1151,31 @@ class MainActivity : ComponentActivity() {
                     buttons = listOf(GlanceButton(R.drawable.ic_close, R.string.glance_close) { closeExtensionPage() }),
                     onClose = { closeExtensionPage() },
                 )
+            }
+        }
+        // Find unfolded: the find bar in a card along the top of the page card, clear of the keyboard.
+        if (inner && innerFindOpen && pageNow == null) {
+            BackHandler { closeInnerFind() }
+            val match by components.store.observeAsComposableState { state ->
+                state.selectedTab?.content?.findResults?.lastOrNull()?.let { (it.activeMatchOrdinal + 1) to it.numberOfMatches }
+            }
+            // In a full-size Box, as the cards are: the overlay hands its children the window's exact size.
+            Box(Modifier.fillMaxSize()) {
+                PromptArea(cardRect, Alignment.TopCenter) {
+                    val shape = RoundedCornerShape(24.dp)
+                    Box(
+                        Modifier
+                            .padding(12.dp)
+                            .widthIn(max = 560.dp)
+                            .fillMaxWidth()
+                            .shadow(16.dp, shape)
+                            .clip(shape)
+                            .spaceSurface(spaces.currentSpace.colors())
+                            .padding(top = 10.dp),
+                    ) {
+                        FindBar(match, ComposeColor(spaces.currentSpace.accent), bottomBarActions::find, bottomBarActions::findNext, ::closeInnerFind)
+                    }
+                }
             }
         }
         AnimatedVisibility(inner && readerCardOpen && pageNow == null, enter = EnsoMotion.CardEnter, exit = EnsoMotion.CardExit) {
@@ -2042,6 +2084,10 @@ class MainActivity : ComponentActivity() {
         }
 
         override val readerAvailable get() = this@MainActivity.readerAvailable || readerActive
+
+        override fun openFind() {
+            innerFindOpen = true
+        }
 
         override fun openReader() {
             if (readerActive) {

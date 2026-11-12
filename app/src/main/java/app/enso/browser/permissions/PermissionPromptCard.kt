@@ -101,10 +101,11 @@ fun PermissionPromptCard(
 
 /**
  * Where a prompt card sits: along the bottom of [area] (window pixels), the page card unfolded, so it stays over the
- * page rather than the sidebar; or along the bottom of the screen on the cover.
+ * page rather than the sidebar; or along the bottom of the screen on the cover. The unfolded find bar uses the top
+ * ([alignment]).
  */
 @Composable
-fun PromptArea(area: Rect?, content: @Composable () -> Unit) {
+fun PromptArea(area: Rect?, alignment: Alignment = Alignment.BottomCenter, content: @Composable () -> Unit) {
     val density = LocalDensity.current
     Box(
         if (area == null) {
@@ -114,7 +115,7 @@ fun PromptArea(area: Rect?, content: @Composable () -> Unit) {
                 .offset { IntOffset(area.left.roundToInt(), area.top.roundToInt()) }
                 .size(with(density) { area.width.toDp() }, with(density) { area.height.toDp() })
         },
-        contentAlignment = Alignment.BottomCenter,
+        contentAlignment = alignment,
     ) { content() }
 }
 

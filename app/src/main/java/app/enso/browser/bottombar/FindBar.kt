@@ -42,11 +42,17 @@ import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 
 /**
- * Find in page (the actions sheet's Find): the field, which match is showing ("3/12", [match]), previous and next,
+ * Find in page (the actions sheet's Find on the cover, the ⋮ menu's unfolded): the field, which match is showing ("3/12", [match]), previous and next,
  * and ✕. Gecko highlights the matches as you type. The page stays undimmed above it, so they show.
  */
 @Composable
-internal fun FindBar(match: Pair<Int, Int>?, accent: Color, actions: BottomBarActions) {
+internal fun FindBar(
+    match: Pair<Int, Int>?,
+    accent: Color,
+    onFind: (String) -> Unit,
+    onNext: (forward: Boolean) -> Unit,
+    onClose: () -> Unit,
+) {
     var text by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
@@ -68,14 +74,14 @@ internal fun FindBar(match: Pair<Int, Int>?, accent: Color, actions: BottomBarAc
                     value = text,
                     onValueChange = {
                         text = it
-                        actions.find(it)
+                        onFind(it)
                     },
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
                     textStyle = EnsoType.Row,
                     singleLine = true,
                     cursorBrush = SolidColor(accent),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { actions.findNext(forward = true) }),
+                    keyboardActions = KeyboardActions(onSearch = { onNext(true) }),
                 )
             }
             if (text.isNotEmpty() && match != null) {
@@ -83,14 +89,14 @@ internal fun FindBar(match: Pair<Int, Int>?, accent: Color, actions: BottomBarAc
                 Text(stringResource(R.string.find_count, match.first.coerceAtMost(match.second), match.second), style = EnsoType.Secondary)
             }
         }
-        FindButton(R.drawable.ic_chevron_up, R.string.find_previous) { actions.findNext(forward = false) }
-        FindButton(R.drawable.ic_chevron_down, R.string.find_next) { actions.findNext(forward = true) }
+        FindButton(R.drawable.ic_chevron_up, R.string.find_previous) { onNext(false) }
+        FindButton(R.drawable.ic_chevron_down, R.string.find_next) { onNext(true) }
         Box(
             Modifier
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(PillFill)
-                .clickable { actions.showPanel(null) },
+                .clickable(onClick = onClose),
             contentAlignment = Alignment.Center,
         ) {
             Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.search_cancel), Modifier.size(16.dp), tint = EnsoColors.TextPrimary)

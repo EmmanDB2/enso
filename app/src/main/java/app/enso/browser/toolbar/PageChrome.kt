@@ -143,6 +143,7 @@ internal fun OverflowMenu(
     buttonSize: Dp = 48.dp,
     onOpenDownloads: (() -> Unit)? = null,
     onOpenReader: (() -> Unit)? = null,
+    onOpenFind: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -160,6 +161,13 @@ internal fun OverflowMenu(
             containerColor = EnsoColors.Card,
             shadowElevation = 8.dp,
         ) {
+            // Find in page, while there's a page.
+            onOpenFind?.let { open ->
+                MenuRow(R.drawable.ic_search, R.string.action_find) {
+                    expanded = false
+                    open()
+                }
+            }
             // Reader, on article pages: it shows the page as one, or while reading opens Reader's controls.
             onOpenReader?.let { open ->
                 MenuRow(R.drawable.ic_reader, R.string.action_reader) {

@@ -167,6 +167,9 @@ interface SidebarActions {
     /** Reader: shows the page as an article, or while reading opens Reader's card. */
     fun openReader()
 
+    /** Find in page, as a bar along the top of the page card. */
+    fun openFind()
+
     /**
      * Mutes or unmutes [media]. Gecko doesn't report its mute state back, so the app keeps its own record of
      * what it set.
@@ -353,6 +356,7 @@ private fun UrlField(page: PageState, editing: Boolean, accent: androidx.compose
                     buttonSize = ButtonSize,
                     onOpenDownloads = actions::openDownloads.takeIf { actions.recentDownloads },
                     onOpenReader = actions::openReader.takeIf { actions.readerAvailable },
+                    onOpenFind = actions::openFind.takeIf { page.url.isNotEmpty() },
                 )
             }
         }
