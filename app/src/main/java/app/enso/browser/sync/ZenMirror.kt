@@ -32,6 +32,9 @@ data class ZenMirror(
     /** When the last sync finished, local milliseconds. */
     val lastSynced: Long? = null,
     val records: Map<String, ZenRecord> = emptyMap(),
+    /** What this phone's Sync device record last said ([SyncDevice.fingerprint]), and when it went up. */
+    val deviceRecord: String? = null,
+    val deviceUploadedAt: Long? = null,
 )
 
 /**

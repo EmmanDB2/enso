@@ -22,9 +22,11 @@ import java.net.URLEncoder
 sealed interface ZenSyncResult {
     /**
      * [received] records arrived or went, [sent] phone changes were uploaded, and [unsent] weren't (a dry run, or
-     * the server refused them).
+     * the server refused them). [held] phone changes waited because Zen changed the same records: they go once
+     * Zen's versions are applied.
      */
-    data class Synced(val mirror: ZenMirror, val received: Int, val sent: Int, val unsent: Int) : ZenSyncResult
+    data class Synced(val mirror: ZenMirror, val received: Int, val sent: Int, val unsent: Int, val held: Int = 0) :
+        ZenSyncResult
 
     /** Firefox Sync hasn't set up this account's storage yet. */
     data object NotSetUp : ZenSyncResult
@@ -34,6 +36,26 @@ sealed interface ZenSyncResult {
 
     /** Zen writes a newer version of the collection than Ensō reads. */
     data class NeedsUpdate(val serverVersion: Int) : ZenSyncResult
+}
+
+/**
+ * This phone as a device in the account's Sync device list (the "clients" collection), where Firefox and Zen count
+ * the devices they sync with. Zen syncs every 10 minutes, and when you come back to the computer or wake it, only
+ * while it counts another device; on its own it waits an hour.
+ *
+ * @property recordId The record's id, made once per install.
+ * @property fxaDeviceId The phone's device in the Mozilla account. Firefox hides device records whose account device
+ *   is gone, so a signed-out phone drops out by itself.
+ */
+internal class SyncDevice(
+    val recordId: String,
+    val fxaDeviceId: String,
+    val name: String,
+    val version: String,
+    val appPackage: String,
+) {
+    /** What the record says; a change uploads it again. */
+    val fingerprint: String get() = listOf(recordId, fxaDeviceId, name, version).joinToString("|")
 }
 
 /**
@@ -59,6 +81,7 @@ internal class ZenSpacesEngine(
     /** Forgets everything about the server, for a sign out. The snapshot stays. */
     fun reset() {
         token = null
+        known = null
         store.clear()
     }
 
@@ -66,8 +89,30 @@ internal class ZenSpacesEngine(
      * Syncs. [localChanges] works out the phone's changes against the server records it's given. With [dryRun] they're
      * only logged, never uploaded.
      */
-    fun sync(auth: SyncAuth, dryRun: Boolean, localChanges: (Map<String, ZenRecord>) -> List<ZenChange>): ZenSyncResult =
-        retryingAuth { run(auth, dryRun, localChanges) }
+    fun sync(
+        auth: SyncAuth,
+        dryRun: Boolean,
+        device: SyncDevice?,
+        localChanges: (Map<String, ZenRecord>) -> List<ZenChange>,
+    ): ZenSyncResult = retryingAuth { run(auth, dryRun, device, localChanges) }
+
+    /** The storage user and the collection's server time that the last sync left, for [serverChanged]. */
+    @Volatile
+    private var known: Pair<String?, String?>? = null
+
+    /**
+     * Whether the spaces collection changed on the server since the last sync: one small request (and a token now
+     * and then), cheap enough to ask every few seconds while the app is open.
+     */
+    fun serverChanged(auth: SyncAuth): Boolean = retryingAuth {
+        val token = currentToken(auth)
+        val client = StorageClient(http, token, clock) { seconds -> backoffUntil = clock.millis() + seconds * MILLIS }
+        val (uid, lastModified) = known ?: store.load().let { (it.storageUid to it.lastModified).also { pair -> known = pair } }
+        if (uid != token.uid || lastModified == null) return@retryingAuth true
+        val info = JSONObject(client.expect("GET", "info/collections").body)
+        val server = timestampOf(info.opt(COLLECTION)) ?: return@retryingAuth true
+        isNewerTimestamp(server, lastModified) || isNewerTimestamp(lastModified, server)
+    }
 
     /** Puts the collection back as the snapshot taken before the first write. Returns the records written. */
     fun restoreSnapshot(auth: SyncAuth): Int = retryingAuth {
@@ -84,6 +129,7 @@ internal class ZenSpacesEngine(
         } + current.map { it.getString("id") }.filterNot { it in kept }.map { id -> id to tombstone(session.keys, id) }
         val uploaded = upload(session.client, bodies, modified, limits(session.client))
         store.clear() // Download everything again on the next sync.
+        known = null
         Log.w(TAG, "Restored the spaces collection from the snapshot of ${snapshot.savedAt}: ${uploaded.succeeded.size} records")
         uploaded.succeeded.size
     }
@@ -109,6 +155,7 @@ internal class ZenSpacesEngine(
     private fun run(
         auth: SyncAuth,
         dryRun: Boolean,
+        device: SyncDevice?,
         localChanges: (Map<String, ZenRecord>) -> List<ZenChange>,
     ): ZenSyncResult {
         val session = when (val opened = open(auth)) {
@@ -144,6 +191,7 @@ internal class ZenSpacesEngine(
         }
 
         // Upload the phone's changes, except where Zen changed the same record.
+        val held = outgoing.count { it.id in incoming }
         var toSend = outgoing.filterNot { it.id in incoming }
         val deletions = toSend.count { it.record == null }
         if (deletions > MAX_DELETIONS_PER_SYNC) {
@@ -170,9 +218,11 @@ internal class ZenSpacesEngine(
         }
 
         mirror = mirror.copy(records = records, lastModified = lastModified, lastSynced = clock.millis())
+        if (device != null) mirror = withDeviceRecord(session, mirror, device, dryRun)
         store.save(mirror)
-        Log.i(TAG, "Synced: ${records.size} records, ${incoming.size} received, $sent sent")
-        return ZenSyncResult.Synced(mirror, received = incoming.size, sent = sent, unsent = unsent)
+        known = mirror.storageUid to mirror.lastModified
+        Log.i(TAG, "Synced: ${records.size} records, ${incoming.size} received, $sent sent" + if (held > 0) ", $held held" else "")
+        return ZenSyncResult.Synced(mirror, received = incoming.size, sent = sent, unsent = unsent, held = held)
     }
 
     private class Session(
@@ -180,7 +230,55 @@ internal class ZenSpacesEngine(
         val keys: KeyBundle,
         val mirror: ZenMirror,
         val serverModified: String?,
+        /** crypto/keys decrypted, for other collections' keys. */
+        val allKeys: JSONObject,
     )
+
+    /**
+     * Puts this phone's record in the account's Sync device list when it's new, changed, or due again (Firefox
+     * ignores device records older than a week), and notes it in [mirror]. A failure only waits for the next sync.
+     */
+    private fun withDeviceRecord(session: Session, mirror: ZenMirror, device: SyncDevice, dryRun: Boolean): ZenMirror {
+        val uploadedAt = mirror.deviceUploadedAt
+        val due = mirror.deviceRecord != device.fingerprint || uploadedAt == null ||
+            clock.millis() - uploadedAt > DEVICE_REFRESH_MS
+        if (!due) return mirror
+        if (dryRun) {
+            Log.i(TAG, "Would add this phone to the Sync device list as ${device.recordId}")
+            return mirror
+        }
+        return try {
+            val bundle = KeyBundle.fromPair(session.allKeys.optJSONObject("collections")?.optJSONArray(CLIENTS))
+                ?: KeyBundle.fromPair(session.allKeys.optJSONArray("default"))
+                ?: throw SyncCryptoException("crypto/keys has no default key")
+            val cleartext = JSONObject()
+                .put("id", device.recordId)
+                .put("name", device.name)
+                .put("type", "mobile")
+                .put("commands", JSONArray())
+                .put("version", device.version)
+                .put("protocols", JSONArray().put(SYNC_PROTOCOL))
+                .put("os", "Android")
+                .put("appPackage", device.appPackage)
+                .put("application", "Ensō")
+                .put("fxaDeviceId", device.fxaDeviceId)
+            val body = JSONObject()
+                .put("id", device.recordId)
+                .put("payload", bundle.encrypt(cleartext.toString()).toString())
+                .put("ttl", DEVICE_RECORD_TTL_SECONDS)
+            val response = session.client.expect("POST", "storage/$CLIENTS", "[$body]")
+            val succeeded = runCatching { JSONObject(response.body).optJSONArray("success") }.getOrNull()
+            if (succeeded == null || (0 until succeeded.length()).none { succeeded.optString(it) == device.recordId }) {
+                Log.w(TAG, "The server didn't take this phone's Sync device record")
+                return mirror
+            }
+            Log.i(TAG, "Added this phone to the Sync device list as ${device.recordId}")
+            mirror.copy(deviceRecord = device.fingerprint, deviceUploadedAt = clock.millis())
+        } catch (e: SyncServerException) {
+            Log.w(TAG, "Couldn't add this phone to the Sync device list", e)
+            mirror
+        }
+    }
 
     private sealed interface Opened {
         class Ready(val session: Session) : Opened
@@ -226,7 +324,7 @@ internal class ZenSpacesEngine(
             mirror = ZenMirror(storageUid = token.uid, syncId = syncId)
         }
         mirror = mirror.copy(keysModified = keysModified)
-        return Opened.Ready(Session(client, bundle, mirror, timestampOf(info.opt(COLLECTION))))
+        return Opened.Ready(Session(client, bundle, mirror, timestampOf(info.opt(COLLECTION)), keys))
     }
 
     private fun currentToken(auth: SyncAuth): SyncToken =
@@ -392,6 +490,18 @@ internal class ZenSpacesEngine(
 
         /** Version of the records, matching Zen's `ZenSpacesSyncEngine.version`. */
         const val ENGINE_VERSION = 3
+
+        /** Firefox's device list, where this phone keeps a record so Zen counts it. */
+        private const val CLIENTS = "clients"
+
+        /** Sync's storage protocol, which device records list. */
+        private const val SYNC_PROTOCOL = "1.5"
+
+        /** How long the server keeps the device record without a refresh: 180 days, as Firefox's own. */
+        private const val DEVICE_RECORD_TTL_SECONDS = 15_552_000L
+
+        /** Firefox treats device records older than 7 days as gone, so this refreshes after 6. */
+        private const val DEVICE_REFRESH_MS = 6 * 24 * 60 * 60 * 1000L
 
         /** More deletions than this in one sync look like lost data rather than closed tabs. */
         private const val MAX_DELETIONS_PER_SYNC = 10

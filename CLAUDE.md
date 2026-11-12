@@ -121,6 +121,11 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - A setting (`essentialsPerContainer`) turns this off to show every Essential everywhere, matching Zen's own option.
   - **`ZenSync`:** runs the account and status. `ZenSyncSheet` (from All settings › Sync with Zen) shows the status. Unfolded it's centered on the page card (`PromptArea`), not the window.
     - It syncs on start, every 5 minutes, and 3 seconds after a tab sheet edit (`localEdited`).
+    - **Quick checks:** in between, while the app is open, it asks every `zenSyncCheckSeconds` (30) whether Zen changed anything (`checkForChanges`). That's one `info/collections` request (`engine.serverChanged`) against the collection time the last sync left, which the engine keeps in memory, and a full sync only follows when it differs. Zen uploads within seconds of a change, so its changes show on the phone within about half a minute.
+    - **Held-back changes:** where Zen changed a record the phone also changed, the phone's version waits (`held`). Once Zen's state is applied, it syncs again 3 seconds later, worked out on top of Zen's versions, instead of at the next 5-minute sync.
+    - **Sync device:** each sync makes sure the account's Sync device list (the `clients` collection) has this phone (`SyncDevice`: type mobile, the account device's id and name, an id made once in `syncDeviceRecordId`). It goes up again when it changes or after 6 days, since Firefox ignores device records older than 7, and the mirror notes what it last sent (`deviceRecord`, `deviceUploadedAt`).
+      - Why: Zen (Firefox's sync scheduler) only syncs every 10 minutes, and as soon as you come back to the computer or wake it, while it counts another device. With one device it waits an hour. A push from another device only makes it sync its device list, never the spaces, so Ensō can't make Zen sync on demand.
+      - Signed out, the phone's account device goes, and Firefox hides device records whose account device is gone.
     - It never applies Zen's state over an edit made during a sync; it syncs again instead.
     - In dry-run it doesn't apply Zen's state while the phone has unsent changes, so the test edits survive.
   - **Sign-in:** the page opens in a Quick Tab, and `FxaWebChannelFeature` completes it.
@@ -353,6 +358,8 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `syncOpenTabs` (default on) syncs normal open tabs both ways. Quick Tabs never sync.
   - `syncTabNavigations` (default off) lets navigating a tab from Zen move it on the desktop too. It's off because phone pages often redirect, to a login page for example.
   - `zenSyncDryRun` (default off) logs what sync would upload without uploading. It's for testing.
+  - `zenSyncCheckSeconds` (default 30) is how often, while the app is open, Ensō asks whether Zen changed anything. 0 leaves only the 5-minute sync.
+  - `syncDeviceRecordId` (app state) is this phone's id in the account's Sync device list.
   - `themeMode` (default `System`) picks light or dark, or follows Android's dark theme. `MainActivity.applyTheme` applies it at start and on every configuration change (the activity handles `uiMode` itself): `EnsoColors.dark`, the system bars' icons, the views that took a color once (window, root, page containers), and Gecko's `preferredColorScheme` for pages, which follows the system by itself under `System`.
   - `updateExtensions` (default on) checks extensions for updates daily and installs them.
   - `searchSuggestions` (default on) shows Google's suggestions in bottom search, which sends what's typed to Google.

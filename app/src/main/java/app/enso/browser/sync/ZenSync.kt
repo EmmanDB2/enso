@@ -63,6 +63,7 @@ class ZenSync internal constructor(
     private val tabs: TabManager,
     private val settings: Settings,
 ) {
+    private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mirrorStore = ZenMirrorStore(context)
     private val engine = ZenSpacesEngine(http, mirrorStore, ZenSnapshotStore(context))
@@ -182,6 +183,32 @@ class ZenSync internal constructor(
         }
     }
 
+    /**
+     * Asks the server whether Zen changed anything since the last sync, and syncs if it did. Cheap: one small
+     * request, so the app calls it every few seconds while it's open ([Settings.zenSyncCheckSeconds]).
+     */
+    fun checkForChanges() {
+        val account = accountManager.authenticatedAccount() ?: return
+        if (running.isLocked || System.currentTimeMillis() < engine.backoffUntil) return
+        val state = (_status.value as? ZenSyncStatus.SignedIn)?.state
+        // Those need the user or a newer Ensō; asking again changes nothing.
+        if (state is ZenSyncStatus.State.NeedsSignIn || state is ZenSyncStatus.State.NeedsUpdate) return
+        scope.launch {
+            val changed = try {
+                val auth = authOf(account) ?: return@launch
+                withContext(Dispatchers.IO) { engine.serverChanged(auth) }
+            } catch (e: Exception) {
+                // The next check or the next sync tries again; a real problem shows there.
+                Log.d(TAG, "Couldn't check for Zen changes: ${e.message}")
+                false
+            }
+            if (changed) {
+                Log.i(TAG, "Zen changed the spaces; syncing")
+                syncNow()
+            }
+        }
+    }
+
     /** Syncs unless signed out, already syncing, or [minIntervalMs] hasn't passed since the last sync. */
     fun syncNow(minIntervalMs: Long = 0) {
         val account = accountManager.authenticatedAccount() ?: return
@@ -199,8 +226,11 @@ class ZenSync internal constructor(
                 val syncOpenTabs = settings.syncOpenTabs
                 val syncTabNavigations = settings.syncTabNavigations
                 val dryRun = settings.zenSyncDryRun
+                val recordId = settings.syncDeviceRecordId
                 val result = withContext(Dispatchers.IO) {
-                    engine.sync(auth, dryRun) { base -> zenChanges(local, base, syncOpenTabs, syncTabNavigations) }
+                    engine.sync(auth, dryRun, syncDevice(account, recordId)) { base ->
+                        zenChanges(local, base, syncOpenTabs, syncTabNavigations)
+                    }
                 }
                 val state = when (result) {
                     is ZenSyncResult.Synced -> {
@@ -210,7 +240,12 @@ class ZenSync internal constructor(
                             edits != editsBefore -> localEdited()
                             // A dry run never sends, so applying Zen's state would wipe the phone's edits.
                             dryRun && result.unsent > 0 -> Unit
-                            else -> tabs.applySpaces { it.withZenSpaces(result.mirror) }
+                            else -> {
+                                tabs.applySpaces { it.withZenSpaces(result.mirror) }
+                                // Changes Zen's held back go now, worked out on top of Zen's versions, rather than
+                                // at the next sync minutes later.
+                                if (result.held > 0) localEdited()
+                            }
                         }
                         ZenSyncStatus.State.Synced(result.mirror.lastSynced)
                     }
@@ -236,6 +271,14 @@ class ZenSync internal constructor(
                 running.unlock()
             }
         }
+    }
+
+    /** This phone's Sync device record, or null before the account has set up its device. */
+    private fun syncDevice(account: OAuthAccount, recordId: String): SyncDevice? {
+        val fxaDeviceId = account.getCurrentDeviceId() ?: return null
+        val version = runCatching { appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName }
+            .getOrNull().orEmpty()
+        return SyncDevice(recordId, fxaDeviceId, MozillaAccount.deviceName(appContext), version, appContext.packageName)
     }
 
     private suspend fun authOf(account: OAuthAccount): SyncAuth? {

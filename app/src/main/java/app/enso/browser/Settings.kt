@@ -225,6 +225,25 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_DOWNLOAD_NOTIFICATIONS_ASKED, false)
         set(value) = prefs.edit { putBoolean(KEY_DOWNLOAD_NOTIFICATIONS_ASKED, value) }
 
+    /**
+     * How often, in seconds, Ensō asks the server whether Zen changed anything while the app is open. Each check is
+     * one small request; a full sync only follows when something changed. 0 leaves only the sync every 5 minutes.
+     */
+    var zenSyncCheckSeconds: Int
+        get() = prefs.getInt(KEY_ZEN_SYNC_CHECK_SECONDS, 30)
+        set(value) = prefs.edit { putInt(KEY_ZEN_SYNC_CHECK_SECONDS, value) }
+
+    /**
+     * The id of this phone's record in the account's Sync device list (app state), made once: 12 base64url
+     * characters, like Firefox's own client ids.
+     */
+    val syncDeviceRecordId: String
+        get() = prefs.getString(KEY_SYNC_DEVICE_RECORD_ID, null) ?: run {
+            val bytes = ByteArray(9).also { java.security.SecureRandom().nextBytes(it) }
+            android.util.Base64.encodeToString(bytes, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+                .also { id -> prefs.edit { putString(KEY_SYNC_DEVICE_RECORD_ID, id) } }
+        }
+
     /** When the app last went to the background. */
     var lastStoppedAt: Long?
         get() = prefs.getLong(KEY_LAST_STOPPED_AT, 0L).takeIf { it > 0 }
@@ -256,6 +275,8 @@ class Settings(context: Context) {
         const val KEY_SYNC_OPEN_TABS = "sync_open_tabs"
         const val KEY_SYNC_TAB_NAVIGATIONS = "sync_tab_navigations"
         const val KEY_ZEN_SYNC_DRY_RUN = "zen_sync_dry_run"
+        const val KEY_ZEN_SYNC_CHECK_SECONDS = "zen_sync_check_seconds"
+        const val KEY_SYNC_DEVICE_RECORD_ID = "sync_device_record_id"
         const val KEY_UPDATE_EXTENSIONS = "update_extensions"
         const val KEY_QUICK_TAB_LIFETIME_HOURS = "quick_tab_lifetime_hours"
         const val KEY_PAGE_ZOOM_PERCENT = "page_zoom_percent"

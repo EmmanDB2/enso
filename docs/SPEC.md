@@ -23,6 +23,8 @@ Ensō is a standard Android app in Kotlin built on Mozilla's published libraries
 
 Synced Spaces flow from Zen through the Mozilla account into a local store that both screens read; Quick Tabs never leave the phone.
 
+**How quickly sync happens.** Ensō sends a change within a few seconds. While it's open, it checks every 30 seconds whether Zen changed anything (`zenSyncCheckSeconds`), so Zen's changes show within about half a minute. Zen picks up the phone's changes on its own schedule: as soon as you come back to the computer or wake it, otherwise every 10 minutes (Zen's `services.sync.scheduler.activeInterval`, which can go down to 60 seconds). That schedule only applies while Zen counts another device, so Ensō adds itself to the account's Sync device list, automatically for anyone who signs in. Instant sync both ways, as in Arc, would need Zen to sync its Spaces when another device says it changed something; today it only refreshes its device list then.
+
 | Piece | Role |
 | --- | --- |
 | GeckoView | Page rendering and WebExtensions support |

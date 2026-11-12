@@ -39,7 +39,8 @@ object MozillaAccount {
         override val entryName = "enso-zen-sync"
     }
 
-    private fun deviceName(context: Context): String {
+    /** "Ensō on <phone>": the account device's name, and the Sync device record's. */
+    fun deviceName(context: Context): String {
         val device = Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME) ?: Build.MODEL
         return "Ensō on $device"
     }

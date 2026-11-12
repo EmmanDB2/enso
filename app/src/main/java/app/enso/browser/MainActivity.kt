@@ -2475,11 +2475,21 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            // Pull from Zen every few minutes while the app is open.
+            // Sync with Zen every few minutes while the app is open, which also sends anything left unsent.
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (true) {
                     delay(ZEN_SYNC_INTERVAL_MS)
                     components.zenSync.syncNow()
+                }
+            }
+        }
+        lifecycleScope.launch {
+            // In between, ask often whether Zen changed anything, so its changes show within seconds.
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    val seconds = components.settings.zenSyncCheckSeconds
+                    delay(if (seconds > 0) seconds * 1_000L else ZEN_SYNC_INTERVAL_MS)
+                    if (seconds > 0) components.zenSync.checkForChanges()
                 }
             }
         }
