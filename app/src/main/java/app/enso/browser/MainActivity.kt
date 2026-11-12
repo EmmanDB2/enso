@@ -925,6 +925,8 @@ class MainActivity : ComponentActivity() {
      * `--activity-single-top` while the app runs, so the intent reaches `onNewIntent`) with:
      * - `--ez enso_restore_zen_snapshot true`: puts Zen's spaces collection back as it was before the phone's
      *   first write.
+     * - `--ez enso_save_zen_snapshot true`: replaces that snapshot with the collection as it is now, so a restore
+     *   puts this state back.
      * - `--es enso_debug_open <url>`: opens the URL in a Quick Tab, for test pages. With `--ez enso_debug_kept true`
      *   it's a normal tab instead, which syncs to Zen.
      * - `--es enso_debug_split <tabId>`: splits the tab on screen with that tab, as a drop on the page does, and
@@ -939,6 +941,10 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_RESTORE_ZEN_SNAPSHOT, false)) {
             intent.removeExtra(EXTRA_RESTORE_ZEN_SNAPSHOT)
             components.zenSync.restoreSnapshot()
+        }
+        if (intent.getBooleanExtra(EXTRA_SAVE_ZEN_SNAPSHOT, false)) {
+            intent.removeExtra(EXTRA_SAVE_ZEN_SNAPSHOT)
+            components.zenSync.saveSnapshot()
         }
         intent.getStringExtra(EXTRA_DEBUG_OPEN)?.let { url ->
             intent.removeExtra(EXTRA_DEBUG_OPEN)
@@ -1254,6 +1260,7 @@ class MainActivity : ComponentActivity() {
                 onSignOut = { components.zenSync.signOut() },
                 onDismiss = { zenSyncSheetOpen = false },
                 cardModifier = Modifier.animateEnterExit(EnsoMotion.CardScaleIn, EnsoMotion.CardScaleOut),
+                area = cardRect.takeIf { inner },
             )
         }
         // A download a site started, above the cover's bar.
@@ -2773,6 +2780,7 @@ class MainActivity : ComponentActivity() {
         const val ZEN_SYNC_MIN_INTERVAL_MS = 60_000L
         const val TAG = "Enso"
         const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
+        const val EXTRA_SAVE_ZEN_SNAPSHOT = "enso_save_zen_snapshot"
         const val EXTRA_DEBUG_OPEN = "enso_debug_open"
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
         const val EXTRA_DEBUG_UPDATE_EXTENSIONS = "enso_debug_update_extensions"

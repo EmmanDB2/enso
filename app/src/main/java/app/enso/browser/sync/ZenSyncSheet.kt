@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Rect
+import app.enso.browser.permissions.PromptArea
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
@@ -30,7 +32,10 @@ import app.enso.browser.R
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 
-/** Account and status for Zen sync, opened from the ⋮ menu. */
+/**
+ * Account and status for Zen sync, opened from All settings: centered on the screen on the cover, and on the page card
+ * unfolded ([area], window pixels), so it doesn't hang over the sidebar.
+ */
 @Composable
 fun ZenSyncSheet(
     status: ZenSyncStatus,
@@ -41,48 +46,50 @@ fun ZenSyncSheet(
     onDismiss: () -> Unit,
     /** For the card itself, inside its dim layer: its entrance, say. */
     cardModifier: Modifier = Modifier,
+    area: Rect? = null,
 ) {
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.22f))
             .pointerInput(Unit) { detectTapGestures { onDismiss() } },
-        contentAlignment = Alignment.Center,
     ) {
-        val shape = RoundedCornerShape(20.dp)
-        Column(
-            cardModifier
-                .padding(16.dp)
-                .widthIn(max = 480.dp)
-                .fillMaxWidth()
-                .shadow(16.dp, shape)
-                .background(EnsoColors.Card, shape)
-                .clip(shape)
-                // Taps inside the card shouldn't reach the dim layer and close it.
-                .pointerInput(Unit) { detectTapGestures { } }
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(stringResource(R.string.zen_sync_title), style = EnsoType.SpaceName.copy(fontSize = 20.sp))
-            when (status) {
-                ZenSyncStatus.Starting -> Text(stringResource(R.string.zen_sync_starting), style = EnsoType.Secondary)
-                ZenSyncStatus.SignedOut -> {
-                    Text(stringResource(R.string.zen_sync_signed_out), style = EnsoType.Row)
-                    Text(stringResource(R.string.zen_sync_both_ways), style = EnsoType.Secondary)
-                    SheetButton(R.string.zen_sync_sign_in, accent, primary = true, onClick = onSignIn)
-                }
-                is ZenSyncStatus.SignedIn -> {
-                    status.email?.let { Text(it, style = EnsoType.RowTitle) }
-                    Text(stateText(status.state), style = EnsoType.Secondary)
-                    Text(stringResource(R.string.zen_sync_both_ways), style = EnsoType.Secondary)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SheetButton(
-                            if (status.state == ZenSyncStatus.State.NeedsSignIn) R.string.zen_sync_sign_in else R.string.zen_sync_sync_now,
-                            accent,
-                            primary = true,
-                            onClick = if (status.state == ZenSyncStatus.State.NeedsSignIn) onSignIn else onSyncNow,
-                        )
-                        SheetButton(R.string.zen_sync_sign_out, accent, primary = false, onClick = onSignOut)
+        PromptArea(area, Alignment.Center) {
+            val shape = RoundedCornerShape(20.dp)
+            Column(
+                cardModifier
+                    .padding(16.dp)
+                    .widthIn(max = 480.dp)
+                    .fillMaxWidth()
+                    .shadow(16.dp, shape)
+                    .background(EnsoColors.Card, shape)
+                    .clip(shape)
+                    // Taps inside the card shouldn't reach the dim layer and close it.
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(stringResource(R.string.zen_sync_title), style = EnsoType.SpaceName.copy(fontSize = 20.sp))
+                when (status) {
+                    ZenSyncStatus.Starting -> Text(stringResource(R.string.zen_sync_starting), style = EnsoType.Secondary)
+                    ZenSyncStatus.SignedOut -> {
+                        Text(stringResource(R.string.zen_sync_signed_out), style = EnsoType.Row)
+                        Text(stringResource(R.string.zen_sync_both_ways), style = EnsoType.Secondary)
+                        SheetButton(R.string.zen_sync_sign_in, accent, primary = true, onClick = onSignIn)
+                    }
+                    is ZenSyncStatus.SignedIn -> {
+                        status.email?.let { Text(it, style = EnsoType.RowTitle) }
+                        Text(stateText(status.state), style = EnsoType.Secondary)
+                        Text(stringResource(R.string.zen_sync_both_ways), style = EnsoType.Secondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            SheetButton(
+                                if (status.state == ZenSyncStatus.State.NeedsSignIn) R.string.zen_sync_sign_in else R.string.zen_sync_sync_now,
+                                accent,
+                                primary = true,
+                                onClick = if (status.state == ZenSyncStatus.State.NeedsSignIn) onSignIn else onSyncNow,
+                            )
+                            SheetButton(R.string.zen_sync_sign_out, accent, primary = false, onClick = onSignOut)
+                        }
                     }
                 }
             }

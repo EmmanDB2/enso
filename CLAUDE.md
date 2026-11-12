@@ -28,7 +28,9 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - Gecko's Enhanced Tracking Protection is on (`trackingProtection`, Standard by default). Standard blocks trackers' cookies; their scripts only under Strict.
 - Step 11, **site permissions** (`permissions/`), is done, built to the sketch the user approved: Ensō's card for a site's request, Android's own permission when it's missing, each site's answers remembered and shown in Site Settings, and site notifications while the site is open. Not yet checked on the Fold: the Allow path through Android's dialogs (the user's to grant), and a site notification showing.
 - Step 12, **downloads** (`downloads/`), is done, function first. Tested on the Fold: the prompt, saving to Downloads, the notification permission asked once, and the completion notification.
-- Current work: **a polish pass** after the build order: the downloads UI (the user put it off for later), Reader view, a check of the unfolded screen, and walking through what's untested on the phone. A read-only review of Zen sync is planned in its own session, run on Claude Fable.
+- The **polish pass** after the build order is done: the downloads UI, Reader view, Find unfolded, a check of the unfolded screen (the sync sheet now sits on the page card), and the untested features, which the user walked through on the phone. The ensō fidget is on the cover only.
+- Next: **a final pass by Claude Fable**, starting with a read-only review of Zen sync, in its own session.
+- **Zen's desktop sync was signed out** (Nov 2026): Zen on the Mac lost its Mozilla session around Nov 1 ("no session token"), so it stopped syncing while the phone kept going, and the two drifted apart. Ensō matched the server throughout. The user has to sign Zen back in; when they do, Zen's desktop applies the phone's changes since Oct 31 and sends its own, deletions included. A fresh snapshot was taken first (`device-backups/2026-11-11-190736-before-sync-check/`).
 - The start screen (board 9) has the ensō fidget (boards F1–F4), which the user asked for as a side piece alongside step 10. So does the app icon.
 - When a behavior could reasonably differ per person, the user wants it built behind a value in `Settings.kt` so it can become a setting later.
 
@@ -117,7 +119,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
     - `layout.essentials` maps a container guid ("default" for none) to tab ids.
     - Each space has a `container` and shows `essentialsFor(space)`.
     - A setting (`essentialsPerContainer`) turns this off to show every Essential everywhere, matching Zen's own option.
-  - **`ZenSync`:** runs the account and status. `ZenSyncSheet` (from ⋮ › Sync with Zen) shows the status.
+  - **`ZenSync`:** runs the account and status. `ZenSyncSheet` (from All settings › Sync with Zen) shows the status. Unfolded it's centered on the page card (`PromptArea`), not the window.
     - It syncs on start, every 5 minutes, and 3 seconds after a tab sheet edit (`localEdited`).
     - It never applies Zen's state over an edit made during a sync; it syncs again instead.
     - In dry-run it doesn't apply Zen's state while the phone has unsent changes, so the test edits survive.
@@ -406,6 +408,8 @@ The user browses with this build on the Fold, so its tabs are real.
 - **Never write to the user's Zen data without a snapshot.** The spaces collection is their real desktop setup.
   - The app saves a snapshot before its first write. Copy it into the backup folder with `adb shell run-as app.enso.browser cat files/zen-spaces-snapshot.json`.
   - To put the collection back (debug builds only): `adb shell am start -n app.enso.browser/.MainActivity --ez enso_restore_zen_snapshot true`.
+  - That snapshot is only taken once, so it can be old. To replace it with the collection as it is now (debug builds only, while Ensō is running, since the account isn't ready at a cold start): `--activity-single-top --ez enso_save_zen_snapshot true`. The log says "Saved a new snapshot of N records" (N counts deletions too). Copy the old one into the backup folder first.
+  - **Zen's own side:** the user's Zen runs on this Mac (profile `~/Library/Application Support/zen/Profiles/04fk82xa.Default (release)`). Read-only, `prefs.js` has `services.sync.lastSync` and `services.sync.spaces.lastSync`, and `weave/logs/error-sync-*.txt` says why a sync failed. When the phone and Zen disagree but the phone matches its mirror, check there first. Never edit that profile.
   - Try risky changes in dry-run first: set `zen_sync_dry_run` to true in the prefs file while the app is stopped. The log (tag `ZenSync`) lists each record it would send and which fields changed.
   - Test with your own tabs and folders in one space, then remove them, so the deletions get tested too.
   - The user may be changing things in Zen at the same time. Zen's tab, folder and split ids start with their creation time in milliseconds, which tells whether a record came from the phone's sync or from the desktop.

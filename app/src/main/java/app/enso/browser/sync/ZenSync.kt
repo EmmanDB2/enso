@@ -166,6 +166,22 @@ class ZenSync internal constructor(
         }
     }
 
+    /** Debug builds only: replaces the snapshot with Zen's collection as it is now, so a restore puts this back. */
+    fun saveSnapshot() {
+        val account = accountManager.authenticatedAccount() ?: return
+        scope.launch {
+            running.lock()
+            try {
+                val auth = authOf(account) ?: return@launch
+                withContext(Dispatchers.IO) { engine.saveSnapshot(auth) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Saving a snapshot failed", e)
+            } finally {
+                running.unlock()
+            }
+        }
+    }
+
     /** Syncs unless signed out, already syncing, or [minIntervalMs] hasn't passed since the last sync. */
     fun syncNow(minIntervalMs: Long = 0) {
         val account = accountManager.authenticatedAccount() ?: return

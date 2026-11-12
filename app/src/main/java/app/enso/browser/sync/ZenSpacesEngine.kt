@@ -88,6 +88,15 @@ internal class ZenSpacesEngine(
         uploaded.succeeded.size
     }
 
+    /** Replaces the snapshot with the collection as it is now (debug builds), say before another device's big sync. */
+    fun saveSnapshot(auth: SyncAuth): Int = retryingAuth {
+        val session = when (val opened = open(auth)) {
+            is Opened.Ready -> opened.session
+            is Opened.Stopped -> error("Can't take a snapshot: $opened")
+        }
+        snapshots.replace(downloadRaw(session.client).first)
+    }
+
     private fun <T> retryingAuth(block: () -> T): T = try {
         block()
     } catch (e: SyncAuthException) {
@@ -422,5 +431,14 @@ class ZenSnapshotStore(context: Context) {
         val snapshot = ZenSnapshot(System.currentTimeMillis(), records().map { Json.parseToJsonElement(it.toString()).jsonObject })
         file.writeText(json.encodeToString(snapshot))
         Log.i("ZenSync", "Saved a snapshot of ${snapshot.records.size} records before the first write")
+    }
+
+    /** Replaces the snapshot with [records], the whole collection as it is now. Returns how many it holds. */
+    @Synchronized
+    internal fun replace(records: List<JSONObject>): Int {
+        val snapshot = ZenSnapshot(System.currentTimeMillis(), records.map { Json.parseToJsonElement(it.toString()).jsonObject })
+        file.writeText(json.encodeToString(snapshot))
+        Log.i("ZenSync", "Saved a new snapshot of ${snapshot.records.size} records")
+        return snapshot.records.size
     }
 }
