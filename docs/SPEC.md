@@ -70,7 +70,7 @@ Behavior:
 - Extensions and Site Settings (a standard gear). Site Settings opens the site's settings, or All settings when there's no site on screen.
 - The bar's row: the launcher, "+", and the chevron as a dark ↓ that closes the sheet.
 
-**Bottom search (B4)**, in the style of Safari: the sheet sits directly on the keyboard, with no bar row.
+**Bottom search (B4)**, in the style of Safari: the sheet sits directly on the keyboard, with no bar row. It grows with its rows up to about 58% of the screen above the keyboard, as Arc Search's does, and scrolls past that.
 
 - At the top, the search field: a search icon, "Search or enter address", and a mic inside it (Android's voice typing, when a recognizer is installed; what's said is searched). A ✕ button beside it closes search.
 - Before typing, "Open tabs" lists the space's open Quick Tabs, latest first, at most 4, each with its favicon, title and "Switch to Tab".

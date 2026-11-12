@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.enso.browser.R
@@ -55,6 +57,8 @@ import kotlinx.coroutines.delay
  * worth switching to or opening. Before typing, the space's open Quick Tabs ([quickTabs], latest first). While
  * typing, matching open tabs, then history, then Google's suggestions in the rows that history leaves, so they take
  * over as the history thins out. The Quick Tab is made when a search is submitted, so ✕ leaves nothing behind.
+ * It grows with what it shows up to [maxHeight] (a share of the screen above the keyboard, as in Arc Search), and
+ * scrolls past that.
  */
 @Composable
 internal fun SearchSheet(
@@ -65,6 +69,7 @@ internal fun SearchSheet(
     mode: SearchMode,
     accent: Color,
     actions: BottomBarActions,
+    maxHeight: Dp,
 ) {
     val text = query.text.trim()
     val tabs = remember(spaces, quickTabs, text) {
@@ -84,7 +89,7 @@ internal fun SearchSheet(
         suggestions = actions.searchSuggestions(text).filterNot { it.equals(text, ignoreCase = true) }.take(MAX_ROWS - history.size)
     }
 
-    Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
         SearchField(query, onQueryChange, mode, accent, actions)
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
             if (tabs.isNotEmpty()) {
@@ -181,6 +186,9 @@ private fun SectionTitle(@StringRes title: Int) {
         modifier = Modifier.padding(start = 18.dp, top = 10.dp, bottom = 2.dp),
     )
 }
+
+/** The most of the screen above the keyboard that bottom search's contents take; with the bar's handle strip, about 58%. */
+internal const val SEARCH_SHEET_MAX_FRACTION = 0.55f
 
 /** At most this many open tabs. */
 private const val MAX_TABS = 4

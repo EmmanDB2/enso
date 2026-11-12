@@ -337,7 +337,7 @@ fun BottomBar(
                         content = settings.all,
                     )
                     BarPanel.Find -> FindBar(findMatch, colors.accent, actions::find, actions::findNext) { actions.showPanel(null) }
-                    BarPanel.Search -> SearchSheet(spaces, stack, query, { query = it }, searchMode, colors.accent, actions)
+                    BarPanel.Search -> SearchSheet(spaces, stack, query, { query = it }, searchMode, colors.accent, actions, maxHeight * SEARCH_SHEET_MAX_FRACTION)
                     BarPanel.Extensions -> ExtensionsPanel(extensions, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.ExtensionPage -> ExtensionPagePanel(
                         title = extensions.pageTitle.orEmpty(),
