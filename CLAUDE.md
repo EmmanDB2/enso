@@ -156,7 +156,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - The start screen shows when no tab is selected, when the selected tab belongs to another space, or when the app was away for `startScreenAfterMinutes`.
   - Tap it for bottom search on the cover, or the palette on the inner screen; swipe down for the tab sheet.
   - Back returns to the last tab.
-- `start/EnsoFidget.kt`: the ensō fidget on the blank page (spec: "The ensō fidget"; boards F1–F4), behind `showEnsoOnNewTabs`. It hides while the inner palette is open.
+- `start/EnsoFidget.kt`: the ensō fidget on the blank page (spec: "The ensō fidget"; boards F1–F4), behind `showEnsoOnNewTabs`, on the cover only unless `showEnsoUnfolded` is on. It hides while the inner palette is open.
   - **The stroke** is rebuilt from the spec's formula every frame it changes (`ensoStroke`, cached in `StrokeCache`), in the mark's 512 grid. enso-mark.svg's box is 50 to 462 of it, drawn at 240 dp. At rest it lies within 0.66 grid units of the SVG's main stroke (the SVG's rounding). The two strands are the SVG's paths, verbatim.
     - The stroke and strands draw into one layer (`saveLayer` with the ink's alpha) and fade together. Drawn separately, the translucent strands darkened wherever they crossed the stroke, which showed once the head looped over them.
   - **Touch:** its `pointerInput` only consumes a down that lands on the ring (`TOUCH_BAND`, 100 to 200 grid units from the center). Any other touch reaches the start screen's tap and swipe detector, because that detector's `awaitFirstDown` skips consumed downs.
@@ -357,6 +357,7 @@ Android browser for the Galaxy Z Fold 8, built on GeckoView and Mozilla Android 
   - `recentDownloadsHours` (default 24) is how long after a download the actions sheet and the ⋮ menu keep their Downloads button.
   - `readerColorsChosen` (app state) is set once the user picks Reader's colors; until then Reader follows Ensō's theme.
   - `showEnsoOnNewTabs` (default on) shows the ensō fidget on the blank start page.
+  - `showEnsoUnfolded` (default off) shows the fidget on the inner screen's start screen too. The user asked for it gone unfolded.
   - `lastStoppedAt`, `innerSidebarExpanded` (whether the inner screen shows the full sidebar) `bundledExtensionsInstalled` and `downloadNotificationsAsked` are app state, not preferences.
 - Colors and icons: use the `EnsoColors` tokens rather than raw colors. Icons are thin-line vector drawables (1.8 stroke) in `res/drawable`.
 

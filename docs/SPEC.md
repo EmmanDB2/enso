@@ -157,7 +157,7 @@ When no tab is open, or after the app has been away long enough (threshold to de
 
 ### The ensō fidget (boards F1–F4)
 
-In the middle of the blank page sits the ensō, about 240 dp, something to play with while you think. A setting, "Show ensō on new tabs" (on by default), hides it.
+In the middle of the blank page sits the ensō, about 240 dp, something to play with while you think. A setting, "Show ensō on new tabs" (on by default), hides it. It's on the cover only: unfolded, the start screen is a plain tinted page (`showEnsoUnfolded`, off by default, brings it back there).
 
 - **The stroke** is generated, not drawn from the SVG, so it can move. In the mark's 512×512 grid, centered on (256, 256), it sweeps from 124° to 432°, in about 140 samples:
   - Radius: 152 + 6t + 3·sin(2.2πt).

@@ -1384,7 +1384,7 @@ class MainActivity : ComponentActivity() {
                     .size(with(density) { cardRect.width.toDp() }, with(density) { cardRect.height.toDp() })
                     .clip(RoundedCornerShape(CardCorner)),
             ) {
-                StartScreen(spaces, 0.dp, paletteOpen, { paletteOpen = it }, startScreenActions, centered = true, showEnso = settings.showEnsoOnNewTabs)
+                StartScreen(spaces, 0.dp, paletteOpen, { paletteOpen = it }, startScreenActions, centered = true, showEnso = settings.showEnsoOnNewTabs && settings.showEnsoUnfolded)
             }
         }
         sidebarMenu?.let { target ->
