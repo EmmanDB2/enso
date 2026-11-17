@@ -17,6 +17,13 @@ data class SpacesState(
     val currentSpaceId: String,
     /** Zen splits the phone ended, kept until Zen has removed them too, so a sync can't bring them back. */
     val endedSplits: Set<String> = emptySet(),
+    /** Which state of Zen's spaces this model has taken in, or null before the first sync. */
+    val zenApplied: ZenStamp? = null,
+    /**
+     * Folders the phone deleted, kept until Zen has dropped them too. Sync deletes a folder there in two steps (it
+     * goes up emptied first), and until that's done a sync mustn't bring the folder back.
+     */
+    val deletedFolders: Set<String> = emptySet(),
 ) {
     val currentSpace: Space get() = spaces.first { it.id == currentSpaceId }
 
@@ -27,6 +34,18 @@ data class SpacesState(
         }
     }
 }
+
+/**
+ * The state of Zen's spaces a model reflects: the collection's server time and sync id at the last sync that was
+ * applied to it. Sync keeps the same with its own record of the server (the mirror) and compares them before it
+ * works out the phone's changes. A model put back from a backup, or saved while the mirror wasn't, no longer matches,
+ * and what it lacks must not be read as the user's deletions.
+ *
+ * [ownUploadAt] tells apart the mirrors that share a server time: after a sync the model didn't take in, the mirror
+ * stays at the old time but holds what the phone uploaded, and this is the server time of that upload.
+ */
+@Serializable
+data class ZenStamp(val lastModified: String?, val syncId: String?, val ownUploadAt: String? = null)
 
 @Serializable
 data class Space(
@@ -124,6 +143,8 @@ data class Folder(
     val expanded: Boolean = false,
     /** Tabs and subfolders, in order. Zen folders can nest. */
     val items: List<PinnedItem> = emptyList(),
+    /** Mirrors a folder record in Zen's spaces sync. Folders without it exist only on the phone (or aren't sent yet). */
+    val synced: Boolean = false,
 ) : PinnedItem {
     override val tabs: List<Tab> get() = items.flatMap { it.tabs }
     override val folders: List<Folder> get() = listOf(this) + items.flatMap { it.folders }

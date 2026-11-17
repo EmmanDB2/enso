@@ -25,7 +25,7 @@ enum class Setting {
     SyncOpenTabs, SyncNavigations, EssentialsPerContainer,
     Theme, PageZoom, CoverStatusBar, HideStatusBarUnfolded, PageBorder,
     UnfoldedPortrait, DesktopSitesUnfolded, DesktopSitesInSplit,
-    QuickTabLifetime, QuickTabsInSheet, StartScreenAfter, ShowEnso, SheetHeaderSwipe,
+    QuickTabLifetime, QuickTabsInSheet, StartScreenAfter, ShowEnso, SearchOnStart, SheetHeaderSwipe,
     HoldTime, LeftHanded, EdgeStrip,
     TrackingProtection, SearchSuggestions,
     UpdateExtensions,
@@ -57,15 +57,15 @@ fun AllSettingsContent(settings: Settings, zenStatus: ZenSyncStatus, actions: Al
 
     Column(modifier.fillMaxWidth()) {
         SettingsGroup(stringResource(R.string.settings_group_sync))
-        LinkRow(
+        SettingRow(
             stringResource(R.string.menu_zen_sync),
             when (zenStatus) {
                 ZenSyncStatus.Starting -> null
                 ZenSyncStatus.SignedOut -> stringResource(R.string.settings_zen_signed_out)
                 is ZenSyncStatus.SignedIn -> zenStatus.email ?: stringResource(R.string.settings_zen_signed_in)
             },
-            R.drawable.ic_sync,
-            actions::openZenSync,
+            // No icon, so its title lines up with the rows under it.
+            onClick = actions::openZenSync,
         )
         SwitchRow(
             stringResource(R.string.settings_sync_open_tabs),
@@ -182,6 +182,12 @@ fun AllSettingsContent(settings: Settings, zenStatus: ZenSyncStatus, actions: Al
             { on -> change(Setting.ShowEnso) { showEnsoOnNewTabs = on } },
         )
         SwitchRow(
+            stringResource(R.string.settings_search_on_start),
+            values.searchOnStartScreen,
+            { on -> change(Setting.SearchOnStart) { searchOnStartScreen = on } },
+            stringResource(R.string.settings_search_on_start_detail),
+        )
+        SwitchRow(
             stringResource(R.string.settings_sheet_header_swipe),
             values.switchSpacesFromSheetHeader,
             { on -> change(Setting.SheetHeaderSwipe) { switchSpacesFromSheetHeader = on } },
@@ -189,8 +195,9 @@ fun AllSettingsContent(settings: Settings, zenStatus: ZenSyncStatus, actions: Al
 
         SettingsGroup(stringResource(R.string.settings_group_space_menu))
         val holdLabel = stringResource(R.string.settings_hold_ms)
-        SliderRow(
+        StepperRow(
             stringResource(R.string.settings_hold_to_open),
+            subtitle = null,
             values.spaceMenuHoldMs,
             range = 200..600,
             step = 50,
@@ -257,6 +264,7 @@ private data class SettingsValues(
     val quickTabsInTabSheet: Boolean,
     val startScreenAfterMinutes: Int,
     val showEnsoOnNewTabs: Boolean,
+    val searchOnStartScreen: Boolean,
     val switchSpacesFromSheetHeader: Boolean,
     val spaceMenuHoldMs: Int,
     val spaceMenuLeftHanded: Boolean,
@@ -271,7 +279,7 @@ private data class SettingsValues(
                 syncOpenTabs, syncTabNavigations, essentialsPerContainer,
                 themeMode, pageZoomPercent, coverStatusBar, hideStatusBarUnfolded, innerPageBorder,
                 unfoldedPortraitLayout, desktopSitesUnfolded, desktopSitesInSplit,
-                quickTabLifetimeHours, quickTabsInTabSheet, startScreenAfterMinutes, showEnsoOnNewTabs, switchSpacesFromSheetHeader,
+                quickTabLifetimeHours, quickTabsInTabSheet, startScreenAfterMinutes, showEnsoOnNewTabs, searchOnStartScreen, switchSpacesFromSheetHeader,
                 spaceMenuHoldMs.toInt(), spaceMenuLeftHanded, spaceMenuStripHeight,
                 trackingProtection, searchSuggestions,
                 updateExtensions,

@@ -5,6 +5,7 @@ import android.util.AtomicFile
 import android.util.Log
 import androidx.core.util.readText
 import androidx.core.util.writeText
+import app.enso.browser.spaces.ZenStamp
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -24,9 +25,26 @@ sealed interface ZenSyncResult {
      * [received] records arrived or went, [sent] phone changes were uploaded, and [unsent] weren't (a dry run, or
      * the server refused them). [held] phone changes waited because Zen changed the same records: they go once
      * Zen's versions are applied.
+     *
+     * The engine saves neither mirror itself, because the mirror must never get ahead of the phone's model: the next
+     * sync would compare an old model with a new mirror and upload the difference, undoing what Zen changed.
+     *
+     * @property mirror Zen's collection after this sync. Save it once the phone's model has taken it in.
+     * @property unapplied What to save when the model doesn't take [mirror] in: the mirror the model reflects, plus
+     *   only what this sync uploaded, still at the old server time. The next sync then downloads Zen's changes again
+     *   and still counts them as Zen's.
+     * @property refusedDeletions Above 0 when the phone's changes held more deletions than one sync may send. None
+     *   of its changes went then; this is how many deletions there were.
      */
-    data class Synced(val mirror: ZenMirror, val received: Int, val sent: Int, val unsent: Int, val held: Int = 0) :
-        ZenSyncResult
+    data class Synced(
+        val mirror: ZenMirror,
+        val unapplied: ZenMirror,
+        val received: Int,
+        val sent: Int,
+        val unsent: Int,
+        val held: Int = 0,
+        val refusedDeletions: Int = 0,
+    ) : ZenSyncResult
 
     /** Firefox Sync hasn't set up this account's storage yet. */
     data object NotSetUp : ZenSyncResult
@@ -61,13 +79,14 @@ internal class SyncDevice(
 /**
  * Syncs Zen's "spaces" collection both ways, like Firefox's sync engines: meta/global says whether the collection is
  * in use, crypto/keys holds its key, and only records changed since the last sync are downloaded. Phone changes are
- * worked out against the [ZenMirror] (the last known server state), and Zen's version wins where both sides changed
- * the same record. Blocking; call off the main thread.
+ * worked out against the [ZenMirror] (the server state the phone's model last took in), and Zen's version wins where
+ * both sides changed the same record. A sync returns the new mirror for the caller to [save] once the model reflects
+ * it. Blocking; call off the main thread.
  */
 internal class ZenSpacesEngine(
     private val http: SyncHttp,
-    private val store: ZenMirrorStore,
-    private val snapshots: ZenSnapshotStore,
+    private val store: MirrorStore,
+    private val snapshots: SnapshotStore,
     private val clock: SyncClock = SyncClock(),
 ) {
     @Volatile
@@ -78,23 +97,39 @@ internal class ZenSpacesEngine(
     var backoffUntil: Long = 0L
         private set
 
-    /** Forgets everything about the server, for a sign out. The snapshot stays. */
+    /** Forgets everything about the server, for a sign out. The snapshots stay. */
     fun reset() {
         token = null
         known = null
+        snapshotChecked = null
         store.clear()
     }
 
+    /** The account, sync id and keys that the snapshot from before the first write is known to be of. */
+    @Volatile
+    private var snapshotChecked: List<String?>? = null
+
     /**
-     * Syncs. [localChanges] works out the phone's changes against the server records it's given. With [dryRun] they're
-     * only logged, never uploaded.
+     * Syncs. [localChanges] works out the phone's changes against the mirror it's given. With [dryRun] they're only
+     * logged, never uploaded.
+     *
+     * [applied] is the state of the collection the phone's model reflects. When the saved mirror is of another state
+     * (the model was put back from a backup, or one of the two files was saved and the other wasn't), the mirror is
+     * dropped: this sync downloads everything and uploads nothing.
      */
     fun sync(
         auth: SyncAuth,
         dryRun: Boolean,
         device: SyncDevice?,
-        localChanges: (Map<String, ZenRecord>) -> List<ZenChange>,
-    ): ZenSyncResult = retryingAuth { run(auth, dryRun, device, localChanges) }
+        applied: ZenStamp?,
+        localChanges: (ZenMirror) -> List<ZenChange>,
+    ): ZenSyncResult = retryingAuth { run(auth, dryRun, device, applied, localChanges) }
+
+    /**
+     * Saves what a sync returned: [ZenSyncResult.Synced.mirror] once the phone's model reflects it and is saved
+     * itself, or [ZenSyncResult.Synced.unapplied] when the model didn't take it in.
+     */
+    fun save(mirror: ZenMirror) = store.save(mirror)
 
     /** The storage user and the collection's server time that the last sync left, for [serverChanged]. */
     @Volatile
@@ -102,26 +137,43 @@ internal class ZenSpacesEngine(
 
     /**
      * Whether the spaces collection changed on the server since the last sync: one small request (and a token now
-     * and then), cheap enough to ask every few seconds while the app is open.
+     * and then), cheap enough to ask every few seconds while the app is open. A collection that has nothing in it,
+     * on the server and on the phone, hasn't changed.
      */
     fun serverChanged(auth: SyncAuth): Boolean = retryingAuth {
         val token = currentToken(auth)
         val client = StorageClient(http, token, clock) { seconds -> backoffUntil = clock.millis() + seconds * MILLIS }
         val (uid, lastModified) = known ?: store.load().let { (it.storageUid to it.lastModified).also { pair -> known = pair } }
-        if (uid != token.uid || lastModified == null) return@retryingAuth true
+        if (uid != token.uid) return@retryingAuth true
         val info = JSONObject(client.expect("GET", "info/collections").body)
-        val server = timestampOf(info.opt(COLLECTION)) ?: return@retryingAuth true
+        val server = timestampOf(info.opt(COLLECTION))
+        if (server == null || lastModified == null) return@retryingAuth server != lastModified
         isNewerTimestamp(server, lastModified) || isNewerTimestamp(lastModified, server)
     }
 
-    /** Puts the collection back as the snapshot taken before the first write. Returns the records written. */
-    fun restoreSnapshot(auth: SyncAuth): Int = retryingAuth {
-        val snapshot = snapshots.load() ?: error("There's no snapshot to restore")
+    /**
+     * Puts the collection back as a snapshot has it: the one from before the first write, or the kept one called
+     * [name]. It uploads the snapshot's records as they are and deletes every other record, so it only goes ahead
+     * with a snapshot of this account that the account's keys can read: records of another account, or from before
+     * a password reset, would arrive unreadable while everything readable was deleted. What's there now is kept
+     * first, so a restore can itself be put back. Returns the records written.
+     */
+    fun restoreSnapshot(auth: SyncAuth, name: String? = null): Int = retryingAuth {
+        val snapshot = snapshots.load(name) ?: error("There's no snapshot to restore")
         val session = when (val opened = open(auth)) {
             is Opened.Ready -> opened.session
             is Opened.Stopped -> error("Can't restore: $opened")
         }
+        check(snapshot.records.isNotEmpty()) { "Can't restore: the snapshot is empty" }
+        check(snapshot.storageUid == null || snapshot.storageUid == session.mirror.storageUid) {
+            "Can't restore: the snapshot is of another account, or from before this one's storage was reset"
+        }
+        check(snapshot.readsWith(session.keys)) { "Can't restore: the account's keys can't read the snapshot's records" }
+        if (snapshot.storageUid != null && !snapshot.isOf(session.mirror)) {
+            Log.w(TAG, "The snapshot is from before the collection was reset; its records still read, so restoring it")
+        }
         val (current, modified) = downloadRaw(session.client)
+        snapshots.keep("before-restore-${modified ?: clock.millis()}") { snapshotOf(session, current, "before a restore") }
         val kept = snapshot.records.map { it.getValue("id").jsonPrimitive.content }.toSet()
         val bodies = snapshot.records.map { record ->
             val id = record.getValue("id").jsonPrimitive.content
@@ -134,13 +186,79 @@ internal class ZenSpacesEngine(
         uploaded.succeeded.size
     }
 
-    /** Replaces the snapshot with the collection as it is now (debug builds), say before another device's big sync. */
+    /**
+     * Replaces the snapshot with the collection as it is now (debug builds), say before another device's big sync.
+     * The one it replaces is kept aside.
+     */
     fun saveSnapshot(auth: SyncAuth): Int = retryingAuth {
         val session = when (val opened = open(auth)) {
             is Opened.Ready -> opened.session
             is Opened.Stopped -> error("Can't take a snapshot: $opened")
         }
-        snapshots.replace(downloadRaw(session.client).first)
+        val snapshot = snapshotOf(session, downloadRaw(session.client).first, "saved by hand")
+        snapshots.load()?.let { replaced -> snapshots.keep("replaced-${replaced.savedAt}") { replaced } }
+        snapshots.save(snapshot)
+        snapshotChecked = session.mirror.identity
+        Log.i(TAG, "Saved a new snapshot of ${snapshot.records.size} records")
+        snapshot.records.size
+    }
+
+    /**
+     * Makes sure the snapshot from before the first write is of this account's collection under the keys it has now,
+     * taking one if not, before the phone writes. One of another account, or from before the collection or its keys
+     * were reset, is kept aside: it couldn't be restored here, and this account needs its own.
+     */
+    private fun snapshotBeforeWriting(session: Session) {
+        val identity = session.mirror.identity
+        if (snapshotChecked == identity) return
+        val saved = snapshots.load()
+        when {
+            saved != null && saved.isOf(session.mirror) -> Unit
+            // From before snapshots said whose they were: it's this account's if the account's keys read it.
+            saved != null && saved.storageUid == null && saved.readsWith(session.keys) ->
+                snapshots.save(saved.copy(storageUid = identity[0], syncId = identity[1], keysModified = identity[2]))
+            else -> {
+                val snapshot = snapshotOf(session, downloadRaw(session.client).first, "before the first write")
+                if (saved != null) snapshots.keep("replaced-${saved.savedAt}") { saved }
+                snapshots.save(snapshot)
+                Log.i(TAG, "Saved a snapshot of ${snapshot.records.size} records before the first write")
+            }
+        }
+        snapshotChecked = identity
+    }
+
+    /**
+     * Keeps [mirror], the collection as the phone knew it, as a snapshot called [name], before [what] happens to it.
+     * The records are encrypted again as the server holds them, so it restores like any other. Failing to keep one
+     * never stops a sync.
+     */
+    private fun keepSnapshotOf(session: Session, mirror: ZenMirror, name: String, what: String) {
+        try {
+            val kept = snapshots.keep(name) {
+                snapshotOf(session, mirror.records.values.map { JSONObject(record(session.keys, it)) }, "before $what")
+            }
+            if (kept) Log.i(TAG, "Kept a snapshot of the ${mirror.records.size} records from before $what, as $name")
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't keep a snapshot from before $what", e)
+        }
+    }
+
+    private fun snapshotOf(session: Session, records: List<JSONObject>, reason: String) = ZenSnapshot(
+        savedAt = clock.millis(),
+        records = records.map { json.parseToJsonElement(it.toString()).jsonObject },
+        storageUid = session.mirror.storageUid,
+        syncId = session.mirror.syncId,
+        keysModified = session.mirror.keysModified,
+        reason = reason,
+    )
+
+    private val ZenMirror.identity: List<String?> get() = listOf(storageUid, syncId, keysModified)
+
+    private fun ZenSnapshot.isOf(mirror: ZenMirror): Boolean = listOf(storageUid, syncId, keysModified) == mirror.identity
+
+    /** Whether [keys] read every record of this snapshot. */
+    private fun ZenSnapshot.readsWith(keys: KeyBundle): Boolean = records.all { record ->
+        runCatching { keys.decrypt(JSONObject(record.getValue("payload").jsonPrimitive.content)) }.isSuccess
     }
 
     private fun <T> retryingAuth(block: () -> T): T = try {
@@ -156,74 +274,140 @@ internal class ZenSpacesEngine(
         auth: SyncAuth,
         dryRun: Boolean,
         device: SyncDevice?,
-        localChanges: (Map<String, ZenRecord>) -> List<ZenChange>,
+        applied: ZenStamp?,
+        localChanges: (ZenMirror) -> List<ZenChange>,
     ): ZenSyncResult {
-        val session = when (val opened = open(auth)) {
+        val session = when (val opened = open(auth) { it.stamp == (applied ?: ZenStamp(null, null)) }) {
             is Opened.Ready -> opened.session
             is Opened.Stopped -> return opened.result
         }
-        var mirror = session.mirror
-        val outgoing = localChanges(mirror.records)
+        // The server state the phone's model reflects: what its changes are worked out against.
+        val base = session.mirror
+        val outgoing = localChanges(base)
 
         // Download what changed on the server.
-        val records = mirror.records.toMutableMap()
-        val incoming = mutableSetOf<String>()
-        var lastModified = mirror.lastModified
+        val records = base.records.toMutableMap()
+        val unread = base.unread.toMutableSet()
+        val gone = base.gone.toMutableSet()
+        var lastModified = base.lastModified
         val serverModified = session.serverModified
         if (serverModified == null) {
-            incoming += records.keys
             records.clear()
+            unread.clear()
+            gone.clear()
             lastModified = null
         } else {
             if (lastModified != null && isNewerTimestamp(lastModified, serverModified)) {
                 Log.i(TAG, "The spaces collection was emptied on the server; downloading everything")
-                incoming += records.keys
                 records.clear()
+                unread.clear()
+                gone.clear()
                 lastModified = null
             }
-            if (lastModified == null || isNewerTimestamp(serverModified, lastModified)) {
-                val modified = download(session.client, session.keys, since = lastModified) { id, record ->
-                    incoming += id
-                    if (record == null) records.remove(id) else records[id] = record
+            val take: (String, ZenRecord?) -> Unit = { id, record ->
+                unread -= id
+                if (record == null) {
+                    records.remove(id)
+                    gone += id
+                } else {
+                    records[id] = record
+                    gone -= id
                 }
+            }
+            // First what couldn't be read before, in case it can be now; a newer version comes with the rest.
+            if (unread.isNotEmpty()) unread -= downloadAgain(session.client, session.keys, unread.toList(), take)
+            if (lastModified == null || isNewerTimestamp(serverModified, lastModified)) {
+                val modified = download(session.client, session.keys, since = lastModified, onUnread = { unread += it }, take)
                 lastModified = modified ?: serverModified
             }
         }
+        // What Zen changed: the records that now differ from the mirror's copies. A download can also bring back
+        // what the phone itself uploaded (after a sync its model didn't take in, the mirror stays at the old server
+        // time); the mirror has those already, so they don't count.
+        val incoming = (base.records.keys + records.keys).filterTo(mutableSetOf()) { base.records[it] != records[it] }
 
-        // Upload the phone's changes, except where Zen changed the same record.
-        val held = outgoing.count { it.id in incoming }
-        var toSend = outgoing.filterNot { it.id in incoming }
-        val deletions = toSend.count { it.record == null }
-        if (deletions > MAX_DELETIONS_PER_SYNC) {
-            Log.w(TAG, "Not deleting $deletions records in one sync; that looks like lost data, not a choice")
-            toSend = toSend.filter { it.record != null }
+        // Upload the phone's changes, except where Zen changed the same record, whether or not that could be read.
+        // A folder's deletion also waits while anything could be in the folder, because Zen deletes the tabs it has
+        // in a folder along with it: a record this download brought says it's in there, or a record couldn't be
+        // read, and that one could be anywhere.
+        val waits = { change: ZenChange ->
+            change.id in incoming || change.id in unread ||
+                (change.record == null && base.records[change.id]?.kind == KIND_FOLDER &&
+                    (unread.isNotEmpty() || records.values.any { it.isIn(change.id) }))
+        }
+        val held = outgoing.count(waits)
+        val toSend = outgoing.filterNot(waits)
+        // More deletions than a person makes between two syncs look like a model that lost its tabs. Then nothing of
+        // this sync goes up: not the deletions, and not the parents that no longer list what would be deleted.
+        val refusedDeletions = toSend.count { it.record == null }.takeIf { it > MAX_DELETIONS_PER_SYNC } ?: 0
+        if (refusedDeletions > 0) {
+            Log.w(TAG, "Not sending anything: $refusedDeletions deletions in one sync look like lost data, not a choice")
+        }
+        val sending = !dryRun && refusedDeletions == 0
+        // Several records going at once is when a copy of the collection is worth having, whoever deletes them. The
+        // phone's own deletions have their guard; nothing guards the ones that arrive, and Zen has had bugs that
+        // emptied spaces. The mirror is the collection as it was just before.
+        val deletions = maxOf(base.records.keys.count { it !in records }, toSend.count { it.record == null })
+        if (deletions >= SNAPSHOT_AT_DELETIONS) {
+            keepSnapshotOf(session, base, "before-deletions-${base.lastModified}", "$deletions deletions")
         }
         var sent = 0
         var unsent = toSend.size
+        var uploadedChanges = emptyList<ZenChange>()
+        var uploadedAt: String? = null
         if (toSend.isNotEmpty()) {
-            toSend.forEach { Log.i(TAG, "${if (dryRun) "Would send" else "Sending"} ${describe(it, mirror.records)}") }
-            if (!dryRun) {
-                snapshots.saveIfMissing { downloadRaw(session.client).first }
+            toSend.forEach { Log.i(TAG, "${if (sending) "Sending" else "Would send"} ${describe(it, base.records)}") }
+            if (sending) {
+                snapshotBeforeWriting(session)
                 val bodies = toSend.map { change ->
                     change.id to (change.record?.let { record(session.keys, it) } ?: tombstone(session.keys, change.id))
                 }
                 val uploaded = upload(session.client, bodies, lastModified, limits(session.client))
-                for (change in toSend.filter { it.id in uploaded.succeeded }) {
-                    if (change.record == null) records.remove(change.id) else records[change.id] = change.record
-                }
+                uploadedChanges = toSend.filter { it.id in uploaded.succeeded }
+                // A server that gave no time for the upload still has to leave a mark the stamp can tell apart.
+                if (uploadedChanges.isNotEmpty()) uploadedAt = uploaded.lastModified ?: "at ${clock.millis()}"
                 lastModified = uploaded.lastModified ?: lastModified
                 sent = uploaded.succeeded.size
                 unsent = toSend.size - sent
             }
         }
 
-        mirror = mirror.copy(records = records, lastModified = lastModified, lastSynced = clock.millis())
-        if (device != null) mirror = withDeviceRecord(session, mirror, device, dryRun)
-        store.save(mirror)
+        val now = clock.millis()
+        var mirror = base.copy(
+            records = records.withChanges(uploadedChanges),
+            lastModified = lastModified,
+            ownUploadAt = null,
+            lastSynced = now,
+            unread = unread,
+        ).withGone(gone, uploadedChanges)
+        var unapplied = base.copy(
+            records = base.records.withChanges(uploadedChanges),
+            ownUploadAt = uploadedAt ?: base.ownUploadAt,
+            lastSynced = now,
+        ).withGone(base.gone, uploadedChanges)
+        if (device != null) {
+            mirror = withDeviceRecord(session, mirror, device, dryRun)
+            unapplied = unapplied.copy(deviceRecord = mirror.deviceRecord, deviceUploadedAt = mirror.deviceUploadedAt)
+        }
+        // The server time this sync saw, whichever mirror ends up saved: only a later change is news to the check.
         known = mirror.storageUid to mirror.lastModified
-        Log.i(TAG, "Synced: ${records.size} records, ${incoming.size} received, $sent sent" + if (held > 0) ", $held held" else "")
-        return ZenSyncResult.Synced(mirror, received = incoming.size, sent = sent, unsent = unsent, held = held)
+        Log.i(TAG, "Synced: ${mirror.records.size} records, ${incoming.size} received, $sent sent" + if (held > 0) ", $held held" else "")
+        return ZenSyncResult.Synced(mirror, unapplied, received = incoming.size, sent, unsent, held, refusedDeletions)
     }
+
+    /** These records with [changes] put over them. */
+    private fun Map<String, ZenRecord>.withChanges(changes: List<ZenChange>): Map<String, ZenRecord> {
+        if (changes.isEmpty()) return this
+        val result = toMutableMap()
+        for (change in changes) {
+            if (change.record == null) result.remove(change.id) else result[change.id] = change.record
+        }
+        return result
+    }
+
+    /** This mirror noting the deleted ids: [gone], and the deletions among the uploaded [changes]. */
+    private fun ZenMirror.withGone(gone: Set<String>, changes: List<ZenChange>): ZenMirror =
+        copy(gone = (gone + changes.filter { it.record == null }.map { it.id }).filterTo(mutableSetOf()) { it !in records })
 
     private class Session(
         val client: StorageClient,
@@ -236,7 +420,9 @@ internal class ZenSpacesEngine(
 
     /**
      * Puts this phone's record in the account's Sync device list when it's new, changed, or due again (Firefox
-     * ignores device records older than a week), and notes it in [mirror]. A failure only waits for the next sync.
+     * ignores device records older than a week), and notes it in [mirror]. A failure only waits for the next sync,
+     * whatever it is: the phone's changes to the spaces are on the server by now, and a sync that failed here would
+     * leave the mirror without them.
      */
     private fun withDeviceRecord(session: Session, mirror: ZenMirror, device: SyncDevice, dryRun: Boolean): ZenMirror {
         val uploadedAt = mirror.deviceUploadedAt
@@ -274,8 +460,10 @@ internal class ZenSpacesEngine(
             }
             Log.i(TAG, "Added this phone to the Sync device list as ${device.recordId}")
             mirror.copy(deviceRecord = device.fingerprint, deviceUploadedAt = clock.millis())
-        } catch (e: SyncServerException) {
+        } catch (e: Exception) {
             Log.w(TAG, "Couldn't add this phone to the Sync device list", e)
+            // The next sync asks for a new token, as it would have if this had failed the sync.
+            if (e is SyncAuthException) token = null
             mirror
         }
     }
@@ -286,13 +474,23 @@ internal class ZenSpacesEngine(
         data class Stopped(val result: ZenSyncResult) : Opened
     }
 
-    /** Gets a token, checks meta/global and crypto/keys, and loads the mirror (reset if the server was reset). */
+    /**
+     * Gets a token, checks meta/global and crypto/keys, and loads the mirror (reset if the server was reset). A saved
+     * mirror that isn't the one the phone's model [reflects] is dropped: it only keeps what it says of the device
+     * record, which has nothing to do with the model.
+     */
     @Suppress("ReturnCount")
-    private fun open(auth: SyncAuth): Opened {
+    private fun open(auth: SyncAuth, reflects: (ZenMirror) -> Boolean = { true }): Opened {
         val syncKeys = KeyBundle.fromSyncKey(auth.syncKey)
         val token = currentToken(auth)
         val client = StorageClient(http, token, clock) { seconds -> backoffUntil = clock.millis() + seconds * MILLIS }
         var mirror = store.load()
+        // What the phone knew of the collection, when it's found to have been reset on the server.
+        var reset: ZenMirror? = null
+        if (!reflects(mirror)) {
+            Log.w(TAG, "The phone's spaces don't reflect the saved mirror; downloading everything and uploading nothing")
+            mirror = ZenMirror(storageUid = mirror.storageUid, deviceRecord = mirror.deviceRecord, deviceUploadedAt = mirror.deviceUploadedAt)
+        }
         if (mirror.storageUid != token.uid) mirror = ZenMirror(storageUid = token.uid)
 
         val info = JSONObject(client.expect("GET", "info/collections").body)
@@ -308,8 +506,18 @@ internal class ZenSpacesEngine(
         if (version > ENGINE_VERSION) return Opened.Stopped(ZenSyncResult.NeedsUpdate(version))
         if (version < ENGINE_VERSION || syncId == null) return Opened.Stopped(ZenSyncResult.NotTurnedOn)
         if (syncId != mirror.syncId) {
-            Log.i(TAG, "The spaces collection was set up or reset elsewhere; downloading everything")
-            mirror = ZenMirror(storageUid = token.uid, syncId = syncId)
+            // A mirror that starts over (dropped above, or new) has no sync id yet either. The device record is in
+            // another collection, so what the mirror says of it still holds.
+            if (mirror.syncId != null) {
+                Log.i(TAG, "The spaces collection was set up or reset elsewhere; downloading everything")
+                reset = mirror
+            }
+            mirror = ZenMirror(
+                storageUid = token.uid,
+                syncId = syncId,
+                deviceRecord = mirror.deviceRecord,
+                deviceUploadedAt = mirror.deviceUploadedAt,
+            )
         }
 
         val keysResponse = client.expect("GET", "storage/crypto/keys", allowed = setOf(HTTP_NOT_FOUND))
@@ -321,20 +529,28 @@ internal class ZenSpacesEngine(
         val keysModified = keysResponse.header("X-Last-Modified")
         if (mirror.keysModified != null && keysModified != mirror.keysModified) {
             Log.i(TAG, "The collection keys changed; downloading everything")
+            reset = reset ?: mirror
             mirror = ZenMirror(storageUid = token.uid, syncId = syncId)
         }
         mirror = mirror.copy(keysModified = keysModified)
-        return Opened.Ready(Session(client, bundle, mirror, timestampOf(info.opt(COLLECTION)), keys))
+        val session = Session(client, bundle, mirror, timestampOf(info.opt(COLLECTION)), keys)
+        // A reset can be another device starting the collection over with less in it, so what was there is kept.
+        reset?.takeIf { it.records.isNotEmpty() }?.let { keepSnapshotOf(session, it, "before-reset-${it.lastModified}", "the collection was reset") }
+        return Opened.Ready(session)
     }
 
     private fun currentToken(auth: SyncAuth): SyncToken =
         token?.takeIf { it.expiresAt > clock.millis() } ?: TokenServerClient(http, clock).fetch(auth).also { token = it }
 
-    /** Downloads records changed since [since], passing each to [onRecord] (null for a deletion). */
+    /**
+     * Downloads records changed since [since], passing each to [onRecord] (null for a deletion), and the id of each
+     * one that couldn't be read to [onUnread].
+     */
     private fun download(
         client: StorageClient,
         keys: KeyBundle,
         since: String?,
+        onUnread: (String) -> Unit,
         onRecord: (String, ZenRecord?) -> Unit,
     ): String? {
         var skipped = 0
@@ -342,10 +558,42 @@ internal class ZenSpacesEngine(
             val id = bso.optString("id").ifEmpty { return@pages }
             runCatching { parse(id, keys.decrypt(JSONObject(bso.getString("payload")))) }
                 .onSuccess { onRecord(id, it) }
-                .onFailure { skipped++ }
+                .onFailure {
+                    skipped++
+                    onUnread(id)
+                }
         }
         if (skipped > 0) Log.w(TAG, "Skipped $skipped records that couldn't be read")
         return modified
+    }
+
+    /**
+     * Asks for the records [ids] again, which couldn't be read at an earlier sync, and passes the ones that can be
+     * now to [onRecord]. Returns the ids the server no longer holds anything for, which are done with: the phone
+     * keeps what it had of them. If the request fails, they all wait for the next sync.
+     */
+    private fun downloadAgain(
+        client: StorageClient,
+        keys: KeyBundle,
+        ids: List<String>,
+        onRecord: (String, ZenRecord?) -> Unit,
+    ): Set<String> {
+        val asked = ids.take(MAX_IDS_PER_REQUEST)
+        val query = "full=1&ids=" + asked.joinToString(",") { URLEncoder.encode(it, "UTF-8") }
+        val items = try {
+            JSONArray(client.expect("GET", "storage/$COLLECTION?$query").body)
+        } catch (e: SyncServerException) {
+            Log.w(TAG, "Couldn't ask again for ${asked.size} records that couldn't be read", e)
+            return emptySet()
+        }
+        val gone = asked.toMutableSet()
+        for (index in 0 until items.length()) {
+            val bso = items.optJSONObject(index) ?: continue
+            val id = bso.optString("id").ifEmpty { continue }
+            gone -= id
+            runCatching { parse(id, keys.decrypt(JSONObject(bso.getString("payload")))) }.onSuccess { onRecord(id, it) }
+        }
+        return gone
     }
 
     /** Every record of the collection as the server stores it (still encrypted), and the collection's time. */
@@ -504,7 +752,13 @@ internal class ZenSpacesEngine(
         private const val DEVICE_REFRESH_MS = 6 * 24 * 60 * 60 * 1000L
 
         /** More deletions than this in one sync look like lost data rather than closed tabs. */
-        private const val MAX_DELETIONS_PER_SYNC = 10
+        const val MAX_DELETIONS_PER_SYNC = 10
+
+        /** A sync that brings or sends this many deletions keeps a snapshot of the collection from before them. */
+        const val SNAPSHOT_AT_DELETIONS = 5
+
+        /** The most ids the storage server takes in one request. */
+        private const val MAX_IDS_PER_REQUEST = 100
 
         private const val STORAGE_VERSION = 5
         private const val PAGE_SIZE = 1000
@@ -518,37 +772,81 @@ internal class ZenSpacesEngine(
     }
 }
 
-/** The whole encrypted collection as it was before the phone first wrote to it. */
+/**
+ * The whole encrypted collection at one moment, as the server held it, so it can be put back.
+ *
+ * @property storageUid The storage user it's of, with [syncId] and [keysModified] (the collection's sync id, and the
+ *   time of the account's keys). Null in a snapshot from before snapshots said whose they were.
+ * @property reason Why it was taken, for whoever looks at the file.
+ */
 @Serializable
-data class ZenSnapshot(val savedAt: Long, val records: List<JsonObject>)
+data class ZenSnapshot(
+    val savedAt: Long,
+    val records: List<JsonObject>,
+    val storageUid: String? = null,
+    val syncId: String? = null,
+    val keysModified: String? = null,
+    val reason: String? = null,
+)
 
-/** Keeps the [ZenSnapshot], taken once, before the first write, so the collection can be put back. */
-class ZenSnapshotStore(context: Context) {
-    private val file = AtomicFile(File(context.filesDir, "zen-spaces-snapshot.json"))
+/**
+ * Where the engine keeps its [ZenSnapshot]s: the one from before the phone's first write to the account's collection,
+ * and a few more kept aside by name.
+ */
+internal interface SnapshotStore {
+    /** The snapshot from before the first write, or the kept one called [name]. */
+    fun load(name: String? = null): ZenSnapshot?
+
+    /** Saves [snapshot] as the one from before the first write. */
+    fun save(snapshot: ZenSnapshot)
+
+    /**
+     * Keeps [snapshot] aside as [name] unless one of that name is there, and drops the oldest beyond a few. Returns
+     * whether it was kept.
+     */
+    fun keep(name: String, snapshot: () -> ZenSnapshot): Boolean
+}
+
+/**
+ * Keeps the snapshots in files: `zen-spaces-snapshot.json` from before the first write, and the ones kept aside in
+ * `zen-snapshots/`, the latest [MAX_KEPT] of them.
+ */
+internal class ZenSnapshotStore(context: Context) : SnapshotStore {
+    private val first = AtomicFile(File(context.filesDir, "zen-spaces-snapshot.json"))
+    private val keptDir = File(context.filesDir, "zen-snapshots")
     private val json = Json { ignoreUnknownKeys = true }
 
     @Synchronized
-    fun load(): ZenSnapshot? =
-        try {
+    override fun load(name: String?): ZenSnapshot? {
+        val file = if (name == null) first else AtomicFile(keptFile(name) ?: return null)
+        return try {
             json.decodeFromString<ZenSnapshot>(file.readText())
         } catch (_: FileNotFoundException) {
             null
+        } catch (e: Exception) {
+            Log.w("ZenSync", "Couldn't read the snapshot ${name.orEmpty()}", e)
+            null
         }
-
-    @Synchronized
-    internal fun saveIfMissing(records: () -> List<JSONObject>) {
-        if (file.baseFile.exists()) return
-        val snapshot = ZenSnapshot(System.currentTimeMillis(), records().map { Json.parseToJsonElement(it.toString()).jsonObject })
-        file.writeText(json.encodeToString(snapshot))
-        Log.i("ZenSync", "Saved a snapshot of ${snapshot.records.size} records before the first write")
     }
 
-    /** Replaces the snapshot with [records], the whole collection as it is now. Returns how many it holds. */
     @Synchronized
-    internal fun replace(records: List<JSONObject>): Int {
-        val snapshot = ZenSnapshot(System.currentTimeMillis(), records.map { Json.parseToJsonElement(it.toString()).jsonObject })
-        file.writeText(json.encodeToString(snapshot))
-        Log.i("ZenSync", "Saved a new snapshot of ${snapshot.records.size} records")
-        return snapshot.records.size
+    override fun save(snapshot: ZenSnapshot) = first.writeText(json.encodeToString(snapshot))
+
+    @Synchronized
+    override fun keep(name: String, snapshot: () -> ZenSnapshot): Boolean {
+        val file = keptFile(name) ?: return false
+        if (file.exists()) return false
+        keptDir.mkdirs()
+        AtomicFile(file).writeText(json.encodeToString(snapshot()))
+        keptDir.listFiles().orEmpty().sortedByDescending { it.lastModified() }.drop(MAX_KEPT).forEach { it.delete() }
+        return true
+    }
+
+    /** The file of the kept snapshot [name], or null for a name that can't be one (it can come from a command). */
+    private fun keptFile(name: String): File? = name.takeIf { NAME.matches(it) }?.let { File(keptDir, "$it.json") }
+
+    private companion object {
+        const val MAX_KEPT = 5
+        val NAME = Regex("[A-Za-z0-9._-]+")
     }
 }

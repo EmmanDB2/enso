@@ -74,7 +74,6 @@ import app.enso.browser.spaces.TabEntry
 import app.enso.browser.spaces.TabPlace
 import app.enso.browser.spaces.find
 import app.enso.browser.spaces.space
-import app.enso.browser.spaces.toggleFolder
 import app.enso.browser.toolbar.AddressInput
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
@@ -88,6 +87,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import mozilla.components.support.ktx.util.URLStringUtils
 import kotlin.math.abs
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.input.pointer.PointerEventPass
 
 /** What the tab sheet asks the app to do. */
 interface TabSheetActions {
@@ -102,7 +103,11 @@ interface TabSheetActions {
     /** Opens what was typed in the search field as a new tab. */
     fun open(input: String)
 
+    /** Changes spaces, tabs or folders in a way that syncs to Zen. */
     fun edit(transform: (SpacesState) -> SpacesState)
+
+    /** Opens or closes a folder. That stays on the phone, so it isn't an [edit]: sync has nothing to send for it. */
+    fun toggleFolder(folderId: String)
 
     /** Moves to the next (+1) or previous (-1) space. False when there's none. */
     fun switchSpace(step: Int): Boolean
@@ -611,10 +616,29 @@ internal fun SwipeToClose(
     content: @Composable () -> Unit,
 ) {
     val state = rememberSwipeToDismissBoxState()
-    val scope = rememberCoroutineScope()
+    val swiped by rememberUpdatedState(onSwiped)
+    var fingerDown by remember { mutableStateOf(false) }
+    LaunchedEffect(state, action) {
+        // Closes as soon as the finger lifts on a swipe that's going to dismiss, rather than once the row has finished
+        // sliding away: that spring's slow tail held the rows below in place for a second or two.
+        while (true) {
+            snapshotFlow { !fingerDown && state.targetValue != SwipeToDismissBoxValue.Settled }.first { it }
+            // A frame for a fling back to settle on its own target first.
+            withFrameNanos { }
+            if (state.targetValue == SwipeToDismissBoxValue.Settled) continue
+            swiped()
+            if (action != SwipeAction.Unload) break
+            // Unloading keeps the row, back at rest, ready for the next swipe.
+            state.reset()
+        }
+    }
     SwipeToDismissBox(
         state = state,
-        modifier = modifier,
+        modifier = modifier.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) fingerDown = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
+            }
+        },
         backgroundContent = {
             // Only while swiping, so it can't peek around rounded corners at rest.
             if (state.dismissDirection == SwipeToDismissBoxValue.Settled) return@SwipeToDismissBox
@@ -635,10 +659,6 @@ internal fun SwipeToClose(
                     tint = Color.White,
                 )
             }
-        },
-        onDismiss = {
-            onSwiped()
-            if (action == SwipeAction.Unload) scope.launch { state.reset() }
         },
     ) { content() }
 }
@@ -662,7 +682,7 @@ internal fun FolderRow(
             .clip(RoundedCornerShape(12.dp))
             .spaceSurface(colors)
             .combinedClickable(
-                onClick = { actions.edit { it.toggleFolder(folder.id) } },
+                onClick = { actions.toggleFolder(folder.id) },
                 onLongClick = onLongClick?.let { { it(MenuTarget.ForFolder(folder.id, bounds)) } },
             )
             .padding(start = 12.dp + FolderIndent * depth, end = 12.dp),

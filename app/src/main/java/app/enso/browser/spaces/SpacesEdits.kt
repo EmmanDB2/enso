@@ -118,6 +118,9 @@ fun SpacesState.addToEssentials(tabId: String): SpacesState {
 
 fun SpacesState.moveToFolder(tabId: String, folderId: String): SpacesState {
     val entry = find(tabId) ?: return this
+    // A menu can still list a folder that a sync has just taken away. Without this the tab left every list, and
+    // the next sync deleted it from Zen.
+    if (spaces.none { space -> space.folders.any { it.id == folderId } }) return this
     return removeTab(tabId).updateFolder(folderId) { it.copy(items = it.items + PinnedTab(entry.tab.asPinned())) }
 }
 
@@ -139,9 +142,15 @@ fun SpacesState.toggleFolder(folderId: String) = updateFolder(folderId) { it.cop
 
 fun SpacesState.renameFolder(folderId: String, name: String) = updateFolder(folderId) { it.copy(name = name) }
 
-/** Deletes a folder. What was in it stays pinned where the folder was. */
-fun SpacesState.deleteFolder(folderId: String) =
-    mapPinned { if (it is Folder && it.id == folderId) it.items else listOf(it) }
+/**
+ * Deletes a folder. What was in it stays pinned where the folder was. The folder is remembered until the sync has
+ * removed it from Zen too.
+ */
+fun SpacesState.deleteFolder(folderId: String): SpacesState {
+    if (spaces.none { space -> space.folders.any { it.id == folderId } }) return this
+    return mapPinned { if (it is Folder && it.id == folderId) it.items else listOf(it) }
+        .copy(deletedFolders = deletedFolders + folderId)
+}
 
 /**
  * Splits [tabId], the page on screen, with [withTabId], which goes on its right (board 7). When both are open

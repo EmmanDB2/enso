@@ -83,6 +83,12 @@ import app.enso.browser.ui.colors
 import app.enso.browser.ui.spaceSurface
 import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
 import kotlin.math.roundToInt
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import kotlin.math.abs
+import app.enso.browser.voice.VoiceInput
+import kotlin.math.sign
 
 /** The cover's panels, each the bottom bar grown upward (boards B2–B4), and the extensions' (step 9). */
 enum class BarPanel { QuickTabs, Actions, SiteSettings, AllSettings, Search, Find, Extensions, ExtensionPage, Downloads, Reader }
@@ -166,6 +172,30 @@ interface BottomBarActions {
 
     /** The search field's mic: what's said is searched, as if typed and submitted. */
     fun voiceSearch()
+
+    /** Holding "+": voice search straight away, for a new Quick Tab. */
+    fun voiceNewSearch()
+
+    /**
+     * A quick sideways flick on the closed bar over the start screen: back to the tab you were on, or the one before it,
+     * in this space. Over a page the flick is a [startTabFlip] drag instead.
+     */
+    fun flipToLastTab()
+
+    /**
+     * A sideways drag on the closed bar begins, toward [direction] (−1 left, 1 right): the page follows the thumb
+     * ([TabFlip]). False when there's nothing that way to flip to.
+     */
+    fun startTabFlip(direction: Float): Boolean
+
+    /** The drag has gone [offset] pixels sideways. */
+    fun dragTabFlip(offset: Float)
+
+    /** The drag ended at [offset], moving at [velocity] pixels a second: the flip finishes or springs back. */
+    fun endTabFlip(offset: Float, velocity: Float)
+
+    /** Desktop site in the actions sheet: the page on screen in its desktop or mobile version, remembered for the site. */
+    fun setDesktopSite(desktop: Boolean)
 }
 
 /**
@@ -210,6 +240,7 @@ fun BottomBar(
     extensions: BarExtensions,
     settings: BarSettings,
     actions: BottomBarActions,
+    voice: VoiceInput? = null,
 ) {
     val space = spaces.currentSpace
     val colors = space.colors()
@@ -232,6 +263,9 @@ fun BottomBar(
     val searching = panel == BarPanel.Search
     // Search and Find have no row: their field sits at the top of the sheet, on the keyboard.
     val typing = searching || panel == BarPanel.Find
+    // Listening has no keyboard under it, so the sheet keeps clear of the gesture handle.
+    val listening = searching && voice?.active == true
+    val glow = remember(space.accent, space.gradient) { (listOf(space.accent) + space.gradient).distinct().map(::Color) }
     var query by remember(searching, searchMode) {
         val text = if (searching && searchMode == SearchMode.CurrentTab) page.url else ""
         mutableStateOf(TextFieldValue(text, TextRange(0, text.length)))
@@ -295,7 +329,9 @@ fun BottomBar(
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
                 // A swipe down anywhere on the closed bar hides it; its buttons only take taps.
                 .verticalSwipe(onUp = null, onDown = actions::hideBar.takeIf { !open })
-                .padding(bottom = if (typing) 0.dp else gestureInset),
+                // A sideways drag on it flips the page to the last tab (after Arc Search).
+                .tabFlipGesture(actions.takeIf { !open })
+                .padding(bottom = if (typing && !listening) 0.dp else gestureInset),
         ) {
             val swipe = Modifier.verticalSwipe(
                 onUp = actions::openTabSheet.takeIf { !open },
@@ -337,7 +373,7 @@ fun BottomBar(
                         content = settings.all,
                     )
                     BarPanel.Find -> FindBar(findMatch, colors.accent, actions::find, actions::findNext) { actions.showPanel(null) }
-                    BarPanel.Search -> SearchSheet(spaces, stack, query, { query = it }, searchMode, colors.accent, actions, maxHeight * SEARCH_SHEET_MAX_FRACTION)
+                    BarPanel.Search -> SearchSheet(spaces, stack, query, { query = it }, searchMode, colors.accent, actions, maxHeight * SEARCH_SHEET_MAX_FRACTION, voice, glow)
                     BarPanel.Extensions -> ExtensionsPanel(extensions, maxHeight * 0.6f) { actions.showPanel(BarPanel.Actions) }
                     BarPanel.ExtensionPage -> ExtensionPagePanel(
                         title = extensions.pageTitle.orEmpty(),
@@ -414,7 +450,12 @@ private fun BarRow(
     ) {
         QuickTabStack(stack, thumbnails) { actions.showPanel(BarPanel.QuickTabs) }
         Box(Modifier.weight(1f).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-            Pill(onClick = actions::newSearch, modifier = Modifier.width(148.dp)) {
+            // Holding it starts voice search at once.
+            Pill(
+                onClick = actions::newSearch,
+                onLongClick = actions::voiceNewSearch.takeIf { actions.voiceSearchAvailable },
+                modifier = Modifier.width(148.dp),
+            ) {
                 Icon(
                     painterResource(R.drawable.ic_plus),
                     contentDescription = stringResource(R.string.bar_new_search),
@@ -434,13 +475,13 @@ private fun BarRow(
 }
 
 @Composable
-private fun Pill(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun Pill(onClick: () -> Unit, modifier: Modifier = Modifier, onLongClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
     Row(
         modifier
             .height(50.dp)
             .clip(RoundedCornerShape(25.dp))
             .background(PillFill)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp),
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -539,6 +580,59 @@ private fun Modifier.verticalSwipe(onUp: (() -> Unit)?, onDown: (() -> Unit)?): 
                 if (total < -threshold) onUp?.invoke() else if (total > threshold) onDown?.invoke()
             },
         )
+    },
+)
+
+/**
+ * A sideways drag on the closed bar. When [actions] can start a flip, the page follows the thumb and the flip finishes
+ * or springs back on release. Otherwise (over the start screen) only a quick flick counts, at least 40 dp at 800 dp a
+ * second.
+ */
+private fun Modifier.tabFlipGesture(actions: BottomBarActions?): Modifier = this.then(
+    Modifier.pointerInput(actions != null) {
+        if (actions == null) return@pointerInput
+        val minDistance = 40.dp.toPx()
+        val minSpeed = 800.dp.toPx()
+        var total = 0f
+        var started = false
+        var flipping = false
+        val velocity = VelocityTracker()
+        try {
+        detectHorizontalDragGestures(
+            onDragStart = {
+                total = 0f
+                started = false
+                velocity.resetTracking()
+            },
+            onHorizontalDrag = { change, amount ->
+                change.consume()
+                // Which tab it flips to depends on the way it first moves.
+                if (!started && amount != 0f) {
+                    started = true
+                    flipping = actions.startTabFlip(sign(amount))
+                }
+                total += amount
+                velocity.addPosition(change.uptimeMillis, change.position)
+                if (flipping) actions.dragTabFlip(total)
+            },
+            onDragEnd = {
+                val speed = velocity.calculateVelocity().x
+                when {
+                    flipping -> actions.endTabFlip(total, speed)
+                    abs(total) > minDistance && abs(speed) > minSpeed -> actions.flipToLastTab()
+                }
+                flipping = false
+            },
+            // Springs back.
+            onDragCancel = {
+                if (flipping) actions.endTabFlip(0f, 0f)
+                flipping = false
+            },
+        )
+        } finally {
+            // A panel opening mid-drag ends this without a cancel; the card mustn't be left half-way.
+            if (flipping) actions.endTabFlip(0f, 0f)
+        }
     },
 )
 

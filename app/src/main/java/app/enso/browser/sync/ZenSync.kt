@@ -3,6 +3,7 @@ package app.enso.browser.sync
 import android.content.Context
 import android.util.Log
 import app.enso.browser.Settings
+import app.enso.browser.spaces.SpacesState
 import app.enso.browser.spaces.SpacesStore
 import app.enso.browser.spaces.TabManager
 import kotlinx.coroutines.CoroutineScope
@@ -30,7 +31,8 @@ sealed interface ZenSyncStatus {
 
     data object SignedOut : ZenSyncStatus
 
-    data class SignedIn(val email: String?, val state: State) : ZenSyncStatus
+    /** [refused] is a recent sync that held too many deletions to send, for the sheet to explain. */
+    data class SignedIn(val email: String?, val state: State, val refused: RefusedDeletions? = null) : ZenSyncStatus
 
     sealed interface State {
         data object Syncing : State
@@ -73,6 +75,20 @@ class ZenSync internal constructor(
     private var edits = 0
     private var pushJob: Job? = null
 
+    /** The last sync the deletion guard stopped, as the mirror noted it. */
+    private var refused: RefusedDeletions? = null
+
+    private val round = ZenSyncRound(
+        engine,
+        object : SyncedModel {
+            override val state: SpacesState get() = spaces.state.value
+            override val edits: Int get() = this@ZenSync.edits
+            override fun apply(transform: (SpacesState) -> SpacesState) = tabs.applySpaces(transform)
+            override fun flush() = spaces.flush()
+        },
+        Dispatchers.IO,
+    )
+
     private val _status = MutableStateFlow<ZenSyncStatus>(ZenSyncStatus.Starting)
     val status: StateFlow<ZenSyncStatus> = _status.asStateFlow()
 
@@ -90,7 +106,9 @@ class ZenSync internal constructor(
                 if (authenticatedAccount == null) {
                     _status.value = ZenSyncStatus.SignedOut
                 } else {
-                    setState(ZenSyncStatus.State.Synced(mirrorStore.load().lastSynced))
+                    val mirror = withContext(Dispatchers.IO) { mirrorStore.load() }
+                    refused = mirror.refused
+                    setState(ZenSyncStatus.State.Synced(mirror.lastSynced))
                     syncNow()
                 }
             }
@@ -117,6 +135,7 @@ class ZenSync internal constructor(
         override fun onLoggedOut() {
             scope.launch {
                 engine.reset()
+                refused = null
                 _icons.value = emptyMap()
                 _status.value = ZenSyncStatus.SignedOut
             }
@@ -150,14 +169,17 @@ class ZenSync internal constructor(
         }
     }
 
-    /** Debug builds only: puts Zen's collection back as it was before the phone's first write. */
-    fun restoreSnapshot() {
+    /**
+     * Debug builds only: puts Zen's collection back as it was before the phone's first write, or as the kept
+     * snapshot called [name] has it.
+     */
+    fun restoreSnapshot(name: String? = null) {
         val account = accountManager.authenticatedAccount() ?: return
         scope.launch {
             running.lock()
             try {
                 val auth = authOf(account) ?: return@launch
-                withContext(Dispatchers.IO) { engine.restoreSnapshot(auth) }
+                withContext(Dispatchers.IO) { engine.restoreSnapshot(auth, name) }
             } catch (e: Exception) {
                 Log.e(TAG, "Restoring the snapshot failed", e)
             } finally {
@@ -190,9 +212,7 @@ class ZenSync internal constructor(
     fun checkForChanges() {
         val account = accountManager.authenticatedAccount() ?: return
         if (running.isLocked || System.currentTimeMillis() < engine.backoffUntil) return
-        val state = (_status.value as? ZenSyncStatus.SignedIn)?.state
-        // Those need the user or a newer Ensō; asking again changes nothing.
-        if (state is ZenSyncStatus.State.NeedsSignIn || state is ZenSyncStatus.State.NeedsUpdate) return
+        if ((_status.value as? ZenSyncStatus.SignedIn)?.state?.allowsQuickCheck() == false) return
         scope.launch {
             val changed = try {
                 val auth = authOf(account) ?: return@launch
@@ -221,37 +241,22 @@ class ZenSync internal constructor(
             try {
                 setState(ZenSyncStatus.State.Syncing)
                 val auth = authOf(account) ?: return@launch setState(ZenSyncStatus.State.NeedsSignIn)
-                val editsBefore = edits
-                val local = spaces.state.value
-                val syncOpenTabs = settings.syncOpenTabs
-                val syncTabNavigations = settings.syncTabNavigations
-                val dryRun = settings.zenSyncDryRun
+                val options = SyncOptions(settings.syncOpenTabs, settings.syncTabNavigations, settings.zenSyncDryRun)
                 val recordId = settings.syncDeviceRecordId
-                val result = withContext(Dispatchers.IO) {
-                    engine.sync(auth, dryRun, syncDevice(account, recordId)) { base ->
-                        zenChanges(local, base, syncOpenTabs, syncTabNavigations)
-                    }
-                }
-                val state = when (result) {
+                val device = withContext(Dispatchers.IO) { syncDevice(account, recordId) }
+                val outcome = round.run(auth, device, options)
+                val state = when (val result = outcome.result) {
                     is ZenSyncResult.Synced -> {
                         _icons.value = result.mirror.tabIcons()
-                        when {
-                            // Edited while syncing: applying now would undo the edit, so sync it first.
-                            edits != editsBefore -> localEdited()
-                            // A dry run never sends, so applying Zen's state would wipe the phone's edits.
-                            dryRun && result.unsent > 0 -> Unit
-                            else -> {
-                                tabs.applySpaces { it.withZenSpaces(result.mirror) }
-                                // Changes Zen's held back go now, worked out on top of Zen's versions, rather than
-                                // at the next sync minutes later.
-                                if (result.held > 0) localEdited()
-                            }
-                        }
+                        refused = result.mirror.refused
                         ZenSyncStatus.State.Synced(result.mirror.lastSynced)
                     }
                     ZenSyncResult.NotSetUp, ZenSyncResult.NotTurnedOn -> ZenSyncStatus.State.ZenSyncOff
                     is ZenSyncResult.NeedsUpdate -> ZenSyncStatus.State.NeedsUpdate
                 }
+                // The phone still has changes to send (see ZenSyncRound): an edit made meanwhile, or whatever its
+                // model still holds that the server doesn't.
+                if (outcome.again) localEdited()
                 setState(state)
             } catch (e: SyncConflictException) {
                 // Zen wrote while the phone was uploading; download that first, then try again.
@@ -290,11 +295,27 @@ class ZenSync internal constructor(
 
     private fun setState(state: ZenSyncStatus.State) {
         val email = accountManager.accountProfile()?.email ?: (_status.value as? ZenSyncStatus.SignedIn)?.email
-        _status.value = ZenSyncStatus.SignedIn(email, state)
+        val recentlyRefused = refused?.takeIf { System.currentTimeMillis() - it.at < REFUSED_NOTE_MS }
+        _status.value = ZenSyncStatus.SignedIn(email, state, recentlyRefused)
     }
 
     private companion object {
         const val TAG = "ZenSync"
         const val PUSH_DELAY_MS = 3_000L
+
+        /** How long the sync sheet keeps saying that a sync was refused for its deletions. */
+        const val REFUSED_NOTE_MS = 24 * 60 * 60 * 1000L
     }
+}
+
+/**
+ * Whether the half-minute check for Zen's changes ([ZenSync.checkForChanges]) runs in this state. It's a full sync
+ * whenever the phone has nothing to compare the server with, so it waits where a sync can't get anywhere by itself:
+ * the account needs signing in, Ensō needs an update, Zen's spaces sync is off, or the last sync failed. The sync
+ * every few minutes still tries, and the check carries on once one gets through.
+ */
+internal fun ZenSyncStatus.State.allowsQuickCheck(): Boolean = when (this) {
+    ZenSyncStatus.State.NeedsSignIn, ZenSyncStatus.State.NeedsUpdate, ZenSyncStatus.State.ZenSyncOff -> false
+    is ZenSyncStatus.State.Failed -> false
+    ZenSyncStatus.State.Syncing, is ZenSyncStatus.State.Synced -> true
 }

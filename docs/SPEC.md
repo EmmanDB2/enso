@@ -40,7 +40,7 @@ The cover screen shows the page and one bar at the bottom, in the style of Arc S
 **The bar (B1):** one full-width surface along the bottom edge, 90 dp tall with the gesture handle's room, with rounded top corners (about 26 dp), the space's tint, a soft upward shadow and a small grab handle at the top. There's no divider line above its row, in any state. The row (about 56 dp) holds:
 
 - **The Quick Tabs launcher:** two small live thumbnails of the current space's Quick Tabs, as in Arc Search. The tab before the current one sits behind, tilted about −9°, and the current one sits on top, tilted about 5°, each with a soft drop shadow. No outline and no count. A card shows its tab's favicon until the page has a thumbnail. Kept tabs never show here. Tap it for the Quick Tabs view (B2). With no Quick Tabs it's dimmed.
-- **The "+" pill:** bottom search (B4), for a new Quick Tab.
+- **The "+" pill:** bottom search (B4), for a new Quick Tab. Holding it opens bottom search already listening (see Voice search), and what's said opens as a Quick Tab.
 - **The chevron:** the actions sheet (B3).
 
 Behavior:
@@ -49,6 +49,7 @@ Behavior:
 - **Scrolling:** the bar slides off the bottom edge when scrolling down, and returns on scroll up, when a page starts loading, or on a tap along the bottom edge. A swipe down on the bar hides it too.
 - **Status bar:** hidden while you browse, so the page reaches the top edge. It shows over the tab sheet, the start screen and the bar's panels, and with a swipe down from the top. A setting can instead keep it showing over the page, or put it over a strip of the space's colors that slides away with the bar.
 - **Tab sheet:** swipe up on the bar or its handle.
+- **Last tab** (after Arc Search): a sideways drag on the closed bar takes the page with the thumb as a card (its corners rounding, with a shadow) over the card of the tab used before it in the space, which starts a little smaller and shaded and grows as the page leaves. Letting go past a third of the screen (a light tick marks it) or with a flick finishes: the card leaves the screen's side and that tab shows. Otherwise it springs back. Flips in a row step through the space's tabs by recent use, as Android's app switching does: on further the same way, back the other way; after about 3 seconds the order starts again from the tab on screen. Over the start screen, a quick flick brings back the tab you were on.
 
 **Panels:** the actions sheet and bottom search are the bar's surface growing upward; there are no separate floating sheets. The page behind dims. Back, a swipe down on the handle, or a tap on the dimmed page closes a panel.
 
@@ -66,8 +67,9 @@ Behavior:
 **Actions sheet (B3):**
 
 - The URL row: back and forward on the left, the domain centered, then copy link and reload (stop while loading) on the right. This is the only place the URL appears. Tapping the domain opens bottom search on the URL, which then loads in the current tab.
+- **The layout,** after Arc Search's sheet, to keep it uncrowded: the URL row, then the four tiles below as one group (hairline gaps, the outer corners rounded), then plain left-aligned rows in the settings' style: Desktop site (with a switch, on pages only; it shows the page's other version and remembers it for the site, as Site Settings does), Downloads, Extensions and Site Settings.
 - Reader, Find, Keep and Share. Keep shows the current space's icon: on a Quick Tab it keeps the tab in that space (holding it picks another space); on a kept tab it shows "Kept", and tapping it makes the tab a Quick Tab again, which takes it out of the space (in Zen too). Pinned tabs and Essentials show "Kept", grayed out. Reader is grayed out on pages that aren't articles (see Reader). Find opens a find bar on the keyboard: the field, which match is showing ("3/12"), previous and next, and ✕, which clears the highlights. The page stays undimmed, so the matches show. Unfolded, Find is the first item in the sidebar's ⋮ menu (on any page), and the same find bar floats along the top of the page card, in the space's colors; Back or ✕ closes it, and so does folding or unfolding.
-- Extensions and Site Settings (a standard gear). Site Settings opens the site's settings, or All settings when there's no site on screen.
+- Extensions and Site Settings (a standard gear) are rows. Site Settings opens the site's settings, or All settings when there's no site on screen.
 - The bar's row: the launcher, "+", and the chevron as a dark ↓ that closes the sheet.
 
 **Bottom search (B4)**, in the style of Safari: the sheet sits directly on the keyboard, with no bar row. It grows with its rows up to about 58% of the screen above the keyboard, as Arc Search's does, and scrolls past that.
@@ -76,6 +78,14 @@ Behavior:
 - Before typing, "Open tabs" lists the space's open Quick Tabs, latest first, at most 4, each with its favicon, title and "Switch to Tab".
 - While typing: matching open tabs (at most 4), then matching history, then Google's search suggestions. Suggestions take the rows history leaves, so they take over as the history thins out. A setting turns the suggestions off, since they send what's typed to Google.
 - The Quick Tab is made when the search is submitted, so ✕ leaves nothing behind.
+
+**Voice search,** in Ensō's own way: the mic in the field, or holding "+", listens without the recognizer's popup. Ensō asks for the microphone once; if that's refused, or there's no recognizer it can use directly, the popup does it as before.
+
+- **Waiting:** there's no keyboard. Where it would be, the ensō sits faint and breathing, with "Listening" under it. The field reads "Speak, and pause to search".
+- **Speaking:** the brush stroke's head extends slowly round toward the gap, and a glow in the space's colors (as the fidget's hold has) rises and falls with the voice. The words fade into the field as they're heard.
+- **Pausing:** the stroke closes the gap with the fidget's click, and the search goes.
+- **Missed:** if nothing was understood, the ink unwinds and "Didn't catch that. Tap the ensō to try again." shows; a tap on it listens again.
+- **Leaving:** a tap on the field goes back to typing with what was heard; ✕ or Back closes search.
 
 ## Cover screen: space menu (board 3)
 
@@ -207,7 +217,7 @@ Unfolded, Ensō copies Zen's desktop sidebar layout, a little denser than the co
 | Sidebar open (6) | Collapse toggle, back, forward, reload; URL field with copy link and the ⋮ menu (where Zen has its copy link and site settings buttons); Essentials 2×2; space name; pinned tabs and folders; divider; New Tab; current tab as a white pill; open tabs and Quick Tabs; media player card; space icons at the bottom. There's no + for a new space, because the phone can't create spaces yet |
 | Collapsed rail (5, default) | 64 px rail: expand toggle, a search button that opens the URL field, Essentials, divider, pinned and folder icons, divider, tab favicons (current one as a white tile), space icon at the bottom |
 | Split view (7) | Two page cards side by side. Drag a tab to the right half to split. The focused pane has an accent outline; the rail shows the pair as one stacked tile |
-| Glance (8) | Long-press a link to open a floating preview over a blurred page, with Close, Open as tab and Split buttons beside it |
+| Glance (8) | Long-press a link to open a floating preview over a blurred page, with Close, Copy link, Open as tab and Split buttons beside it |
 
 Inner-screen gestures:
 
@@ -240,7 +250,7 @@ Split view (board 7), as in Zen:
 Glance (board 8), on both screens:
 
 - Holding a link (or a linked image) opens a floating preview of it over the page, which blurs and dims behind it. The card shows the site's domain above the page.
-- ✕, Back, or a tap around the card closes it. Open as tab makes it a tab just below the one it came from (a Quick Tab when that one is). Split, unfolded beside a single page, puts it on the right as a split.
+- ✕, Back, or a tap around the card closes it. Copy link copies the page it shows (it may have moved on from the link) and leaves it open. Open as tab makes it a tab just below the one it came from (a Quick Tab when that one is). Split, unfolded beside a single page, puts it on the right as a split.
 - A preview stays out of your tabs and sync until it's opened as a tab or split.
 - Unfolded, the card sits over the page card with its buttons in a column beside it, and the sidebar stays as it is. On the cover, the card fills most of the screen with the buttons in a row below it, within reach of the thumb, and there's no Split.
 - Previews ask for mobile sites, since the card is narrower than the page.
@@ -296,12 +306,16 @@ Ensō supports WebExtensions through GeckoView, starting with uBlock Origin.
 
 No board covers these screens, so their layout and wording get agreed before they're built.
 
+- **The look,** after Arc Search's settings: clean and minimal.
+  - **Type and margin:** small type, and everything on one left margin: group names, icons, the back arrow, and the titles of rows without an icon.
+  - **Choices:** a choice shows its value on a line under its title, and tapping it opens a short menu with the current option checked.
+  - **Controls:** switches sit at the row's end, and numbers (page zoom, the space menu's hold time) use a small − and + stepper.
 - **Site settings come first.** Settings (in the bar's actions sheet on the cover, and the sidebar's ⋮ menu unfolded) opens the settings of the page on screen: on the cover the bar's panel grows into them, and unfolded they're a card over the page.
   - **Connection security:** whether the connection is secure, and who verified the site.
   - **Desktop site:** which version the site gets now. Changing it reloads the page and is remembered for that site. Sites the user hasn't set follow the screen.
   - **Tracking protection:** Gecko's Enhanced Tracking Protection (Standard by default), with an on/off switch per site.
   - **Clear cookies and site data** for this site, after a confirmation.
-  - **All settings**, a button at the bottom.
+  - **All settings**, the last row.
 - **All settings** holds every preference, grouped: appearance, layout, tabs, the space menu, sync (with Sync with Zen at the top) and extensions. With no page on screen (the start screen), Settings opens it directly.
 - **Permissions** (step 11): a group in site settings with Camera, Microphone, Location and Notifications (and Protected content once the site has asked), each showing Ask, Allowed or Blocked; tapping one picks another. Clearing the site's data forgets them too.
 
@@ -316,7 +330,7 @@ No board covers these screens, so their layout and wording get agreed before the
 
 - **The prompt:** when a site starts a download, a card above the bar shows the file's name and size, with Cancel and Download. (Its look gets a later pass.)
 - **The chevron:** for about 2 seconds after a download starts, the bar's ^ button turns into a download button in the space's accent; tapping it then opens the Downloads page. After that, while the download runs, a ring around the ^ fills as it goes (an arc goes round when the size is unknown).
-- **The actions sheet:** a small Downloads button to the left of Extensions, shown only while a download runs or for a day after one (`recentDownloadsHours`). Unfolded, the ⋮ menu gets Downloads under the same rule, and it opens as a card over the page.
+- **The actions sheet:** a Downloads row above Extensions, shown only while a download runs or for a day after one (`recentDownloadsHours`). Unfolded, the ⋮ menu gets Downloads under the same rule, and it opens as a card over the page.
 - **The Downloads page:** every download, newest first, with its type, size and day, or how it's going. Tapping a finished one opens it in another app; a failed or cancelled one starts again. A swipe takes one off the list and keeps the file. "Open Downloads folder" ends it.
 - Files save to the phone's Downloads folder, Android's notification shows progress too, and the first download asks once for the notification permission.
 

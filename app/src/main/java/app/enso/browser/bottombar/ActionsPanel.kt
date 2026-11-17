@@ -40,6 +40,10 @@ import app.enso.browser.toolbar.PageState
 import app.enso.browser.ui.EnsoColors
 import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.SpaceIcon
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import app.enso.browser.settings.SettingRow
+import app.enso.browser.settings.SwitchRow
 
 /** What the Keep tile can do for the tab on screen. */
 internal sealed interface KeepState {
@@ -58,51 +62,44 @@ internal sealed interface KeepState {
 
 /**
  * The actions sheet (board B3): back, forward, the domain, copy link and reload, which is the only place the URL
- * shows on the cover; then Reader, Find, Keep and Share, and Extensions and Site Settings (All settings when there's
- * no site on screen). Reader is grayed out on pages that aren't articles.
+ * shows on the cover; then Reader, Find, Keep and Share as one joined group; then plain rows, as in the settings:
+ * Desktop site, Downloads (only after a recent download), Extensions and Site Settings (All settings when there's no
+ * site on screen). The user had it redone after Arc Search's actions sheet, which was less crowded.
  */
 @Composable
 internal fun ActionsPanel(page: PageState, space: Space, keep: KeepState, showDownloads: Boolean, reader: BarReader, actions: BottomBarActions) {
     val hasPage = page.url.isNotEmpty()
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        NavigationPill(page, actions)
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Reader: on an article it shows the page as one; while reading it opens Reader's panel.
-            ActionTile(
-                R.drawable.ic_reader,
-                R.string.action_reader,
-                enabled = reader.available || reader.active,
-                Modifier.weight(1f),
-                highlighted = reader.active,
-            ) {
-                if (reader.active) actions.showPanel(BarPanel.Reader) else actions.showReader()
-            }
-            ActionTile(R.drawable.ic_search, R.string.action_find, enabled = hasPage, Modifier.weight(1f)) { actions.showPanel(BarPanel.Find) }
-            KeepTile(space, keep, actions, Modifier.weight(1f))
-            ActionTile(R.drawable.ic_share, R.string.action_share, enabled = hasPage, Modifier.weight(1f), onClick = actions::share)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Downloads, a small button, only once something was downloaded recently or still is.
-            if (showDownloads) {
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(PillFill)
-                        .clickable { actions.showPanel(BarPanel.Downloads) },
-                    contentAlignment = Alignment.Center,
+    Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            NavigationPill(page, actions)
+            Spacer(Modifier.height(12.dp))
+            // One group with hairline gaps, its outer corners rounded, as Arc Search's tiles are.
+            Row(Modifier.clip(RoundedCornerShape(18.dp)), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                // Reader: on an article it shows the page as one; while reading it opens Reader's panel.
+                ActionTile(
+                    R.drawable.ic_reader,
+                    R.string.action_reader,
+                    enabled = reader.available || reader.active,
+                    Modifier.weight(1f),
+                    highlighted = reader.active,
                 ) {
-                    Icon(painterResource(R.drawable.ic_download), contentDescription = stringResource(R.string.downloads_title), Modifier.size(22.dp), tint = EnsoColors.TextPrimary)
+                    if (reader.active) actions.showPanel(BarPanel.Reader) else actions.showReader()
                 }
+                ActionTile(R.drawable.ic_search, R.string.action_find, enabled = hasPage, Modifier.weight(1f)) { actions.showPanel(BarPanel.Find) }
+                KeepTile(space, keep, actions, Modifier.weight(1f))
+                ActionTile(R.drawable.ic_share, R.string.action_share, enabled = hasPage, Modifier.weight(1f), onClick = actions::share)
             }
-            WideButton(R.drawable.ic_extensions, R.string.action_extensions, enabled = true, Modifier.weight(1f)) {
-                actions.showPanel(BarPanel.Extensions)
-            }
-            WideButton(R.drawable.ic_settings, R.string.action_site_settings, enabled = true, Modifier.weight(1f), onClick = actions::openSettings)
         }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(6.dp))
+        if (hasPage) {
+            SwitchRow(stringResource(R.string.site_settings_desktop), page.desktop, actions::setDesktopSite, icon = R.drawable.ic_desktop)
+        }
+        if (showDownloads) {
+            SettingRow(stringResource(R.string.downloads_title), icon = R.drawable.ic_download, onClick = { actions.showPanel(BarPanel.Downloads) })
+        }
+        SettingRow(stringResource(R.string.action_extensions), icon = R.drawable.ic_extensions, onClick = { actions.showPanel(BarPanel.Extensions) })
+        SettingRow(stringResource(R.string.action_site_settings), icon = R.drawable.ic_settings, onClick = actions::openSettings)
+        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -157,8 +154,8 @@ private fun KeepTile(space: Space, keep: KeepState, actions: BottomBarActions, m
     val kept = keep is KeepState.Kept || keep is KeepState.Fixed
     Column(
         modifier
-            .height(84.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(76.dp)
+            .clip(RoundedCornerShape(TileCorner))
             .background(PillFill)
             .combinedClickable(
                 enabled = enabled,
@@ -175,9 +172,9 @@ private fun KeepTile(space: Space, keep: KeepState, actions: BottomBarActions, m
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        SpaceIcon(space.icon, size = 26.dp, tint = Color(space.accent), fallbackName = space.name)
-        Spacer(Modifier.height(8.dp))
-        Text(stringResource(if (kept) R.string.action_kept else R.string.action_keep), style = EnsoType.Row.copy(fontSize = 15.sp), maxLines = 1)
+        SpaceIcon(space.icon, size = 24.dp, tint = Color(space.accent), fallbackName = space.name)
+        Spacer(Modifier.height(7.dp))
+        Text(stringResource(if (kept) R.string.action_kept else R.string.action_keep), style = TileLabel, maxLines = 1)
     }
 }
 
@@ -192,35 +189,23 @@ private fun ActionTile(
 ) {
     Column(
         modifier
-            .height(84.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .height(76.dp)
+            .clip(RoundedCornerShape(TileCorner))
             .background(PillFill)
-            .then(if (highlighted) Modifier.border(1.5.dp, EnsoColors.TextPrimary.copy(alpha = 0.6f), RoundedCornerShape(18.dp)) else Modifier)
+            .then(if (highlighted) Modifier.border(1.5.dp, EnsoColors.TextPrimary.copy(alpha = 0.6f), RoundedCornerShape(TileCorner)) else Modifier)
             .clickable(enabled = enabled, onClick = onClick)
             .alpha(if (enabled) 1f else 0.38f),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(painterResource(icon), contentDescription = null, Modifier.size(26.dp), tint = EnsoColors.TextPrimary)
-        Spacer(Modifier.height(8.dp))
-        Text(stringResource(label), style = EnsoType.Row.copy(fontSize = 15.sp), maxLines = 1)
+        Icon(painterResource(icon), contentDescription = null, Modifier.size(24.dp), tint = EnsoColors.TextPrimary)
+        Spacer(Modifier.height(7.dp))
+        Text(stringResource(label), style = TileLabel, maxLines = 1)
     }
 }
 
-@Composable
-private fun WideButton(@DrawableRes icon: Int, @StringRes label: Int, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    Row(
-        modifier
-            .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(PillFill)
-            .clickable(enabled = enabled, onClick = onClick)
-            .alpha(if (enabled) 1f else 0.38f),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(painterResource(icon), contentDescription = null, Modifier.size(22.dp), tint = EnsoColors.TextPrimary)
-        Spacer(Modifier.width(12.dp))
-        Text(stringResource(label), style = EnsoType.Row.copy(fontSize = 17.sp))
-    }
-}
+/** A tile's own corners, inside the group's rounded ones. */
+private val TileCorner = 4.dp
+
+private val TileLabel get() = EnsoType.Row.copy(fontSize = 13.5.sp)
+

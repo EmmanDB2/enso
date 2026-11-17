@@ -19,9 +19,9 @@ import kotlinx.serialization.json.doubleOrNull
  * Applies Zen's spaces from [mirror] to the phone (read-only sync, Zen → phone).
  *
  * Zen decides the spaces, their order and looks, pinned tabs, folders, split views and Essentials. The phone keeps
- * its own open tabs (Quick Tabs included), its own splits, selection, folder open/closed states and split sizes.
- * Phone spaces Zen doesn't have, like the starting "Home", go away; their phone-only open tabs move to the first Zen
- * space.
+ * what's its own and Zen hasn't got yet (Quick Tabs, open tabs, and the tabs it pinned, folders it made and
+ * Essentials it added), its own splits, selection, folder open/closed states and split sizes. Phone spaces Zen
+ * doesn't have, like the starting "Home", go away; what's the phone's own in them moves to the first Zen space.
  */
 fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
     val records = mirror.records
@@ -38,6 +38,12 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
     val localSplits = spaces.flatMap { it.splits }.associateBy { it.id }
     // Splits the phone ended stay ended until Zen has dropped them too.
     val ended = endedSplits.filterTo(mutableSetOf()) { records[it]?.kind == KIND_SPLIT }
+    // Folders the phone deleted stay gone while Zen's copy is empty: the sync has emptied it and deletes it next.
+    // One that has something in it is Zen's again (Zen changed it, or the emptied folder never went up), so it
+    // comes back, and one Zen no longer has is done with.
+    val deleted = deletedFolders.filterTo(mutableSetOf()) { id ->
+        records[id]?.takeIf { it.kind == KIND_FOLDER }?.let { it.data.strings("children").orEmpty().isEmpty() } ?: false
+    }
 
     /** A tab from Zen's record, keeping what the phone knows about its page if it's the same one. */
     fun tabFrom(id: String): Tab? {
@@ -80,12 +86,14 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             when (record.kind) {
                 KIND_TAB -> tabFrom(id)?.let { if (it.pinnedUrl != null) pinned += PinnedTab(it) else open += it }
                 KIND_FOLDER -> {
+                    if (id in deleted) continue
                     val (items, folderOpen) = childrenOf(record.data.strings("children").orEmpty(), seen, splits)
                     pinned += Folder(
                         id = id,
                         name = record.data.string("name").orEmpty(),
                         expanded = localFolders[id]?.expanded ?: false,
                         items = items,
+                        synced = true,
                     )
                     open += folderOpen
                 }
@@ -99,12 +107,74 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
         return pinned to open
     }
 
-    val seen = mutableSetOf<String>()
-    val zenSpaces = ordered.map { record ->
+    // Zen keeps Essentials per container: layout.essentials maps a container guid ("default" for none) to its tabs.
+    val essentialGroups = (layout?.get("essentials") as? JsonObject)?.mapValues { it.value.strings() }
+        ?: mapOf(DEFAULT_CONTAINER to records.values.filter { it.kind == KIND_TAB && it.data.bool("essential") == true }.map { it.id })
+    val essentials = essentialGroups.flatMap { (container, ids) ->
+        ids.mapNotNull(::tabFrom).map { it.copy(container = container.takeUnless { it == DEFAULT_CONTAINER }) }
+    }.distinctBy { it.id }
+
+    // An id is one item in one place. An Essential isn't also a tab of a space that still lists it, and nothing
+    // shows twice.
+    val seen = essentials.mapTo(mutableSetOf()) { it.id }
+    val fromZen = ordered.map { record ->
+        val splits = mutableListOf<Split>()
+        val (pinned, open) = childrenOf(record.data.strings("children").orEmpty(), seen, splits)
+        Triple(pinned, open, splits)
+    }
+    // An open tab belongs to the space its own record names, as in Zen, where a space's children only put its tabs
+    // in order. One that no children list still shows. Zen with its normal-tab sync off (its default) leaves the
+    // phone's kept tabs out of every space's children, and an edit that only half arrived can leave one out too.
+    // Only its deletion takes it off the phone.
+    val leftOut = records.values
+        .filter { it.kind == KIND_TAB && it.id !in seen && it.data.bool("pinned") == false && it.data.bool("essential") != true }
+        .sortedBy { it.id }
+        .groupBy({ it.data.string("workspaceUuid") }, { it.id })
+        .mapValues { (_, ids) -> ids.mapNotNull(::tabFrom) }
+    // Every tab Zen has, wherever it put it. A tab the phone still counts as its own (uploaded but not yet marked as
+    // synced, or from a spaces.json that was put back) is Zen's from here on, in Zen's place: never keep both. Two
+    // copies would be listed twice in what goes back to Zen, and closing one would close both.
+    val zenTabs = essentials.mapTo(mutableSetOf()) { it.id }
+    for ((pinned, open, _) in fromZen) {
+        pinned.flatMapTo(zenTabs) { item -> item.tabs.map { it.id } }
+        open.mapTo(zenTabs) { it.id }
+    }
+    leftOut.values.forEach { tabs -> tabs.mapTo(zenTabs) { it.id } }
+    // What Zen doesn't have yet of the phone's own pinned side: tabs it pinned, folders it made and Essentials it
+    // added that haven't gone up (all of them before the first sync; the latest ones when the mirror starts over, or
+    // when part of an edit had to wait). They stay, as the phone's own open tabs do, and the next sync sends them.
+    val zenFolders = fromZen.flatMapTo(mutableSetOf()) { (pinned, _, _) -> pinned.flatMap { item -> item.folders.map { it.id } } }
+    val intoZenFolders = mutableMapOf<String, MutableList<PinnedItem>>()
+
+    /** The phone's own among [items], as they go on top of Zen's: folders of Zen's get theirs through [intoZenFolders]. */
+    fun own(items: List<PinnedItem>): List<PinnedItem> = items.flatMap { item ->
+        when (item) {
+            is PinnedTab -> if (item.tab.synced || item.id in zenTabs) emptyList() else listOf(item)
+            is Folder -> {
+                val inside = own(item.items)
+                when {
+                    inside.isEmpty() -> emptyList()
+                    // Zen has the folder: the phone's own tabs stay in it.
+                    item.id in zenFolders -> emptyList<PinnedItem>().also { intoZenFolders.getOrPut(item.id) { mutableListOf() } += inside }
+                    // The folder was Zen's and is gone there: the phone's own tabs move out of it.
+                    item.synced -> inside
+                    // The phone's own folder, with what's the phone's own in it.
+                    else -> listOf(item.copy(items = inside))
+                }
+            }
+        }
+    }
+    val ownPinned = spaces.associate { it.id to own(it.pinned) }
+
+    /** Zen's pinned [items] with the phone's own tabs back in Zen's folders. */
+    fun withOwn(items: List<PinnedItem>): List<PinnedItem> = items.map { item ->
+        if (item is Folder) item.copy(items = withOwn(item.items) + intoZenFolders[item.id].orEmpty()) else item
+    }
+
+    val zenSpaces = ordered.zip(fromZen) { record, (zenPinned, syncedOpen, zenSplits) ->
         val uuid = record.uuid
         val local = spaces.firstOrNull { it.id == uuid }
-        val zenSplits = mutableListOf<Split>()
-        val (pinned, syncedOpen) = childrenOf(record.data.strings("children").orEmpty(), seen, zenSplits)
+        val pinned = withOwn(zenPinned) + ownPinned[uuid].orEmpty()
         Space(
             id = uuid,
             name = record.data.string("name").orEmpty(),
@@ -114,63 +184,93 @@ fun SpacesState.withZenSpaces(mirror: ZenMirror): SpacesState {
             themeOpacity = opacityOf(record.data["theme"]),
             container = record.data.string("containerGuid"),
             pinned = pinned,
-            tabs = withPhoneOnlyTabs(syncedOpen, local?.tabs.orEmpty()),
+            tabs = withPhoneOnlyTabs(syncedOpen, leftOut[uuid].orEmpty(), local?.tabs.orEmpty(), zenTabs),
             selectedTabId = local?.selectedTabId,
             // Zen's splits, then the phone's own: ones Zen can't hold (with a Quick Tab, or pinned and open tabs
             // together) and new ones not sent yet. A phone split that was Zen's and is gone there ended on the
-            // desktop. Where a tab ends up in two, Zen's wins as the model updates.
-            splits = zenSplits + local?.splits.orEmpty().filter { !it.synced && zenSplits.none { zen -> zen.id == it.id } },
+            // desktop, unless the phone has made it one Zen can't hold: then the phone took it out of Zen itself,
+            // and it stays as the phone's own. Where a tab ends up in two, Zen's wins as the model updates.
+            splits = zenSplits + local?.let { space ->
+                space.splits.filter { split -> zenSplits.none { it.id == split.id } && !(split.synced && space.zenCanHold(split)) }
+                    .map { if (it.synced) it.copy(synced = false) else it }
+            }.orEmpty(),
         )
     }
 
-    // Phone spaces Zen doesn't have: their phone-only open tabs move to the first Zen space.
+    // Phone spaces Zen doesn't have: what's the phone's own in them moves to the first Zen space.
     val zenIds = zenSpaces.mapTo(mutableSetOf()) { it.id }
     val orphans = spaces.filterNot { it.id in zenIds }
-    val movedTabs = orphans.flatMap { space -> space.tabs.filterNot { it.synced } }
+    val movedTabs = orphans.flatMap { space -> space.tabs.filterNot { it.synced || it.id in zenTabs } }
+    val movedPinned = orphans.flatMap { ownPinned[it.id].orEmpty() }
     val currentWasOrphan = currentSpaceId !in zenIds
     val first = zenSpaces.first().let { space ->
         val movedSelection = orphans.firstOrNull { it.id == currentSpaceId }?.selectedTabId
             ?.takeIf { id -> movedTabs.any { it.id == id } }
         space.copy(
+            pinned = space.pinned + movedPinned,
             tabs = space.tabs + movedTabs,
             selectedTabId = if (currentWasOrphan) movedSelection ?: space.selectedTabId else space.selectedTabId,
         )
     }
 
-    // Zen keeps Essentials per container: layout.essentials maps a container guid ("default" for none) to its tabs.
-    val essentialGroups = (layout?.get("essentials") as? JsonObject)?.mapValues { it.value.strings() }
-        ?: mapOf(DEFAULT_CONTAINER to records.values.filter { it.kind == KIND_TAB && it.data.bool("essential") == true }.map { it.id })
-    val essentials = essentialGroups.flatMap { (container, ids) ->
-        ids.mapNotNull(::tabFrom).map { it.copy(container = container.takeUnless { it == DEFAULT_CONTAINER }) }
-    }.distinctBy { it.id }
-
     return copy(
         spaces = listOf(first) + zenSpaces.drop(1),
-        essentials = essentials,
+        essentials = essentials + this.essentials.filter { !it.synced && it.id !in zenTabs },
         currentSpaceId = if (currentWasOrphan) first.id else currentSpaceId,
         endedSplits = ended,
+        deletedFolders = deleted,
     )
 }
 
 /**
- * Open tabs in Zen's order ([synced]), with the phone's own open tabs (Quick Tabs, tabs not uploaded yet) kept
- * just after the synced tab they followed on the phone. Synced tabs Zen no longer has are gone.
+ * Whether Zen can hold [split] as this space has it: none of its tabs is a Quick Tab, and they all sit under one
+ * parent (the open tabs, the pinned tabs, or one folder). Those are the splits the phone sends.
  */
-private fun withPhoneOnlyTabs(synced: List<Tab>, local: List<Tab>): List<Tab> {
+private fun Space.zenCanHold(split: Split): Boolean {
+    // Each tab's parent: whether it's pinned, and its folder.
+    val parents = HashMap<String, Pair<Boolean, String?>>()
+    fun walk(items: List<PinnedItem>, folder: String?) {
+        for (item in items) {
+            when (item) {
+                is PinnedTab -> parents[item.id] = true to folder
+                is Folder -> walk(item.items, item.id)
+            }
+        }
+    }
+    walk(pinned, folder = null)
+    tabs.forEach { if (it.quick == null) parents[it.id] = false to null }
+    val where = split.tabIds.map { parents[it] }
+    return null !in where && where.distinct().size == 1
+}
+
+/**
+ * Open tabs in Zen's order ([synced]). The tabs Zen's order doesn't cover keep their place on the phone, just after
+ * the tab they followed there: the phone's own open tabs (Quick Tabs, tabs not uploaded yet), and Zen's tabs of
+ * this space that no children list ([leftOut]). Synced tabs Zen no longer has are gone, and so is the phone's own
+ * copy of a tab Zen has anywhere ([zenTabs]).
+ */
+private fun withPhoneOnlyTabs(synced: List<Tab>, leftOut: List<Tab>, local: List<Tab>, zenTabs: Set<String>): List<Tab> {
     val result = synced.toMutableList()
     val syncedIds = synced.mapTo(mutableSetOf()) { it.id }
+    val unplaced = leftOut.associateByTo(LinkedHashMap()) { it.id }
     var previous: String? = null
     for (tab in local) {
-        // A phone tab Zen now has (just uploaded) is the synced one from here on; never keep both.
-        if (tab.synced || tab.id in syncedIds) {
-            if (tab.id in syncedIds) previous = tab.id
-            continue
+        val kept = when {
+            tab.id in syncedIds -> {
+                previous = tab.id
+                continue
+            }
+            tab.id in unplaced -> unplaced.remove(tab.id) ?: continue
+            // A phone tab Zen now has (just uploaded) is the synced one from here on; never keep both.
+            tab.synced || tab.id in zenTabs -> continue
+            else -> tab
         }
         val at = previous?.let { id -> result.indexOfFirst { it.id == id } + 1 } ?: 0
-        result.add(at, tab)
-        previous = tab.id
+        result.add(at, kept)
+        previous = kept.id
     }
-    return result
+    // Ones this phone never had come last.
+    return result + unplaced.values
 }
 
 /** A space's accent: the primary color of its Zen theme gradient, as ARGB. */

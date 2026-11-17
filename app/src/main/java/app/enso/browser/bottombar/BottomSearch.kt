@@ -51,6 +51,12 @@ import app.enso.browser.ui.EnsoType
 import app.enso.browser.ui.Favicon
 import app.enso.browser.ui.displayTitle
 import kotlinx.coroutines.delay
+import app.enso.browser.voice.VoiceInput
+import app.enso.browser.voice.VoiceListening
+import androidx.compose.ui.text.TextRange
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.text.style.TextOverflow
 
 /**
  * Bottom search (board B4), Safari-style: the field at the top of a sheet that sits on the keyboard, then what's
@@ -70,7 +76,29 @@ internal fun SearchSheet(
     accent: Color,
     actions: BottomBarActions,
     maxHeight: Dp,
+    voice: VoiceInput? = null,
+    glow: List<Color> = emptyList(),
 ) {
+    // Voice search: Ensō's listening view in place of the keyboard, with what's heard in the field.
+    if (voice != null && voice.active) {
+        Column(Modifier.fillMaxWidth()) {
+            ListeningField(voice.heard, onTap = {
+                // A tap on the field goes back to typing, keeping what was heard.
+                onQueryChange(TextFieldValue(voice.heard, TextRange(voice.heard.length)))
+                voice.cancel()
+            }) { actions.showPanel(null) }
+            VoiceListening(
+                voice,
+                glow,
+                onHeard = { said ->
+                    actions.submit(said, mode)
+                    voice.cancel()
+                },
+                onRetry = actions::voiceSearch,
+            )
+        }
+        return
+    }
     val text = query.text.trim()
     val tabs = remember(spaces, quickTabs, text) {
         (if (text.isEmpty()) quickTabs else matchingTabs(spaces, text)).take(MAX_TABS)
@@ -90,7 +118,7 @@ internal fun SearchSheet(
     }
 
     Column(Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
-        SearchField(query, onQueryChange, mode, accent, actions)
+        SearchField(query, onQueryChange, mode, accent, actions, voice)
         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(bottom = 8.dp)) {
             if (tabs.isNotEmpty()) {
                 SectionTitle(R.string.search_open_tabs)
@@ -135,6 +163,7 @@ private fun SearchField(
     mode: SearchMode,
     accent: Color,
     actions: BottomBarActions,
+    voice: VoiceInput?,
 ) {
     Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
@@ -154,7 +183,8 @@ private fun SearchField(
                     onValueChange = onQueryChange,
                     accent = accent,
                     onSubmit = { if (it.isNotBlank()) actions.submit(it.trim(), mode) },
-                    onCancel = { actions.showPanel(null) },
+                    // Switching to voice takes the field away, which isn't a cancel.
+                    onCancel = { if (voice?.active != true) actions.showPanel(null) },
                     placeholder = R.string.search_placeholder,
                 )
             }
@@ -171,6 +201,45 @@ private fun SearchField(
                 .clip(CircleShape)
                 .background(PillFill)
                 .clickable { actions.showPanel(null) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.search_cancel), Modifier.size(18.dp), tint = EnsoColors.TextPrimary)
+        }
+    }
+}
+
+/** The field while voice search listens: what's been heard so far, fading in as it changes, and ✕. */
+@Composable
+private fun ListeningField(heard: String, onTap: () -> Unit, onClose: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .weight(1f)
+                .height(50.dp)
+                .clip(RoundedCornerShape(25.dp))
+                .background(EnsoColors.CurrentTab)
+                .clickable(onClick = onTap)
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(painterResource(R.drawable.ic_mic), contentDescription = null, Modifier.size(20.dp), tint = EnsoColors.TextSecondary)
+            Spacer(Modifier.width(12.dp))
+            Crossfade(heard, animationSpec = tween(220), label = "heard", modifier = Modifier.weight(1f)) { words ->
+                Text(
+                    words.ifEmpty { stringResource(R.string.voice_placeholder) },
+                    style = if (words.isEmpty()) EnsoType.Row.copy(color = EnsoColors.TextSecondary) else EnsoType.Row,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(PillFill)
+                .clickable(onClick = onClose),
             contentAlignment = Alignment.Center,
         ) {
             Icon(painterResource(R.drawable.ic_close), contentDescription = stringResource(R.string.search_cancel), Modifier.size(18.dp), tint = EnsoColors.TextPrimary)

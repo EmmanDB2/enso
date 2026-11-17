@@ -58,6 +58,8 @@ data class PageState(
     val progress: Int = 0,
     val canGoBack: Boolean = false,
     val canGoForward: Boolean = false,
+    /** The page is its site's desktop version. */
+    val desktop: Boolean = false,
 )
 
 fun TabSessionState.toPageState() = PageState(
@@ -68,6 +70,7 @@ fun TabSessionState.toPageState() = PageState(
     progress = content.progress,
     canGoBack = content.canGoBack,
     canGoForward = content.canGoForward,
+    desktop = content.desktopMode,
 )
 
 /** The URL field while editing: focused with the keyboard up. Losing focus cancels the edit. */

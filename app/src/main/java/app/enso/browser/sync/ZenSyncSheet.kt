@@ -80,6 +80,7 @@ fun ZenSyncSheet(
                     is ZenSyncStatus.SignedIn -> {
                         status.email?.let { Text(it, style = EnsoType.RowTitle) }
                         Text(stateText(status.state), style = EnsoType.Secondary)
+                        status.refused?.let { Text(refusedText(it), style = EnsoType.Row) }
                         Text(stringResource(R.string.zen_sync_both_ways), style = EnsoType.Secondary)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             SheetButton(
@@ -108,6 +109,15 @@ private fun stateText(state: ZenSyncStatus.State): String = when (state) {
     ZenSyncStatus.State.NeedsSignIn -> stringResource(R.string.zen_sync_needs_sign_in)
     is ZenSyncStatus.State.Failed -> stringResource(R.string.zen_sync_failed, state.reason)
 }
+
+/** What the deletion guard did: it stopped a sync, sent nothing, and the removed items came back. */
+@Composable
+private fun refusedText(refused: RefusedDeletions): String = stringResource(
+    R.string.zen_sync_refused_deletions,
+    refused.count,
+    DateUtils.getRelativeTimeSpanString(refused.at).toString().lowercase(),
+    ZenSpacesEngine.MAX_DELETIONS_PER_SYNC,
+)
 
 @Composable
 private fun SheetButton(@StringRes label: Int, accent: Color, primary: Boolean, onClick: () -> Unit) {

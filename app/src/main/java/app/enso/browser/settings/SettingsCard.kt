@@ -33,31 +33,37 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.enso.browser.R
 import app.enso.browser.spacemenu.BlockSpaceMenu
 import app.enso.browser.ui.EnsoColors
-import app.enso.browser.ui.EnsoType
 import kotlin.math.roundToInt
 
 /** Which settings the inner screen's card shows. */
 enum class SettingsPage { Site, All }
 
-/** A settings screen's heading: a back arrow when there's somewhere to go back to, then its title. */
+/**
+ * A settings screen's heading: a back arrow when there's somewhere to go back to, then its title. The arrow sits on
+ * the rows' left margin, and the title follows it, or starts on the margin when there's no arrow.
+ */
 @Composable
 fun SettingsHeader(onBack: (() -> Unit)?, modifier: Modifier = Modifier, title: @Composable () -> Unit) {
     Row(modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) {
-            IconButton(onClick = onBack) {
-                Icon(painterResource(R.drawable.ic_arrow_left), contentDescription = stringResource(R.string.menu_back), tint = EnsoColors.TextPrimary)
+            // A 48 dp button puts its 22 dp arrow 13 dp in; 3 dp more lines it up with the rows.
+            IconButton(onClick = onBack, modifier = Modifier.padding(start = SettingsMargin - 13.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_arrow_left),
+                    contentDescription = stringResource(R.string.menu_back),
+                    Modifier.size(22.dp),
+                    tint = EnsoColors.TextPrimary,
+                )
             }
         } else {
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(SettingsMargin))
         }
         title()
     }
@@ -66,12 +72,7 @@ fun SettingsHeader(onBack: (() -> Unit)?, modifier: Modifier = Modifier, title: 
 /** "All settings" as a heading. */
 @Composable
 fun AllSettingsTitle() {
-    Text(
-        stringResource(R.string.settings_all),
-        style = EnsoType.RowTitle.copy(fontSize = 18.sp, fontWeight = FontWeight.SemiBold),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
+    Text(stringResource(R.string.settings_all), style = SettingsType.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 /**

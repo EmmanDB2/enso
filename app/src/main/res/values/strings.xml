@@ -94,6 +94,7 @@
     <string name="zen_sync_needs_update">Zen uses a newer sync format than this version of Ensō reads.</string>
     <string name="zen_sync_needs_sign_in">Your Mozilla account needs you to sign in again.</string>
     <string name="zen_sync_failed">Sync failed: %s</string>
+    <string name="zen_sync_refused_deletions">Ensō held back %1$d deletions %2$s. More than %3$d at once looks like lost data, so it sent Zen nothing and put them back on this phone. To remove them, close up to %3$d at a time.</string>
     <!-- Cover bottom bar (boards B1–B4) -->
     <string name="bar_quick_tabs">Quick Tabs</string>
     <string name="bar_quick_tabs_open">%d open</string>
@@ -269,6 +270,8 @@
     <string name="settings_hour_1">1 hour</string>
     <string name="settings_never">Never</string>
     <string name="settings_show_enso">Show ensō on new tabs</string>
+    <string name="settings_search_on_start">Open search on the start screen</string>
+    <string name="settings_search_on_start_detail">On the cover, the keyboard comes up at once</string>
     <string name="settings_sheet_header_swipe">Swipe the sheet’s header to switch spaces</string>
     <string name="settings_hold_to_open">Hold to open</string>
     <string name="settings_hold_ms">%d ms</string>
@@ -285,5 +288,9 @@
     <!-- Glance (board 8) -->
     <string name="glance_close">Close preview</string>
     <string name="glance_open_as_tab">Open as tab</string>
+    <string name="glance_copy_link">Copy link</string>
+    <string name="voice_placeholder">Speak, and pause to search</string>
+    <string name="voice_listening">Listening</string>
+    <string name="voice_missed">Didn’t catch that. Tap the ensō to try again.</string>
     <string name="glance_split">Split with this page</string>
 </resources>

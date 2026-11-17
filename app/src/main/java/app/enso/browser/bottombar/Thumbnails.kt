@@ -23,10 +23,11 @@ internal fun TabThumbnail(
     storage: ThumbnailStorage,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
+    sizePx: Int = THUMBNAIL_SIZE_PX,
     placeholder: @Composable () -> Unit,
 ) {
-    val bitmap by produceState<ImageBitmap?>(null, tabId) {
-        value = storage.loadThumbnail(ImageLoadRequest(tabId, THUMBNAIL_SIZE_PX, isPrivate = false)).await()?.asImageBitmap()
+    val bitmap by produceState<ImageBitmap?>(null, tabId, sizePx) {
+        value = storage.loadThumbnail(ImageLoadRequest(tabId, sizePx, isPrivate = false)).await()?.asImageBitmap()
     }
     Box(modifier, contentAlignment = Alignment.Center) {
         val image = bitmap

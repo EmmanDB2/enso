@@ -77,6 +77,8 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import mozilla.components.browser.thumbnails.storage.ThumbnailStorage
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutLinearInEasing
 
 /**
  * The Quick Tabs view (board B2), in the style of Arc Search: the whole screen, with no sheet.
@@ -115,8 +117,9 @@ internal fun QuickTabsView(
     var gliding by remember { mutableStateOf<Job?>(null) }
     // 0 is the page full screen, 1 the cards laid out.
     val zoom = remember { Animatable(0f) }
-    // The focused card's lift while it's swiped up to close.
-    val lift = remember { Animatable(0f) }
+    // The focused card's lift while it's swiped up to close, in pixels: it counts as settled within half a pixel, not
+    // Animatable's default hundredth, whose spring tail held a closed card's gap open for a second or two.
+    val lift = remember { Animatable(0f, visibilityThreshold = 0.5f) }
     // After a card closes, the ones after it slide over from where they were ([slideFrom] on, [slide] cards).
     val slide = remember { Animatable(0f) }
     var slideFrom by remember { mutableIntStateOf(Int.MAX_VALUE) }
@@ -211,7 +214,8 @@ internal fun QuickTabsView(
                                     val index = focused()
                                     val tab = strip.getOrNull(index)
                                     if (tab != null && (lift.value < -height * 0.22f || velocity.y < -1500f)) {
-                                        lift.animateTo(-height, settle)
+                                        // A quick fly off the top, then the next card comes over straight away.
+                                        lift.animateTo(-height, tween(FLY_OFF_MS, easing = FastOutLinearInEasing))
                                         actions.close(tab.id)
                                         strip = strip.filterNot { it.id == tab.id }
                                         lift.snapTo(0f)
@@ -422,3 +426,6 @@ private fun cardRect(d: Float, left: Float, top: Float, width: Float, height: Fl
     }
     return Rect(x, top, x + width, top + height)
 }
+
+/** How long a card swiped up to close takes to leave. */
+private const val FLY_OFF_MS = 160

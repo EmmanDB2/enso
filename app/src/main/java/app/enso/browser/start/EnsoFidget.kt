@@ -310,8 +310,12 @@ private suspend fun CoroutineScope.hold(sweep: Animatable<Float, AnimationVector
 
 /** A soft glow in the space's colors behind the ensō, rising as the head sweeps round, to 50% at a full loop. */
 private fun DrawScope.drawGlow(colors: List<Color>, sweep: Float) {
-    if (sweep <= 0f || colors.isEmpty()) return
-    val strength = GLOW_FULL * min(1f, sweep / FULL_SWEEP)
+    if (sweep <= 0f) return
+    drawGlowAt(colors, GLOW_FULL * min(1f, sweep / FULL_SWEEP))
+}
+
+private fun DrawScope.drawGlowAt(colors: List<Color>, strength: Float) {
+    if (strength <= 0f || colors.isEmpty()) return
     drawCircle(
         Brush.radialGradient(*glowStops(colors, strength), center = Offset(CENTER, CENTER), radius = GLOW_RADIUS),
         radius = GLOW_RADIUS,
@@ -394,6 +398,34 @@ private fun Path.ensoStroke(sweep: Float) {
     close()
 }
 
+/** How far voice search's ensō extends its head to close the gap: the fidget's own [GAP_SWEEP]. */
+internal val ENSO_GAP_CLOSED: Float get() = GAP_SWEEP
+
+/**
+ * The ensō as voice search draws it (bottom search's listening view): the fidget's own stroke and strands, still and
+ * untouchable, with the head extended [sweep] degrees, the ink at [inkAlpha], and the glow in [glow]'s colors at
+ * [glowStrength] (0 to 1 of the hold's full glow). Nothing about the fidget itself changes.
+ */
+@Composable
+internal fun EnsoInk(sweep: Float, inkAlpha: Float, glow: List<Color>, glowStrength: Float, modifier: Modifier = Modifier) {
+    val stroke = remember { StrokeCache() }
+    Canvas(modifier) {
+        val unit = size.width / MARK_BOX
+        val ink = EnsoColors.TextPrimary
+        withTransform({
+            scale(unit, unit, pivot = Offset.Zero)
+            translate(-MARK_ORIGIN, -MARK_ORIGIN)
+        }) {
+            drawGlowAt(glow, GLOW_FULL * glowStrength.coerceIn(0f, 1f))
+            // One layer, faded as a whole, as the fidget draws it.
+            drawIntoCanvas { it.saveLayer(GridBounds, Paint().apply { alpha = inkAlpha.coerceIn(0f, 1f) }) }
+            drawPath(stroke.at(sweep), ink)
+            Strands.forEach { drawPath(it, ink) }
+            drawIntoCanvas { it.restore() }
+        }
+    }
+}
+
 /** The last stroke built, so a still ensō doesn't rebuild it every frame. */
 private class StrokeCache {
     private val path = Path()
@@ -467,7 +499,7 @@ private fun wrapDegrees(degrees: Float): Float = ((degrees + 540f) % 360f) - 180
  * The fidget's haptics: Android 12's composition primitives where the motor supports them, plain haptic feedback
  * otherwise (which can't rumble, so the hold is quiet there).
  */
-private class FidgetHaptics(context: Context, private val view: View) {
+internal class FidgetHaptics(context: Context, private val view: View) {
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         context.getSystemService(VibratorManager::class.java)?.defaultVibrator
     } else {

@@ -4,8 +4,6 @@ import app.enso.browser.permissions.labelOf
 import app.enso.browser.permissions.iconOf
 import app.enso.browser.permissions.SitePermission
 import app.enso.browser.permissions.PermissionChoice
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,9 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -82,9 +79,9 @@ interface SiteSettingsActions {
 @Composable
 internal fun SiteTitle(site: SiteState, modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Favicon(site.title, site.url, site.tabId, size = 22.dp)
-        Spacer(Modifier.width(12.dp))
-        Text(site.host, style = EnsoType.RowTitle.copy(fontSize = 18.sp), maxLines = 1)
+        Favicon(site.title, site.url, site.tabId, size = 20.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(site.host, style = SettingsType.Heading, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -126,15 +123,14 @@ fun SiteSettingsContent(site: SiteState, actions: SiteSettingsActions, modifier:
         val permissions = remember(site.host, actions.permissionsRevision) { actions.permissions(site.host) }
         SettingsGroup(stringResource(R.string.site_settings_permissions))
         permissions.forEach { (permission, choice) -> PermissionRow(permission, choice) { actions.setPermission(permission, it) } }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(12.dp))
         SettingRow(
             stringResource(R.string.site_settings_clear),
             icon = R.drawable.ic_trash,
             color = EnsoColors.CloseMenuText,
             onClick = { confirmClear = true },
         )
-        Spacer(Modifier.height(8.dp))
-        AllSettingsButton(actions::openAllSettings)
+        SettingRow(stringResource(R.string.settings_all), icon = R.drawable.ic_settings, onClick = actions::openAllSettings)
     }
     if (confirmClear) {
         ConfirmClear(site.host, onDismiss = { confirmClear = false }) {
@@ -144,66 +140,32 @@ fun SiteSettingsContent(site: SiteState, actions: SiteSettingsActions, modifier:
     }
 }
 
-/** A permission and the site's answer as a chip; tapping it picks Ask, Allow or Block. */
+/** A permission with the site's answer under it (Blocked in red); tapping it picks Ask, Allow or Block. */
 @Composable
 private fun PermissionRow(permission: SitePermission, choice: PermissionChoice, onChoose: (PermissionChoice) -> Unit) {
-    var choosing by remember { mutableStateOf(false) }
-    SettingRow(stringResource(labelOf(permission)), icon = iconOf(permission), onClick = { choosing = true }) {
-        Box {
-            val (fill, text, label) = when (choice) {
-                PermissionChoice.Allow -> Triple(EnsoColors.TextPrimary, EnsoColors.OnTextPrimary, R.string.permission_allowed)
-                PermissionChoice.Block -> Triple(EnsoColors.CloseMenuText.copy(alpha = 0.14f), EnsoColors.CloseMenuText, R.string.permission_blocked)
-                PermissionChoice.Ask -> Triple(EnsoColors.FieldFill, EnsoColors.TextSecondary, R.string.permission_ask)
-            }
-            Text(
-                stringResource(label),
-                style = EnsoType.Secondary.copy(fontSize = 13.sp, color = text),
-                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(fill).padding(horizontal = 12.dp, vertical = 5.dp),
+    MenuRow(
+        stringResource(labelOf(permission)),
+        value = stringResource(
+            when (choice) {
+                PermissionChoice.Allow -> R.string.permission_allowed
+                PermissionChoice.Block -> R.string.permission_blocked
+                PermissionChoice.Ask -> R.string.permission_ask
+            },
+        ),
+        options = PermissionChoice.entries.map { option ->
+            option to stringResource(
+                when (option) {
+                    PermissionChoice.Ask -> R.string.permission_ask
+                    PermissionChoice.Allow -> R.string.permission_prompt_allow
+                    PermissionChoice.Block -> R.string.permission_blocked
+                },
             )
-            DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
-                PermissionChoice.entries.forEach { option ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                stringResource(
-                                    when (option) {
-                                        PermissionChoice.Ask -> R.string.permission_ask
-                                        PermissionChoice.Allow -> R.string.permission_prompt_allow
-                                        PermissionChoice.Block -> R.string.permission_blocked
-                                    },
-                                ),
-                                style = EnsoType.Row,
-                            )
-                        },
-                        onClick = {
-                            choosing = false
-                            if (option != choice) onChoose(option)
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** "All settings", a pill at the bottom of site settings. */
-@Composable
-private fun AllSettingsButton(onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .height(48.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(EnsoColors.PillFill)
-            .clickable(onClick = onClick),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(stringResource(R.string.settings_all), style = EnsoType.Row.copy(fontSize = 17.sp))
-        Spacer(Modifier.width(6.dp))
-        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, Modifier.size(18.dp), tint = EnsoColors.TextPrimary)
-    }
+        },
+        selected = choice,
+        onSelect = onChoose,
+        icon = iconOf(permission),
+        valueColor = if (choice == PermissionChoice.Block) EnsoColors.CloseMenuText else EnsoColors.TextSecondary,
+    )
 }
 
 /** Clearing a site's data signs the user out of it, so it asks first. A dialog, so it shows over a bar panel too. */
@@ -220,8 +182,8 @@ private fun ConfirmClear(host: String, onDismiss: () -> Unit, onConfirm: () -> U
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.site_settings_clear_title), style = EnsoType.SpaceName.copy(fontSize = 20.sp))
-            Text(stringResource(R.string.site_settings_clear_body, host), style = EnsoType.Secondary)
+            Text(stringResource(R.string.site_settings_clear_title), style = SettingsType.Heading)
+            Text(stringResource(R.string.site_settings_clear_body, host), style = EnsoType.Secondary.copy(fontSize = 14.sp))
             Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 DialogButton(stringResource(R.string.extension_prompt_cancel), EnsoColors.FieldFill, EnsoColors.TextPrimary, onDismiss)
                 DialogButton(stringResource(R.string.site_settings_clear_confirm), EnsoColors.CloseSwipe, Color.White, onConfirm)
@@ -242,6 +204,6 @@ private fun DialogButton(label: String, fill: Color, text: Color, onClick: () ->
             .padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = EnsoType.MenuItem.copy(color = text))
+        Text(label, style = EnsoType.MenuItem.copy(fontSize = 15.sp, color = text))
     }
 }

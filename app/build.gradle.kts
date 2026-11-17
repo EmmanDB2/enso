@@ -26,6 +26,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Signed with this Mac's debug key, so a friend can sideload it. Updates must be signed with the same
+            // key to install over it. Before publishing anywhere, give Ensō its own release key.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -36,6 +39,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        // The sync tests run on the JVM, where android.util.Log is a stub: have it return defaults, not throw.
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -88,4 +96,7 @@ dependencies {
     implementation(libs.compose.ui)
 
     implementation(libs.kotlinx.serialization.json)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.json)
 }

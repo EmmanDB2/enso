@@ -1,5 +1,6 @@
 package app.enso.browser
 
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.fillMaxWidth
 import app.enso.browser.ui.spaceSurface
@@ -173,11 +174,13 @@ import app.enso.browser.spaces.QuickTab
 import app.enso.browser.spaces.Split
 import app.enso.browser.spaces.SplitLayout
 import app.enso.browser.spaces.TabPlace
+import app.enso.browser.spaces.deleteFolder
 import app.enso.browser.spaces.essentialsFor
 import app.enso.browser.spaces.find
 import app.enso.browser.spaces.isInCurrentSpace
 import app.enso.browser.spaces.keepQuickTab
 import app.enso.browser.spaces.keepQuickTabIn
+import app.enso.browser.spaces.moveToNewFolder
 import app.enso.browser.spaces.resizeSplit
 import app.enso.browser.spaces.select
 import app.enso.browser.spaces.space
@@ -268,6 +271,15 @@ import mozilla.components.ui.widgets.behavior.DependencyGravity
 import mozilla.components.ui.widgets.behavior.EngineViewClippingBehavior
 import mozilla.components.ui.widgets.behavior.EngineViewScrollingDataBehavior
 import androidx.compose.ui.graphics.Color as ComposeColor
+import app.enso.browser.bottombar.TabFlip
+import app.enso.browser.bottombar.TabFlipLayer
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import kotlin.math.abs
+import kotlin.math.sign
+import app.enso.browser.voice.VoiceInput
+import android.os.SystemClock
+import androidx.compose.animation.core.LinearOutSlowInEasing
 
 /**
  * The browser. Folded, the cover's tinted top bar sits over the page (boards 1–4); unfolded, the sidebar or rail
@@ -340,6 +352,38 @@ class MainActivity : ComponentActivity() {
     /** The page the tab sheet opened over, blurred for its frosted backdrop (spec: board 4). */
     private var sheetBackdrop by mutableStateOf<FrostedPage?>(null)
     private var selectedTabId by mutableStateOf<String?>(null)
+
+    /** The tab selected before [selectedTabId], which a flick on the cover's bar flips back to. */
+    private var lastTabId: String? = null
+
+    /** The cover's tab flip, while a sideways drag on the bar is under way or settling. */
+    private var tabFlip by mutableStateOf<TabFlip?>(null)
+
+    /** Tabs as they were selected, latest first: the order flips step through. */
+    private val recentTabs = ArrayDeque<String>()
+
+    /**
+     * Flips in a row step through [order] (the space's tabs by recent use, taken at the first flip), as Android's own
+     * app switching does: on in the walk's [direction], back the other way. It ends [FLIP_WALK_MS] after the last flip.
+     */
+    private class FlipWalk(val order: List<String>, val direction: Float, var index: Int, var lastAt: Long)
+
+    private var flipWalk: FlipWalk? = null
+
+    /** The last flip's slide away and fade, which a quick next flip cuts short. */
+    private var flipSettle: Job? = null
+
+    /** Selects a finishing flip's tab, once, and moves the walk on to it. */
+    private fun commitFlip(flip: TabFlip) {
+        if (flip.committed) return
+        flip.committed = true
+        (flip.walk as? FlipWalk)?.let { walk ->
+            walk.index = flip.step
+            walk.lastAt = SystemClock.uptimeMillis()
+            flipWalk = walk
+        }
+        bottomBarActions.select(flip.toTabId)
+    }
 
     /** Set when the app comes back after being away a while; cleared by opening or switching to a tab. */
     private var startScreenRequested by mutableStateOf(false)
@@ -432,6 +476,31 @@ class MainActivity : ComponentActivity() {
     private val voiceSearchLauncher: ActivityResultLauncher<Intent> = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val said = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.takeIf { it.isNotBlank() }
         if (result.resultCode == RESULT_OK && said != null) bottomBarActions.submit(said, searchMode)
+    }
+
+    /** Voice search inside Ensō, drawn by bottom search's listening view. */
+    private val voice by lazy { VoiceInput(this) }
+
+    /** The microphone, asked for once, the first time voice search listens. Without it, the recognizer's popup does. */
+    private val micPermission: ActivityResultLauncher<String> = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            voice.start()
+        } else {
+            voice.cancel()
+            runCatching { voiceSearchLauncher.launch(voiceSearchIntent()) }
+        }
+    }
+
+    /** Listens in Ensō's own view, or falls back to the recognizer's popup where there's no recognizer to use directly. */
+    private fun startVoice() {
+        when {
+            !voice.available -> runCatching { voiceSearchLauncher.launch(voiceSearchIntent()) }
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> voice.start()
+            else -> {
+                voice.prepare()
+                micPermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
     }
 
     private fun voiceSearchIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
@@ -760,7 +829,8 @@ class MainActivity : ComponentActivity() {
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
             if (imeWasVisible && !imeVisible) {
                 editing = false
-                if (barPanel == BarPanel.Search) barPanel = null
+                // Voice search hides the keyboard itself, and isn't a cancel.
+                if (barPanel == BarPanel.Search && !voice.active) barPanel = null
             }
             imeWasVisible = imeVisible
             layoutFloating()
@@ -924,13 +994,17 @@ class MainActivity : ComponentActivity() {
      * Debug builds only, through `adb shell am start -n app.enso.browser/.MainActivity` (plus
      * `--activity-single-top` while the app runs, so the intent reaches `onNewIntent`) with:
      * - `--ez enso_restore_zen_snapshot true`: puts Zen's spaces collection back as it was before the phone's
-     *   first write.
+     *   first write. With `--es enso_zen_snapshot_name <name>` it restores that one of the snapshots kept aside
+     *   (`files/zen-snapshots/<name>.json`) instead.
      * - `--ez enso_save_zen_snapshot true`: replaces that snapshot with the collection as it is now, so a restore
-     *   puts this state back.
+     *   puts this state back. The one it replaces is kept aside.
      * - `--es enso_debug_open <url>`: opens the URL in a Quick Tab, for test pages. With `--ez enso_debug_kept true`
      *   it's a normal tab instead, which syncs to Zen.
      * - `--es enso_debug_split <tabId>`: splits the tab on screen with that tab, as a drop on the page does, and
      *   `--es enso_debug_unsplit <splitId>` ends a split. Both sync, for testing splits with Zen on the cover.
+     * - `--es enso_debug_close <tabId,tabId,…>` closes those tabs, `--es enso_debug_new_folder <tabId>` moves that
+     *   tab into a new folder, and `--es enso_debug_delete_folder <folderId>` deletes a folder, each as the tab
+     *   sheet does. They take ids, so a sync test never has to swipe or tap in the lists that hold the user's tabs.
      * - `--ez enso_debug_desktop_sites true|false`: switches desktop sites on or off whatever the screen, until
      *   the next fold or unfold.
      * - `--ez enso_debug_update_extensions true`: checks every extension for an update now, rather than daily.
@@ -940,7 +1014,8 @@ class MainActivity : ComponentActivity() {
         if (!debuggable || intent == null) return
         if (intent.getBooleanExtra(EXTRA_RESTORE_ZEN_SNAPSHOT, false)) {
             intent.removeExtra(EXTRA_RESTORE_ZEN_SNAPSHOT)
-            components.zenSync.restoreSnapshot()
+            components.zenSync.restoreSnapshot(intent.getStringExtra(EXTRA_ZEN_SNAPSHOT_NAME))
+            intent.removeExtra(EXTRA_ZEN_SNAPSHOT_NAME)
         }
         if (intent.getBooleanExtra(EXTRA_SAVE_ZEN_SNAPSHOT, false)) {
             intent.removeExtra(EXTRA_SAVE_ZEN_SNAPSHOT)
@@ -964,6 +1039,18 @@ class MainActivity : ComponentActivity() {
             intent.removeExtra(EXTRA_DEBUG_UNSPLIT)
             components.spaces.update { it.unsplit(splitId) }
             components.zenSync.localEdited()
+        }
+        intent.getStringExtra(EXTRA_DEBUG_CLOSE)?.let { tabIds ->
+            intent.removeExtra(EXTRA_DEBUG_CLOSE)
+            tabIds.split(',').filter { it.isNotBlank() }.forEach { tabSheetActions.close(it.trim()) }
+        }
+        intent.getStringExtra(EXTRA_DEBUG_NEW_FOLDER)?.let { tabId ->
+            intent.removeExtra(EXTRA_DEBUG_NEW_FOLDER)
+            tabSheetActions.edit { it.moveToNewFolder(tabId, "Ensō test") }
+        }
+        intent.getStringExtra(EXTRA_DEBUG_DELETE_FOLDER)?.let { folderId ->
+            intent.removeExtra(EXTRA_DEBUG_DELETE_FOLDER)
+            tabSheetActions.edit { it.deleteFolder(folderId) }
         }
         if (intent.hasExtra(EXTRA_DEBUG_DESKTOP_SITES)) {
             val desktop = intent.getBooleanExtra(EXTRA_DEBUG_DESKTOP_SITES, false)
@@ -1004,6 +1091,8 @@ class MainActivity : ComponentActivity() {
         optionsPageObserver.stop()
         spaceMenuGesture.reset()
         spaceWave.close()
+        // The microphone isn't kept in the background.
+        if (voice.active) voice.cancel()
         if (!startScreenVisible) components.tabs.markViewed(shown.tabIds)
         components.settings.lastStoppedAt = System.currentTimeMillis()
         components.spaces.flush()
@@ -1058,6 +1147,8 @@ class MainActivity : ComponentActivity() {
             val findMatch by components.store.observeAsComposableState { state ->
                 state.selectedTab?.content?.findResults?.lastOrNull()?.let { (it.activeMatchOrdinal + 1) to it.numberOfMatches }
             }
+            // The tab flip draws over the page and under the bar, which the thumb is on.
+            tabFlip?.let { flip -> TabFlipLayer(flip, spaces.currentSpace.colors(), components.thumbnailStorage, spaces.find(flip.toTabId)?.tab) }
             if (glance == null) BottomBar(
                 spaces = spaces,
                 page = if (startScreenVisible) PageState() else page,
@@ -1092,6 +1183,7 @@ class MainActivity : ComponentActivity() {
                     backdrop = floatingBackdrop,
                     onPageArea = ::placeExtensionPage,
                 ),
+                voice = voice,
                 settings = BarSettings(site, siteSettingsActions) { modifier ->
                     AllSettingsContent(components.settings, zenStatus, allSettingsActions, modifier)
                 },
@@ -1138,6 +1230,7 @@ class MainActivity : ComponentActivity() {
                     areaCorner = areaCorner,
                     buttons = listOfNotNull(
                         GlanceButton(R.drawable.ic_close, R.string.glance_close) { closeGlance() },
+                        GlanceButton(R.drawable.ic_link, R.string.glance_copy_link, ::copyGlanceLink),
                         GlanceButton(R.drawable.ic_open_tab, R.string.glance_open_as_tab, ::openGlanceAsTab),
                         GlanceButton(R.drawable.ic_split, R.string.glance_split, ::splitGlance).takeIf { canSplitGlance() },
                     ),
@@ -1535,6 +1628,10 @@ class MainActivity : ComponentActivity() {
             components.zenSync.localEdited()
         }
 
+        // Which folders are open stays on the phone: nothing for sync to send, and no edit a running sync must
+        // step aside for.
+        override fun toggleFolder(folderId: String) = components.spaces.update { it.toggleFolder(folderId) }
+
         override fun switchSpace(step: Int) = components.tabs.switchSpace(step)
 
         override fun addToAnotherSpace(tabId: String) {
@@ -1610,11 +1707,109 @@ class MainActivity : ComponentActivity() {
         override suspend fun searchSuggestions(query: String): List<String> =
             if (!components.settings.searchSuggestions || URLStringUtils.isURLLike(query)) emptyList() else components.searchSuggestions.fetch(query)
 
-        override val voiceSearchAvailable by lazy { voiceSearchIntent().resolveActivity(packageManager) != null }
+        override val voiceSearchAvailable by lazy { voice.available || voiceSearchIntent().resolveActivity(packageManager) != null }
 
-        override fun voiceSearch() {
-            runCatching { voiceSearchLauncher.launch(voiceSearchIntent()) }
+        override fun voiceSearch() = startVoice()
+
+        override fun voiceNewSearch() {
+            // Bottom search opens already listening, so the keyboard never comes up.
+            newSearch()
+            startVoice()
         }
+
+        override fun flipToLastTab() {
+            // Over the start screen, the tab you were on comes back first; otherwise the one before it.
+            val target = selectedTabId?.takeIf {
+                startScreenVisible && components.spaces.state.value.isInCurrentSpace(it, components.settings.essentialsPerContainer)
+            } ?: lastTabInSpace() ?: return
+            select(target)
+        }
+
+        override fun startTabFlip(direction: Float): Boolean {
+            // A drag that was lost before it ended gives way to this one; so does a flip still settling, which is
+            // finished at once, so flicks can follow each other as fast as the thumb goes.
+            var quickFrom: String? = null
+            var pageBounds: Rect? = null
+            tabFlip?.let { old ->
+                if (old.settling) {
+                    flipSettle?.cancel()
+                    if (old.finishing) {
+                        commitFlip(old)
+                        quickFrom = old.toTabId
+                        pageBounds = old.capture?.second ?: old.bounds
+                    }
+                }
+                tabFlip = null
+            }
+            val from = quickFrom ?: selectedTabId
+            if (startScreenVisible || inner || from == null) return false
+            val now = SystemClock.uptimeMillis()
+            // Carry on the walk if this follows a flip closely, from the tab it landed on; otherwise start a new one.
+            val walk = flipWalk?.takeIf { now - it.lastAt < FLIP_WALK_MS && it.order.getOrNull(it.index) == from }
+                ?: FlipWalk(flipOrder(), direction, 0, now)
+            val step = walk.index + if (direction == walk.direction) 1 else -1
+            val to = walk.order.getOrNull(step)
+            if (to == null) return false
+            val flip = TabFlip(from, to, walk, step)
+            tabFlip = flip
+            // Following a flip this closely, the page hasn't drawn yet: the tab's thumbnail stands in for it.
+            if (pageBounds != null) {
+                flip.bounds = pageBounds
+                return true
+            }
+            captureBackdrop { captures ->
+                val capture = captures.firstOrNull() ?: return@captureBackdrop
+                if (tabFlip === flip) flip.capture = capture
+                // The page as it is now, for its card when the flip comes back to it.
+                components.store.dispatch(ContentAction.UpdateThumbnailAction(from, capture.first.asAndroidBitmap()))
+            }
+            return true
+        }
+
+        override fun dragTabFlip(offset: Float) {
+            val flip = tabFlip ?: return
+            // A tick as the card passes the point where letting go finishes the flip.
+            val threshold = root.width / 3f
+            if ((abs(flip.offset) > threshold) != (abs(offset) > threshold)) root.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            flip.offset = offset
+        }
+
+        override fun endTabFlip(offset: Float, velocity: Float) {
+            val flip = tabFlip?.takeUnless { it.settling } ?: return
+            flip.settling = true
+            val width = root.width.toFloat()
+            val flick = abs(velocity) > FLIP_FLICK_SPEED_DP * resources.displayMetrics.density && sign(velocity) == sign(offset)
+            val finish = offset != 0f && (abs(offset) > width / 3 || flick)
+            flip.finishing = finish
+            // Compose's animations need its frame clock, which the UI dispatcher brings.
+            flipSettle = lifecycleScope.launch(AndroidUiDispatcher.Main) {
+                if (finish && flip.capture == null && flip.bounds == null) {
+                    // Too quick for the capture: flip straight away.
+                    commitFlip(flip)
+                } else {
+                    if (finish) {
+                        // A short slide off the screen's side, rather than a spring's long tail out of sight.
+                        animate(flip.offset, sign(offset) * width * 1.05f, animationSpec = tween(FLIP_OUT_MS, easing = LinearOutSlowInEasing)) { value, _ ->
+                            flip.offset = value
+                        }
+                    } else {
+                        // Back into place on a spring with no overshoot.
+                        animate(flip.offset, 0f, initialVelocity = velocity, animationSpec = spring(dampingRatio = 1f, stiffness = 500f)) { value, _ ->
+                            flip.offset = value
+                        }
+                    }
+                    if (finish) {
+                        commitFlip(flip)
+                        // The card underneath stands in while the page draws, then fades.
+                        delay(FLIP_SETTLE_MS)
+                        animate(1f, 0f, animationSpec = tween(180)) { value, _ -> flip.alpha = value }
+                    }
+                }
+                if (tabFlip === flip) tabFlip = null
+            }
+        }
+
+        override fun setDesktopSite(desktop: Boolean) = siteSettingsActions.setDesktop(desktop)
 
         override fun keep(tabId: String) {
             components.spaces.update { it.keepQuickTab(tabId) }
@@ -1837,6 +2032,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Glance's Open as tab: the preview becomes a tab below the one it was opened from, and shows. */
+    /** Glance's Copy link: the page it's previewing now, which may have moved on from the link. It stays open. */
+    private fun copyGlanceLink() {
+        val previewed = glance ?: return
+        val url = components.store.state.findCustomTab(previewed.tabId)?.content?.url?.takeIf { it.isNotEmpty() } ?: previewed.url
+        getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText(AddressInput.displayHost(url), url))
+    }
+
     private fun openGlanceAsTab() {
         val previewed = glance ?: return
         val content = components.store.state.findCustomTab(previewed.tabId)?.content
@@ -1879,6 +2081,25 @@ class MainActivity : ComponentActivity() {
             trackingProtection = protection.enabled && !protection.ignoredOnTrackingProtection,
             blockedTrackers = protection.blockedTrackers.size,
         )
+    }
+
+    /** The tab used before this one in the current space: where a flick over the start screen goes. */
+    private fun lastTabInSpace(): String? = flipOrder().getOrNull(1)
+
+    /**
+     * The current space's tabs by recent use, the one on screen first: those selected since Ensō started, then loaded
+     * tabs by the engine's last use (after a restart nothing's been selected yet), then the space's other open tabs.
+     */
+    private fun flipOrder(): List<String> {
+        val current = selectedTabId ?: return emptyList()
+        val spaces = components.spaces.state.value
+        val perContainer = components.settings.essentialsPerContainer
+        fun usable(id: String) = spaces.find(id) != null && spaces.isInCurrentSpace(id, perContainer)
+        val order = linkedSetOf(current)
+        recentTabs.filter(::usable).forEach { order += it }
+        components.store.state.tabs.filter { usable(it.id) }.sortedByDescending { it.lastAccess }.forEach { order += it.id }
+        spaces.currentSpace.tabs.map { it.id }.filter(::usable).forEach { order += it }
+        return order.toList()
     }
 
     private fun siteNow(): SiteState? = siteStateOf(components.store.state.selectedTab).takeUnless { startScreenVisible }
@@ -2395,14 +2616,35 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
+            // Voice search stops listening when bottom search closes, however it closes.
+            snapshotFlow { barPanel }.collect { if (it != BarPanel.Search && voice.active) voice.cancel() }
+        }
+        lifecycleScope.launch {
             // The palette belongs to the start screen; it shouldn't reopen with the next one.
             snapshotFlow { startScreenVisible }.collect { if (!it) paletteOpen = false }
+        }
+        lifecycleScope.launch {
+            // Search on the start screen (a setting): on the cover, bottom search opens as the start screen shows,
+            // and each time the app comes back to it.
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                snapshotFlow { startScreenVisible && !inner }.distinctUntilChanged().collect { shown ->
+                    if (shown && components.settings.searchOnStartScreen && barPanel == null && !tabSheetOpen) bottomBarActions.newSearch()
+                }
+            }
         }
         lifecycleScope.launch {
             components.store.flow(this@MainActivity)
                 .map { it.selectedTabId }
                 .distinctUntilChanged()
-                .collect { selectedTabId = it }
+                .collect {
+                    selectedTabId?.let { previous -> if (previous != it) lastTabId = previous }
+                    selectedTabId = it
+                    it?.let { id ->
+                        recentTabs.remove(id)
+                        recentTabs.addFirst(id)
+                        while (recentTabs.size > 64) recentTabs.removeLast()
+                    }
+                }
         }
         lifecycleScope.launch {
             // The Downloads page's list, and the chevron's download button when one starts.
@@ -2791,6 +3033,7 @@ class MainActivity : ComponentActivity() {
         const val TAG = "Enso"
         const val EXTRA_RESTORE_ZEN_SNAPSHOT = "enso_restore_zen_snapshot"
         const val EXTRA_SAVE_ZEN_SNAPSHOT = "enso_save_zen_snapshot"
+        const val EXTRA_ZEN_SNAPSHOT_NAME = "enso_zen_snapshot_name"
         const val EXTRA_DEBUG_OPEN = "enso_debug_open"
         const val EXTRA_DEBUG_DESKTOP_SITES = "enso_debug_desktop_sites"
         const val EXTRA_DEBUG_UPDATE_EXTENSIONS = "enso_debug_update_extensions"
@@ -2802,8 +3045,21 @@ class MainActivity : ComponentActivity() {
 
         /** How long Glance or an extension's page waits for the pages' captures before opening without them. */
         const val BACKDROP_CAPTURE_TIMEOUT_MS = 400L
+
+        /** A release at least this fast (dp a second), toward where the card is going, finishes a tab flip. */
+        private const val FLIP_FLICK_SPEED_DP = 700f
+
+        /** How long the card underneath stands in for the page after a flip, while it draws. */
+        private const val FLIP_SETTLE_MS = 220L
+
+        /** How long after a flip the next one carries on stepping through the tabs rather than starting again. */
+        private const val FLIP_WALK_MS = 3000L
+        private const val FLIP_OUT_MS = 200
         const val EXTRA_DEBUG_SPLIT = "enso_debug_split"
         const val EXTRA_DEBUG_UNSPLIT = "enso_debug_unsplit"
+        const val EXTRA_DEBUG_CLOSE = "enso_debug_close"
+        const val EXTRA_DEBUG_NEW_FOLDER = "enso_debug_new_folder"
+        const val EXTRA_DEBUG_DELETE_FOLDER = "enso_debug_delete_folder"
 
         /** The tick for each space the space menu's selection moves through. */
         val SPACE_TICK = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
