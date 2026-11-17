@@ -15,3 +15,6 @@ captures/
 
 # Copies of the Fold's app data taken before testing (personal data, never commit)
 device-backups/
+
+# Local AI notes (kept on this machine, not published)
+CLAUDE.md
